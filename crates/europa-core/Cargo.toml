@@ -1,0 +1,6 @@
+[package]
+name = "europa-core"
+version = "0.1.0"
+edition = "2021"
+description = "Shared data types for Europa"
+license = "MIT"
