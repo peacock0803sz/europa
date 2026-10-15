@@ -1,0 +1,9 @@
+[package]
+name = "europa-render"
+version = "0.1.0"
+edition = "2021"
+description = "Rendering backend for Europa"
+license = "MIT"
+
+[dependencies]
+europa-core = { path = "../europa-core" }
