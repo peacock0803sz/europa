@@ -1,0 +1,16 @@
+[package]
+name = "europa-tui"
+version = "0.1.0"
+edition = "2021"
+description = "Terminal interface for Europa"
+license = "MIT"
+
+[[bin]]
+name = "europa"
+path = "src/main.rs"
+
+[dependencies]
+europa-core = { path = "../europa-core" }
+europa-kernel = { path = "../europa-kernel" }
+europa-lsp = { path = "../europa-lsp" }
+europa-render = { path = "../europa-render" }

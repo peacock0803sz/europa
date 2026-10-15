@@ -34,12 +34,16 @@
         {
           pre-commit.settings.hooks = {
             nixfmt.enable = true;
+            rustfmt.enable = true;
           };
 
           devShells.default = pkgs.mkShell {
             inputsFrom = [ config.pre-commit.devShell ];
             packages = with pkgs; [
               cargo
+              rustc
+              rustfmt
+              clippy
             ];
           };
         };

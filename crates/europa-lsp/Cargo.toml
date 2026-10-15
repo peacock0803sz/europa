@@ -1,0 +1,9 @@
+[package]
+name = "europa-lsp"
+version = "0.1.0"
+edition = "2021"
+description = "Language server adapter for Europa"
+license = "MIT"
+
+[dependencies]
+europa-core = { path = "../europa-core" }
