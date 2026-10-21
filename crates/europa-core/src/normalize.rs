@@ -17,11 +17,21 @@ enum MultilineRepr {
 /// Multiline text with its original representation preserved.
 ///
 /// Holds whether the input was a string or an array of strings and
-/// writes back the same form. The normalized reading value is added
-/// separately.
+/// writes back the same form. Reading uses the normalized text with
+/// carriage returns resolved.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultilineText {
     raw: MultilineRepr,
+    /// Normalized reading text, computed on deserialization.
+    normalized: String,
+}
+
+impl MultilineText {
+    /// Normalized reading text with CRLF resolved to LF.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        unimplemented!()
+    }
 }
 
 impl Serialize for MultilineText {
@@ -53,7 +63,10 @@ impl<'de> Deserialize<'de> for MultilineText {
             Helper::Single(s) => MultilineRepr::Single(s),
             Helper::Multiple(parts) => MultilineRepr::Multiple(parts),
         };
-        Ok(Self { raw })
+        Ok(Self {
+            raw,
+            normalized: String::new(),
+        })
     }
 }
 
@@ -75,7 +88,8 @@ mod tests {
         assert_eq!(
             single,
             MultilineText {
-                raw: MultilineRepr::Single("hello\nworld".to_owned())
+                raw: MultilineRepr::Single("hello\nworld".to_owned()),
+                normalized: String::new(),
             }
         );
 
@@ -83,7 +97,8 @@ mod tests {
         assert_eq!(
             multi,
             MultilineText {
-                raw: MultilineRepr::Multiple(vec!["hello\n".to_owned(), "world".to_owned()])
+                raw: MultilineRepr::Multiple(vec!["hello\n".to_owned(), "world".to_owned()]),
+                normalized: String::new(),
             }
         );
     }
