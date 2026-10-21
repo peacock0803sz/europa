@@ -18,13 +18,13 @@ fetch_one() {
   local dest="$3"
 
   if [ -d "$dest/.git" ]; then
-    git -C "$dest" fetch --quiet origin "$commit"
+    (cd "$dest" && git fetch --quiet origin "$commit")
   else
     mkdir -p "$(dirname "$dest")"
     git clone --quiet "$repo" "$dest"
-    git -C "$dest" fetch --quiet origin "$commit"
+    (cd "$dest" && git fetch --quiet origin "$commit")
   fi
-  git -C "$dest" checkout --quiet "$commit"
+  (cd "$dest" && git checkout --quiet "$commit")
 }
 
 fetch_one "$NBFORMAT_REPO" "$NBFORMAT_COMMIT" "$NBFORMAT_DIR"
