@@ -8,9 +8,87 @@ use crate::notebook::Cell;
 ///
 /// Pure function applied during parsing; never written back.
 #[allow(clippy::missing_panics_doc)]
-#[allow(dead_code)]
-pub(crate) fn assign_cell_ids(_cells: &mut [Cell]) {
-    unimplemented!()
+pub(crate) fn assign_cell_ids(cells: &mut [Cell]) {
+    use serde_json::Value;
+    use std::collections::HashSet;
+
+    fn file_id(cell: &Cell) -> Option<&str> {
+        match cell {
+            Cell::Code(inner) => inner.extra.get("id").and_then(Value::as_str),
+            Cell::Markdown(inner) => inner.extra.get("id").and_then(Value::as_str),
+            Cell::Raw(inner) => inner.extra.get("id").and_then(Value::as_str),
+            Cell::Unknown(inner) => inner.value.get("id").and_then(Value::as_str),
+        }
+    }
+
+    fn mem_id_mut(cell: &mut Cell) -> &mut String {
+        match cell {
+            Cell::Code(inner) => &mut inner.mem_id,
+            Cell::Markdown(inner) => &mut inner.mem_id,
+            Cell::Raw(inner) => &mut inner.mem_id,
+            Cell::Unknown(inner) => &mut inner.mem_id,
+        }
+    }
+
+    let mut all_strings: HashSet<String> = HashSet::new();
+    for cell in cells.iter() {
+        let id_opt: Option<String> = match cell {
+            Cell::Code(inner) => inner.extra.get("id").and_then(|v| {
+                if let Value::String(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            }),
+            Cell::Markdown(inner) => inner.extra.get("id").and_then(|v| {
+                if let Value::String(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            }),
+            Cell::Raw(inner) => inner.extra.get("id").and_then(|v| {
+                if let Value::String(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            }),
+            Cell::Unknown(inner) => inner.value.get("id").and_then(|v| {
+                if let Value::String(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            }),
+        };
+        if let Some(s) = id_opt {
+            all_strings.insert(s);
+        }
+    }
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut counter: u32 = 1;
+    for cell in cells.iter_mut() {
+        let current = file_id(cell).map(str::to_owned);
+        let keep = matches!(current, Some(ref s) if !s.is_empty() && !seen.contains(s));
+        if keep {
+            let owned = current.expect("checked");
+            *mem_id_mut(cell) = owned.clone();
+            seen.insert(owned);
+            continue;
+        }
+        loop {
+            let candidate = format!("cell-{counter}");
+            if !all_strings.contains(&candidate) && !seen.contains(&candidate) {
+                *mem_id_mut(cell) = candidate.clone();
+                seen.insert(candidate);
+                counter += 1;
+                break;
+            }
+            counter += 1;
+        }
+    }
 }
 
 /// Original representation of a multiline string value.
@@ -41,7 +119,7 @@ impl MultilineText {
     /// Normalized reading text with CRLF resolved to LF.
     #[must_use]
     pub fn text(&self) -> &str {
-        unimplemented!()
+        &self.normalized
     }
 }
 
@@ -70,14 +148,12 @@ impl<'de> Deserialize<'de> for MultilineText {
         }
 
         let helper = Helper::deserialize(deserializer)?;
-        let raw = match helper {
-            Helper::Single(s) => MultilineRepr::Single(s),
-            Helper::Multiple(parts) => MultilineRepr::Multiple(parts),
+        let (raw, joined) = match helper {
+            Helper::Single(s) => (MultilineRepr::Single(s.clone()), s),
+            Helper::Multiple(parts) => (MultilineRepr::Multiple(parts.clone()), parts.concat()),
         };
-        Ok(Self {
-            raw,
-            normalized: String::new(),
-        })
+        let normalized = joined.replace("\r\n", "\n");
+        Ok(Self { raw, normalized })
     }
 }
 
@@ -100,7 +176,7 @@ mod tests {
             single,
             MultilineText {
                 raw: MultilineRepr::Single("hello\nworld".to_owned()),
-                normalized: String::new(),
+                normalized: "hello\nworld".to_owned(),
             }
         );
 
@@ -109,7 +185,7 @@ mod tests {
             multi,
             MultilineText {
                 raw: MultilineRepr::Multiple(vec!["hello\n".to_owned(), "world".to_owned()]),
-                normalized: String::new(),
+                normalized: "hello\nworld".to_owned(),
             }
         );
     }
