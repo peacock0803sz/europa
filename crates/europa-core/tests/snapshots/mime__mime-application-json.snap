@@ -1,0 +1,12 @@
+---
+source: crates/europa-core/tests/mime.rs
+expression: "serde_json::to_string_pretty(&result.data).unwrap()"
+---
+{
+  "application/json": {
+    "a": [
+      1,
+      2
+    ]
+  }
+}

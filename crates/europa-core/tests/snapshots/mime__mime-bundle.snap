@@ -1,0 +1,10 @@
+---
+source: crates/europa-core/tests/mime.rs
+expression: "serde_json::to_string_pretty(&data.data).unwrap()"
+---
+{
+  "image/svg+xml": [
+    "<svg>",
+    "</svg>"
+  ]
+}
