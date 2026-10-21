@@ -100,6 +100,14 @@ pub enum Cell {
 
 impl Cell {
     /// In-memory cell identifier for position references.
+    ///
+    /// Assigned during parsing and never written back to files.
+    ///
+    /// ```
+    /// let bytes = br#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"markdown","metadata":{},"source":"hi"}]}"#;
+    /// let notebook = europa_core::parse(bytes).expect("loads");
+    /// assert_eq!(notebook.cells[0].id(), "cell-1");
+    /// ```
     #[must_use]
     pub fn id(&self) -> &str {
         match self {

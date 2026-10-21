@@ -5,6 +5,15 @@ use crate::notebook::{Cell, Notebook};
 /// Position inside a cell on normalized text.
 ///
 /// Both line and column start at zero. Column counts Unicode scalar values.
+///
+/// ```
+/// let pos = europa_core::CellPos {
+///     cell_id: "cell-1".to_owned(),
+///     line: 0,
+///     col: 0,
+/// };
+/// assert_eq!(pos.line, 0);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CellPos {
     /// In-memory cell identifier.
@@ -36,6 +45,17 @@ impl Notebook {
     /// Find the cell referenced by a position.
     ///
     /// Looks up the in-memory cell identifier and returns the cell.
+    ///
+    /// ```
+    /// let bytes = br#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"markdown","metadata":{},"source":"hi"}]}"#;
+    /// let notebook = europa_core::parse(bytes).expect("loads");
+    /// let pos = europa_core::CellPos {
+    ///     cell_id: "cell-1".to_owned(),
+    ///     line: 0,
+    ///     col: 0,
+    /// };
+    /// assert!(notebook.resolve(&pos).is_ok());
+    /// ```
     pub fn resolve(&self, pos: &CellPos) -> Result<&Cell, ResolveError> {
         self.cells
             .iter()

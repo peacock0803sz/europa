@@ -117,6 +117,14 @@ pub struct MultilineText {
 
 impl MultilineText {
     /// Normalized reading text with CRLF resolved to LF.
+    ///
+    /// Single carriage returns stay as-is.
+    ///
+    /// ```
+    /// let text: europa_core::MultilineText =
+    ///     serde_json::from_value(serde_json::json!(["a\r\n", "b"])).expect("loads");
+    /// assert_eq!(text.text(), "a\nb");
+    /// ```
     #[must_use]
     pub fn text(&self) -> &str {
         &self.normalized
