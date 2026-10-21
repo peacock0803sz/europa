@@ -7,7 +7,12 @@ Acceptance corpus for loading `.ipynb` files without loss.
 - `jupyter/nbformat` at `cfb73afdd2a7f358953f2a34f747fd0d0e9d6288`
   - Includes every `.ipynb` file under `tests/`.
 - `jupyter/notebook` at `6cde9b9ddec821312b1ca16492233becfe145fca`
-  - Includes every `.ipynb` file under `docs/source/examples/`.
+  - Includes every `.ipynb` file in the checkout: the official examples
+    under `docs/source/examples/` plus notebooks elsewhere such as
+    `binder/` and `ui-tests/`.
+
+Classification and the corpus test scan every `.ipynb` file under the
+corpus directory, not only the paths named above.
 
 ## Fetching
 
