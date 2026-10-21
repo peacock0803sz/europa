@@ -60,15 +60,16 @@ has_duplicate_keys() {
 has_lone_surrogate() {
   # Best-effort raw scan for unpaired \uD800-\uDFFF escapes.
   local file="$1"
+  # Escaped backslashes are blanked first (pairs scanned left to right) so
+  # "\\ud800" is not mistaken for an escape.
   local seqs
-  seqs=$(grep -o -E '\\u[dD][0-9a-fA-F]{4}' "$file" || true)
+  seqs=$(sed 's/\\\\/__/g' "$file" | grep -o -E '\\u[dD][89a-fA-F][0-9a-fA-F]{2}' || true)
   if [ -z "$seqs" ]; then
     return 1
   fi
   local prev_high=0
   while IFS= read -r seq; do
-    local hex
-    hex=$(printf '%s' "$seq" | sed -E 's/\\u[dD]//I' | tr 'A-F' 'a-f')
+    local hex="${seq:2:4}"
     local code=$((16#$hex))
     if [ "$code" -ge 55296 ] && [ "$code" -le 56319 ]; then
       if [ "$prev_high" -eq 1 ]; then
@@ -92,7 +93,8 @@ classify_one() {
   local file="$1"
   local rel="$2"
 
-  # (a) raw-byte checks before JSON parsing.
+  # (a) checks before full JSON parsing: raw-byte scans for BOM, UTF-8 and
+  # surrogates, then a best-effort `jq --stream` leaf-path scan for duplicate keys.
   if [ "$(head -c 3 "$file" | od -An -tx1 | tr -d ' \n')" = "efbbbf" ]; then
     printf '%s\ta\n' "$rel"
     return
