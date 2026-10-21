@@ -576,8 +576,9 @@ pub fn parse(bytes: &[u8]) -> Result<Notebook, ParseError> {
             }
         }
     }
-    let notebook: Notebook = serde_json::from_value(value)
+    let mut notebook: Notebook = serde_json::from_value(value)
         .map_err(|error| mismatch("", &format!("structural mismatch: {error}")))?;
+    crate::normalize::assign_cell_ids(&mut notebook.cells);
     Ok(notebook)
 }
 
