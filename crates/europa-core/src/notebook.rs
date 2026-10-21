@@ -99,11 +99,34 @@ pub enum Cell {
 }
 
 impl Serialize for Cell {
-    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        unimplemented!()
+        match self {
+            Self::Code(inner) => {
+                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
+                if let Value::Object(ref mut map) = value {
+                    map.insert("cell_type".to_owned(), Value::String("code".to_owned()));
+                }
+                value.serialize(serializer)
+            }
+            Self::Markdown(inner) => {
+                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
+                if let Value::Object(ref mut map) = value {
+                    map.insert("cell_type".to_owned(), Value::String("markdown".to_owned()));
+                }
+                value.serialize(serializer)
+            }
+            Self::Raw(inner) => {
+                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
+                if let Value::Object(ref mut map) = value {
+                    map.insert("cell_type".to_owned(), Value::String("raw".to_owned()));
+                }
+                value.serialize(serializer)
+            }
+            Self::Unknown(inner) => inner.value.serialize(serializer),
+        }
     }
 }
 
@@ -227,11 +250,47 @@ pub enum Output {
 }
 
 impl Serialize for Output {
-    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        unimplemented!()
+        match self {
+            Self::Stream(inner) => {
+                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
+                if let Value::Object(ref mut map) = value {
+                    map.insert("output_type".to_owned(), Value::String("stream".to_owned()));
+                }
+                value.serialize(serializer)
+            }
+            Self::DisplayData(inner) => {
+                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
+                if let Value::Object(ref mut map) = value {
+                    map.insert(
+                        "output_type".to_owned(),
+                        Value::String("display_data".to_owned()),
+                    );
+                }
+                value.serialize(serializer)
+            }
+            Self::ExecuteResult(inner) => {
+                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
+                if let Value::Object(ref mut map) = value {
+                    map.insert(
+                        "output_type".to_owned(),
+                        Value::String("execute_result".to_owned()),
+                    );
+                }
+                value.serialize(serializer)
+            }
+            Self::Error(inner) => {
+                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
+                if let Value::Object(ref mut map) = value {
+                    map.insert("output_type".to_owned(), Value::String("error".to_owned()));
+                }
+                value.serialize(serializer)
+            }
+            Self::Unknown(inner) => inner.value.serialize(serializer),
+        }
     }
 }
 
