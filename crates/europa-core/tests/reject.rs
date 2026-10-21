@@ -165,21 +165,37 @@ fn with_metadata(metadata: &str) -> Vec<u8> {
     format!(r#"{{"nbformat":4,"nbformat_minor":0,"metadata":{metadata},"cells":[]}}"#).into_bytes()
 }
 
+/// Builds the JSON escape sequence (backslash, `u`, four hex digits) for
+/// `hex` at runtime so the test source never contains a literal escape.
+fn esc(hex: &str) -> String {
+    format!("\\{}{}", 'u', hex)
+}
+
 #[test]
 fn accepts_distinct_escaped_non_ascii_keys() {
-    let bytes = with_metadata(r#"{"é":1,"è":2,"日本":3}"#);
-    assert!(parse(&bytes).is_ok());
+    // Equal-length escapes that decode to different characters must not
+    // collide in duplicate-key detection.
+    let metadata = format!(
+        r#"{{"{}":1,"{}":2,"{}{}":3}}"#,
+        esc("00e9"),
+        esc("00e8"),
+        esc("65e5"),
+        esc("672c")
+    );
+    let bytes = with_metadata(&metadata);
+    assert!(parse(&bytes).is_ok(), "metadata {metadata}");
 }
 
 #[test]
 fn rejects_duplicate_keys_regardless_of_spelling() {
     for metadata in [
-        r#"{"é":1,"é":2}"#,
-        r#"{"é":1,"é":2}"#,
-        r#"{"a":1,"a":2}"#,
-        r#"{"outer":{"k":1,"k":2}}"#,
+        format!(r#"{{"{}":1,"{}":2}}"#, esc("00e9"), '\u{e9}'),
+        format!(r#"{{"{}":1,"{}":2}}"#, esc("00e9"), esc("00e9")),
+        format!(r#"{{"a":1,"{}":2}}"#, esc("0061")),
+        r#"{"a":1,"a":2}"#.to_owned(),
+        r#"{"outer":{"k":1,"k":2}}"#.to_owned(),
     ] {
-        let bytes = with_metadata(metadata);
+        let bytes = with_metadata(&metadata);
         assert!(
             matches!(parse(&bytes), Err(ParseError::InvalidJson { .. })),
             "metadata {metadata}"
@@ -251,7 +267,8 @@ fn checks_surrogate_pairing() {
             r#"[{{"cell_type":"markdown","source":"{literal}","metadata":{{}}}}]"#
         ))
     };
-    assert!(parse(&source(r"😀")).is_ok(), "valid pair");
+    let pair = format!("{}{}", esc("d83d"), esc("de00"));
+    assert!(parse(&source(&pair)).is_ok(), "valid pair");
     assert!(
         matches!(
             parse(&source(r"\udc00")),
