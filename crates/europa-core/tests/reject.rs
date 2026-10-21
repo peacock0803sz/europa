@@ -164,3 +164,29 @@ fn rejects_byte_order_mark_and_bad_encoding() {
         format!("{:?}", parse(&bom).unwrap_err())
     );
 }
+
+fn with_metadata(metadata: &str) -> Vec<u8> {
+    format!(r#"{{"nbformat":4,"nbformat_minor":0,"metadata":{metadata},"cells":[]}}"#).into_bytes()
+}
+
+#[test]
+fn accepts_distinct_escaped_non_ascii_keys() {
+    let bytes = with_metadata(r#"{"é":1,"è":2,"日本":3}"#);
+    assert!(parse(&bytes).is_ok());
+}
+
+#[test]
+fn rejects_duplicate_keys_regardless_of_spelling() {
+    for metadata in [
+        r#"{"é":1,"é":2}"#,
+        r#"{"é":1,"é":2}"#,
+        r#"{"a":1,"a":2}"#,
+        r#"{"outer":{"k":1,"k":2}}"#,
+    ] {
+        let bytes = with_metadata(metadata);
+        assert!(
+            matches!(parse(&bytes), Err(ParseError::InvalidJson { .. })),
+            "metadata {metadata}"
+        );
+    }
+}

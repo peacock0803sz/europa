@@ -1,5 +1,7 @@
 //! Notebook parsing and serialization entry points.
 
+use std::collections::HashSet;
+
 use serde_json::Value;
 
 use crate::error::ParseError;
@@ -102,7 +104,10 @@ fn find_lone_surrogate(text: &str) -> Option<usize> {
 fn find_duplicate_key(text: &str) -> Option<usize> {
     #[derive(PartialEq)]
     enum Ctx {
-        Object { keys: Vec<String>, expect_key: bool },
+        Object {
+            keys: HashSet<String>,
+            expect_key: bool,
+        },
         Array,
     }
 
@@ -118,60 +123,22 @@ fn find_duplicate_key(text: &str) -> Option<usize> {
         i
     };
 
+    // Find the closing quote, then decode the raw literal with serde_json so
+    // escaped and raw spellings of the same key compare equal.
     let parse_string = |mut i: usize| -> Option<(String, usize, usize)> {
         if i >= bytes.len() || bytes[i] != b'"' {
             return None;
         }
         let start = i;
         i += 1;
-        let mut out = String::new();
         while i < bytes.len() {
-            let b = bytes[i];
-            if b == b'"' {
-                return Some((out, start, i + 1));
-            }
-            if b == b'\\' {
-                if i + 1 >= bytes.len() {
-                    return None;
+            match bytes[i] {
+                b'"' => {
+                    let decoded = serde_json::from_str::<String>(&text[start..=i]).ok()?;
+                    return Some((decoded, start, i + 1));
                 }
-                let e = bytes[i + 1];
-                match e {
-                    b'"' | b'\\' | b'/' => {
-                        out.push(e as char);
-                        i += 2;
-                    }
-                    b'b' => {
-                        out.push('\u{0008}');
-                        i += 2;
-                    }
-                    b'f' => {
-                        out.push('\u{000C}');
-                        i += 2;
-                    }
-                    b'n' => {
-                        out.push('\n');
-                        i += 2;
-                    }
-                    b'r' => {
-                        out.push('\r');
-                        i += 2;
-                    }
-                    b't' => {
-                        out.push('\t');
-                        i += 2;
-                    }
-                    b'u' => {
-                        if i + 5 >= bytes.len() {
-                            return None;
-                        }
-                        out.push('?');
-                        i += 6;
-                    }
-                    _ => return None,
-                }
-            } else {
-                out.push(b as char);
-                i += 1;
+                b'\\' => i += 2,
+                _ => i += 1,
             }
         }
         None
@@ -193,7 +160,7 @@ fn find_duplicate_key(text: &str) -> Option<usize> {
         match bytes[idx] {
             b'{' => {
                 stack.push(Ctx::Object {
-                    keys: Vec::new(),
+                    keys: HashSet::new(),
                     expect_key: true,
                 });
                 expect_value = false;
@@ -224,10 +191,9 @@ fn find_duplicate_key(text: &str) -> Option<usize> {
                 let (s, start, next) = parse_string(idx)?;
                 if in_object_key_pos {
                     if let Some(Ctx::Object { keys, .. }) = stack.last_mut() {
-                        if keys.iter().any(|k| k == &s) {
+                        if !keys.insert(s) {
                             return Some(start);
                         }
-                        keys.push(s);
                     }
                     idx = skip_ws(next);
                     if idx < bytes.len() && bytes[idx] == b':' {
