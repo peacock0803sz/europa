@@ -36,8 +36,12 @@ impl Notebook {
     /// Find the cell referenced by a position.
     ///
     /// Looks up the in-memory cell identifier and returns the cell.
-    #[allow(clippy::missing_panics_doc)]
-    pub fn resolve(&self, _pos: &CellPos) -> Result<&Cell, ResolveError> {
-        unimplemented!()
+    pub fn resolve(&self, pos: &CellPos) -> Result<&Cell, ResolveError> {
+        self.cells
+            .iter()
+            .find(|cell| cell.id() == pos.cell_id)
+            .ok_or_else(|| ResolveError {
+                cell_id: pos.cell_id.clone(),
+            })
     }
 }
