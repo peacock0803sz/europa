@@ -44,6 +44,9 @@
               rustc
               rustfmt
               clippy
+              jq
+              cargo-insta
+              libiconv
             ];
           };
         };
