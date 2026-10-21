@@ -18,6 +18,9 @@ pub struct Notebook {
     pub metadata: Map<String, Value>,
     /// Cells in document order.
     pub cells: Vec<Cell>,
+    /// Unknown top-level fields, preserved unchanged.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 /// Code cell with execution outputs.
@@ -34,6 +37,9 @@ pub struct CodeCell {
     pub outputs: Vec<Output>,
     /// Execution counter, or null when never executed.
     pub execution_count: Option<i64>,
+    /// Unknown cell fields, preserved unchanged.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 /// Markdown cell.
@@ -46,6 +52,9 @@ pub struct MarkdownCell {
     pub source: MultilineText,
     /// Cell-level metadata object.
     pub metadata: Map<String, Value>,
+    /// Unknown cell fields, preserved unchanged.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 /// Raw cell.
@@ -58,6 +67,9 @@ pub struct RawCell {
     pub source: MultilineText,
     /// Cell-level metadata object.
     pub metadata: Map<String, Value>,
+    /// Unknown cell fields, preserved unchanged.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 /// Cell with an unrecognized `cell_type`.
@@ -144,6 +156,9 @@ pub struct StreamOutput {
     pub name: String,
     /// Stream text.
     pub text: MultilineText,
+    /// Unknown output fields, preserved unchanged.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 /// Display data output with a MIME bundle.
@@ -153,6 +168,9 @@ pub struct DisplayDataOutput {
     pub data: Map<String, Value>,
     /// Per-MIME metadata object.
     pub metadata: Map<String, Value>,
+    /// Unknown output fields, preserved unchanged.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 /// Execute result output with a MIME bundle.
@@ -164,6 +182,9 @@ pub struct ExecuteResultOutput {
     pub metadata: Map<String, Value>,
     /// Execution counter, or null.
     pub execution_count: Option<i64>,
+    /// Unknown output fields, preserved unchanged.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 /// Error output with traceback.
@@ -175,6 +196,9 @@ pub struct ErrorOutput {
     pub evalue: String,
     /// Traceback lines.
     pub traceback: Vec<String>,
+    /// Unknown output fields, preserved unchanged.
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
 }
 
 /// Output with an unrecognized `output_type`.
