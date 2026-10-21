@@ -31,3 +31,13 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo test
+
+  corpus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: bash scripts/fetch-corpus.sh
+      - run: EUROPA_CORPUS_DIR=target/europa-corpus cargo test -p europa-core --test corpus_load -- --ignored
