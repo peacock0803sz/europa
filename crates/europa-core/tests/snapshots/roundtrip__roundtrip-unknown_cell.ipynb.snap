@@ -1,0 +1,23 @@
+---
+source: crates/europa-core/tests/roundtrip.rs
+expression: text
+---
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "custom_cell": [
+    1,
+    2,
+    {
+     "deep": "kept"
+    }
+   ],
+   "metadata": {},
+   "source": "hello"
+  }
+ ],
+ "metadata": {},
+ "nbformat": 4,
+ "nbformat_minor": 5
+}

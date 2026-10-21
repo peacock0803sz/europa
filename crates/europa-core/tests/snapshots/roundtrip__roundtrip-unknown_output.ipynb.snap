@@ -1,0 +1,32 @@
+---
+source: crates/europa-core/tests/roundtrip.rs
+expression: text
+---
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [
+    {
+     "custom_output": {
+      "kept": [
+       true,
+       null
+      ]
+     },
+     "data": {
+      "text/plain": "ok"
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": ""
+  }
+ ],
+ "metadata": {},
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
