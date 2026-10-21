@@ -8,6 +8,10 @@ use crate::normalize::MultilineText;
 /// Notebook document in nbformat v4.
 ///
 /// Holds the format version, notebook-level metadata, and cells in order.
+///
+/// Use [`crate::parse`] to load notebooks. It is the only supported entry
+/// point: it validates the input and assigns cell identifiers. The serde
+/// `Deserialize` impl skips both, leaving every [`Cell::id`] empty.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Notebook {
     /// Major format version, always 4 for accepted files.
@@ -101,7 +105,8 @@ pub enum Cell {
 impl Cell {
     /// In-memory cell identifier for position references.
     ///
-    /// Assigned during parsing and never written back to files.
+    /// Assigned by [`crate::parse`] and never written back to files.
+    /// Empty for notebooks deserialized directly with serde.
     ///
     /// ```
     /// let bytes = br#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"markdown","metadata":{},"source":"hi"}]}"#;

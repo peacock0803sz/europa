@@ -63,3 +63,20 @@ fn rejects_missing_identifier() {
     let error = notebook.resolve(&pos).expect_err("missing id fails");
     assert_eq!(error.cell_id, "no-such-cell");
 }
+
+#[test]
+fn rejects_empty_identifier() {
+    let empty = CellPos {
+        cell_id: String::new(),
+        line: 0,
+        col: 0,
+    };
+    let notebook = load("no_ids.ipynb");
+    assert!(notebook.resolve(&empty).is_err());
+
+    // Deserializing directly skips id assignment, so every id stays empty.
+    let bytes = br#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"markdown","metadata":{},"source":"hi"}]}"#;
+    let raw: europa_core::Notebook = serde_json::from_slice(bytes).expect("deserializes");
+    assert_eq!(raw.cells[0].id(), "");
+    assert!(raw.resolve(&empty).is_err());
+}
