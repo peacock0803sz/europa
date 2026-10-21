@@ -1,7 +1,8 @@
 //! Shared data types for Europa core models.
 //!
-//! Parse any nbformat v4 notebook without loss, keep unknown fields,
-//! and write back deterministically.
+//! Parse nbformat v4 notebooks that pass validation, preserving every field
+//! value including unknown fields, and write them back deterministically
+//! with sorted keys.
 //!
 //! ```
 //! let bytes = br#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[]}"#;

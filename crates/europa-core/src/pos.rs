@@ -46,7 +46,8 @@ impl Notebook {
     ///
     /// Looks up the in-memory cell identifier and returns the cell.
     /// An empty identifier never matches, so cells of a notebook built
-    /// without [`crate::parse`] cannot be resolved.
+    /// without [`crate::parse`] cannot be resolved. Only `cell_id` is
+    /// checked; `line` and `col` are not validated against the cell text.
     ///
     /// ```
     /// let bytes = br#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"markdown","metadata":{},"source":"hi"}]}"#;

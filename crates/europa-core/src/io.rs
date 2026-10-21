@@ -584,7 +584,9 @@ pub fn parse(bytes: &[u8]) -> Result<Notebook, ParseError> {
 
 /// Serialize a notebook model back to `.ipynb` text.
 ///
-/// Keys sort alphabetically at every level with one-space indentation.
+/// Keys sort by byte order at every level, which relies on the
+/// `serde_json` `preserve_order` feature staying off. Output uses
+/// one-space indentation and ends with a trailing newline.
 #[allow(clippy::missing_panics_doc)]
 pub fn serialize(notebook: &Notebook) -> String {
     let value = serde_json::to_value(notebook).expect("notebook serializes to JSON");

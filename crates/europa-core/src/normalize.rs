@@ -4,9 +4,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::notebook::Cell;
 
-/// Assign in-memory identifiers to cells in document order.
+/// Assign in-memory identifiers to cells in document order, in place.
 ///
-/// Pure function applied during parsing; never written back.
+/// The first cell carrying each non-empty string `id` keeps it. Every other
+/// cell gets the next free `cell-N`, skipping any string `id` used anywhere
+/// in the file. Called by [`crate::parse`]; the identifiers are never
+/// written back.
 #[allow(clippy::missing_panics_doc)]
 pub(crate) fn assign_cell_ids(cells: &mut [Cell]) {
     use serde_json::Value;
@@ -107,7 +110,7 @@ enum MultilineRepr {
 ///
 /// Holds whether the input was a string or an array of strings and
 /// writes back the same form. Reading uses the normalized text with
-/// carriage returns resolved.
+/// CRLF resolved to LF; lone carriage returns are kept.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultilineText {
     raw: MultilineRepr,

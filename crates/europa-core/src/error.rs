@@ -14,10 +14,11 @@ pub enum ParseError {
     /// Covers malformed JSON, byte order marks, invalid UTF-8,
     /// unpaired surrogates, duplicate keys, and excessive nesting.
     /// Location is the line and column in the input, both starting at 1.
+    /// The column counts bytes, not characters.
     InvalidJson {
         /// One-based line number in the input.
         line: usize,
-        /// One-based column number in the input.
+        /// One-based column in bytes from the start of the line.
         column: usize,
         /// Human readable explanation.
         message: String,
