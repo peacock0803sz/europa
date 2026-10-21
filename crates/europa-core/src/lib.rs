@@ -11,3 +11,4 @@ pub use error::ParseError;
 pub use io::{parse, serialize};
 pub use normalize::MultilineText;
 pub use notebook::{Cell, Notebook, Output};
+pub use pos::{CellPos, ResolveError};
