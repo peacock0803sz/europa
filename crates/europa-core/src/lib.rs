@@ -8,3 +8,4 @@ pub mod notebook;
 pub mod pos;
 
 pub use error::ParseError;
+pub use normalize::MultilineText;
