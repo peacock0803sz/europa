@@ -6,3 +6,5 @@ pub mod io;
 pub mod normalize;
 pub mod notebook;
 pub mod pos;
+
+pub use error::ParseError;
