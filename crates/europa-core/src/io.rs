@@ -579,3 +579,11 @@ pub fn parse(bytes: &[u8]) -> Result<Notebook, ParseError> {
         .map_err(|error| mismatch("", &format!("structural mismatch: {error}")))?;
     Ok(notebook)
 }
+
+/// Serialize a notebook model back to `.ipynb` text.
+///
+/// Keys sort alphabetically at every level with one-space indentation.
+#[allow(clippy::missing_panics_doc)]
+pub fn serialize(_notebook: &Notebook) -> String {
+    unimplemented!()
+}
