@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 /// Jupyter allows `source` and stream `text` to be either a single
 /// string or an array of strings. This enum keeps which form was used.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 enum MultilineRepr {
     /// Single string form.
     Single(String),
@@ -21,25 +20,80 @@ enum MultilineRepr {
 /// writes back the same form. The normalized reading value is added
 /// separately.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
 pub struct MultilineText {
     raw: MultilineRepr,
 }
 
 impl Serialize for MultilineText {
-    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        unimplemented!()
+        match &self.raw {
+            MultilineRepr::Single(s) => serializer.serialize_str(s),
+            MultilineRepr::Multiple(parts) => parts.serialize(serializer),
+        }
     }
 }
 
 impl<'de> Deserialize<'de> for MultilineText {
-    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        unimplemented!()
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Helper {
+            Single(String),
+            Multiple(Vec<String>),
+        }
+
+        let helper = Helper::deserialize(deserializer)?;
+        let raw = match helper {
+            Helper::Single(s) => MultilineRepr::Single(s),
+            Helper::Multiple(parts) => MultilineRepr::Multiple(parts),
+        };
+        Ok(Self { raw })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn roundtrip(value: serde_json::Value) -> MultilineText {
+        let parsed: MultilineText =
+            serde_json::from_value(value.clone()).expect("accepts string or array");
+        let back = serde_json::to_value(&parsed).expect("serializes back");
+        assert_eq!(back, value, "original representation survives");
+        parsed
+    }
+
+    #[test]
+    fn accepts_string_and_array_forms() {
+        let single = roundtrip(serde_json::json!("hello\nworld"));
+        assert_eq!(
+            single,
+            MultilineText {
+                raw: MultilineRepr::Single("hello\nworld".to_owned())
+            }
+        );
+
+        let multi = roundtrip(serde_json::json!(["hello\n", "world"]));
+        assert_eq!(
+            multi,
+            MultilineText {
+                raw: MultilineRepr::Multiple(vec!["hello\n".to_owned(), "world".to_owned()])
+            }
+        );
+    }
+
+    #[test]
+    fn preserves_crlf_and_empty_forms() {
+        roundtrip(serde_json::json!("a\r\nb\r\n"));
+        roundtrip(serde_json::json!(["a\r\n", "b\r\n"]));
+        roundtrip(serde_json::json!(["a\r", "\nb"]));
+        roundtrip(serde_json::json!(""));
+        roundtrip(serde_json::json!([]));
     }
 }
