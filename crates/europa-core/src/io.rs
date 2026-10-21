@@ -2,6 +2,7 @@
 
 use std::collections::HashSet;
 
+use serde::Serialize;
 use serde_json::Value;
 
 use crate::error::ParseError;
@@ -584,6 +585,17 @@ pub fn parse(bytes: &[u8]) -> Result<Notebook, ParseError> {
 ///
 /// Keys sort alphabetically at every level with one-space indentation.
 #[allow(clippy::missing_panics_doc)]
-pub fn serialize(_notebook: &Notebook) -> String {
-    unimplemented!()
+pub fn serialize(notebook: &Notebook) -> String {
+    let value = serde_json::to_value(notebook).expect("notebook serializes to JSON");
+    let mut buffer = Vec::new();
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(b" ");
+    let mut serializer = serde_json::ser::Serializer::with_formatter(&mut buffer, formatter);
+    value
+        .serialize(&mut serializer)
+        .expect("JSON writes to memory");
+    let mut text = String::from_utf8(buffer).expect("serializer emits UTF-8");
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text
 }
