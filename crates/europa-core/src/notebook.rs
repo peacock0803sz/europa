@@ -96,11 +96,44 @@ impl Serialize for Cell {
 }
 
 impl<'de> Deserialize<'de> for Cell {
-    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        unimplemented!()
+        let mut map = Map::deserialize(deserializer)?;
+        let kind = match map.get("cell_type") {
+            Some(Value::String(s)) => s.clone(),
+            _ => {
+                return Err(serde::de::Error::custom("missing or invalid cell_type"));
+            }
+        };
+        match kind.as_str() {
+            "code" | "markdown" | "raw" => {
+                map.remove("cell_type");
+                let value = Value::Object(map);
+                match kind.as_str() {
+                    "code" => {
+                        let inner: CodeCell =
+                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                        Ok(Self::Code(inner))
+                    }
+                    "markdown" => {
+                        let inner: MarkdownCell =
+                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                        Ok(Self::Markdown(inner))
+                    }
+                    _ => {
+                        let inner: RawCell =
+                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                        Ok(Self::Raw(inner))
+                    }
+                }
+            }
+            _ => Ok(Self::Unknown(UnknownCell {
+                value: map,
+                mem_id: String::new(),
+            })),
+        }
     }
 }
 
@@ -179,10 +212,45 @@ impl Serialize for Output {
 }
 
 impl<'de> Deserialize<'de> for Output {
-    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        unimplemented!()
+        let mut map = Map::deserialize(deserializer)?;
+        let kind = match map.get("output_type") {
+            Some(Value::String(s)) => s.clone(),
+            _ => {
+                return Err(serde::de::Error::custom("missing or invalid output_type"));
+            }
+        };
+        match kind.as_str() {
+            "stream" | "display_data" | "execute_result" | "error" => {
+                map.remove("output_type");
+                let value = Value::Object(map);
+                match kind.as_str() {
+                    "stream" => {
+                        let inner: StreamOutput =
+                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                        Ok(Self::Stream(inner))
+                    }
+                    "display_data" => {
+                        let inner: DisplayDataOutput =
+                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                        Ok(Self::DisplayData(inner))
+                    }
+                    "execute_result" => {
+                        let inner: ExecuteResultOutput =
+                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                        Ok(Self::ExecuteResult(inner))
+                    }
+                    _ => {
+                        let inner: ErrorOutput =
+                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+                        Ok(Self::Error(inner))
+                    }
+                }
+            }
+            _ => Ok(Self::Unknown(UnknownOutput { value: map })),
+        }
     }
 }
