@@ -1,0 +1,7 @@
+---
+source: crates/europa-core/tests/normalize_text.rs
+expression: "notebook.cells.iter().map(cell_source).collect::<Vec<_>>().join(\"---\")"
+---
+hello
+world---hello
+world---x

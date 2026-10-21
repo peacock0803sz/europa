@@ -1,19 +1,25 @@
-//! Shared data types for Europa.
+//! Shared data types for Europa core models.
 //!
-//! The workspace skeleton exposes no types yet.
+//! Parse nbformat v4 notebooks that pass validation, preserving every field
+//! value including unknown fields, and write them back deterministically
+//! with sorted keys.
+//!
+//! ```
+//! let bytes = br#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[]}"#;
+//! let notebook = europa_core::parse(bytes).expect("loads");
+//! let text = europa_core::serialize(&notebook);
+//! assert!(text.ends_with('\n'));
+//! ```
+#![deny(missing_docs)]
 
-/// Placeholder to keep the skeleton testable.
-#[must_use]
-pub fn version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
+pub mod error;
+pub mod io;
+pub mod normalize;
+pub mod notebook;
+pub mod pos;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reports_crate_version() {
-        assert!(!version().is_empty());
-    }
-}
+pub use error::ParseError;
+pub use io::{parse, serialize};
+pub use normalize::MultilineText;
+pub use notebook::{Cell, Notebook, Output};
+pub use pos::{CellPos, ResolveError};

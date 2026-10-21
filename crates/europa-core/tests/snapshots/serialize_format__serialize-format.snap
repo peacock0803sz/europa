@@ -1,0 +1,19 @@
+---
+source: crates/europa-core/tests/serialize_format.rs
+expression: text
+---
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": "héllo"
+  }
+ ],
+ "metadata": {
+  "a": 1,
+  "b": "é"
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}

@@ -1,0 +1,5 @@
+---
+source: crates/europa-core/tests/reject.rs
+expression: "format!(\"{:?}\", parse(b\"{\").unwrap_err())"
+---
+InvalidJson { line: 1, column: 1, message: "EOF while parsing an object at line 1 column 1" }
