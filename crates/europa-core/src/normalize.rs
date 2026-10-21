@@ -2,6 +2,17 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::notebook::Cell;
+
+/// Assign in-memory identifiers to cells in document order.
+///
+/// Pure function applied during parsing; never written back.
+#[allow(clippy::missing_panics_doc)]
+#[allow(dead_code)]
+pub(crate) fn assign_cell_ids(_cells: &mut [Cell]) {
+    unimplemented!()
+}
+
 /// Original representation of a multiline string value.
 ///
 /// Jupyter allows `source` and stream `text` to be either a single

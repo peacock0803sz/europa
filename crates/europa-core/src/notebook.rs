@@ -98,6 +98,19 @@ pub enum Cell {
     Unknown(UnknownCell),
 }
 
+impl Cell {
+    /// In-memory cell identifier for position references.
+    #[must_use]
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Code(inner) => &inner.mem_id,
+            Self::Markdown(inner) => &inner.mem_id,
+            Self::Raw(inner) => &inner.mem_id,
+            Self::Unknown(inner) => &inner.mem_id,
+        }
+    }
+}
+
 impl Serialize for Cell {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
