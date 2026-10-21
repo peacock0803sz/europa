@@ -149,6 +149,12 @@ fn load_acceptance_corpus() {
                         ),
                     }
                 }
+                let text = europa_core::serialize(&notebook);
+                let second = parse(text.as_bytes())
+                    .unwrap_or_else(|error| panic!("reparse {rel}: {error:?}"));
+                assert_eq!(notebook, second, "model equality for {rel}");
+                let again = europa_core::serialize(&second);
+                assert_eq!(text, again, "output stability for {rel}");
             }
             "a" => assert!(
                 matches!(parsed, Err(ParseError::InvalidJson { .. })),
