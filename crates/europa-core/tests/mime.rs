@@ -1,6 +1,6 @@
 //! MIME bundle values stay untouched.
 
-use europa_core::{parse, Cell, Output};
+use europa_core::{parse, serialize, Cell, Output};
 use serde_json::Value;
 
 fn code_cell(bytes: &[u8]) -> europa_core::Notebook {
@@ -75,9 +75,22 @@ fn preserves_mime_values() {
 
 #[test]
 fn keeps_invalid_dimensions_without_failing() {
-    for dimensions in [
-        r#"{"width":"wide","height":-3}"#,
-        r#"{"width":null,"height":"100px"}"#,
+    for (dimensions, width, height) in [
+        (
+            r#"{"width":"wide","height":-3}"#,
+            serde_json::json!("wide"),
+            serde_json::json!(-3),
+        ),
+        (
+            r#"{"width":null,"height":"100px"}"#,
+            Value::Null,
+            serde_json::json!("100px"),
+        ),
+        (
+            r#"{"width":640,"height":480}"#,
+            serde_json::json!(640),
+            serde_json::json!(480),
+        ),
     ] {
         let bytes = format!(
             r#"{{"nbformat":4,"nbformat_minor":0,"metadata":{{}},"cells":[{{"cell_type":"code","source":"","metadata":{{}},"outputs":[{{"output_type":"display_data","data":{{"image/png":"aGVsbG8="}},"metadata":{dimensions}}}],"execution_count":null}}]}}"#
@@ -86,12 +99,19 @@ fn keeps_invalid_dimensions_without_failing() {
         match &notebook.cells[0] {
             Cell::Code(code) => match &code.outputs[0] {
                 Output::DisplayData(data) => {
-                    assert!(data.metadata.get("width").is_some());
-                    assert!(data.metadata.get("height").is_some());
+                    assert_eq!(data.metadata.get("width"), Some(&width), "{dimensions}");
+                    assert_eq!(data.metadata.get("height"), Some(&height), "{dimensions}");
                 }
                 other => panic!("expected display data, got {other:?}"),
             },
             other => panic!("expected code cell, got {other:?}"),
         }
+        let out: Value =
+            serde_json::from_str(&serialize(&notebook)).expect("serialized output parses");
+        let meta = out
+            .pointer("/cells/0/outputs/0/metadata")
+            .expect("output metadata");
+        assert_eq!(meta.get("width"), Some(&width), "{dimensions} round trip");
+        assert_eq!(meta.get("height"), Some(&height), "{dimensions} round trip");
     }
 }

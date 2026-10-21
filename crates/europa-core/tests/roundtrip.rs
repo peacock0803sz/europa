@@ -69,6 +69,29 @@ fn keeps_source_form_and_ids() {
     );
     let _ = notebook;
 
+    let bytes = fixture("string_crlf.ipynb");
+    let raw: serde_json::Value = serde_json::from_slice(&bytes).expect("fixture parses as JSON");
+    let (_, text) = roundtrip("string_crlf.ipynb");
+    let out: serde_json::Value = serde_json::from_str(&text).expect("output parses as JSON");
+    assert_eq!(
+        out.pointer("/cells/0/source"),
+        Some(&serde_json::json!("a\r\nb")),
+        "string source with CRLF unchanged"
+    );
+    assert_eq!(
+        raw.pointer("/cells/0/source"),
+        out.pointer("/cells/0/source")
+    );
+    assert_eq!(
+        out.pointer("/cells/0/outputs/0/text"),
+        Some(&serde_json::json!("out\r\nmore")),
+        "string stream text with CRLF unchanged"
+    );
+    assert_eq!(
+        raw.pointer("/cells/0/outputs/0/text"),
+        out.pointer("/cells/0/outputs/0/text")
+    );
+
     let (_, text) = roundtrip("ids.ipynb");
     let out: serde_json::Value = serde_json::from_str(&text).expect("output parses as JSON");
     let cells = out
