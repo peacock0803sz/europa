@@ -115,32 +115,28 @@ fn rejects_required_field_gaps() {
     assert_eq!(mismatch(stream_no_text), "/cells/0/outputs/0/text");
 }
 
+/// Notebook whose nesting depth is exactly `depth`, counting the root as 1.
+fn nested_notebook(depth: usize) -> String {
+    let inner = depth - 1;
+    let mut text = String::from(r#"{"nbformat":4,"nbformat_minor":0,"metadata":"#);
+    for _ in 0..inner - 1 {
+        text.push_str(r#"{"a":"#);
+    }
+    text.push_str("{}");
+    for _ in 0..inner - 1 {
+        text.push('}');
+    }
+    text.push_str(r#","cells":[]}"#);
+    text
+}
+
 #[test]
 fn accepts_nesting_boundary_and_rejects_beyond() {
-    let mut ok = String::from(r#"{"nbformat":4,"nbformat_minor":0,"metadata":"#);
-    for _ in 0..125 {
-        ok.push_str(r#"{"a":"#);
-    }
-    ok.push('1');
-    for _ in 0..125 {
-        ok.push('}');
-    }
-    ok.push_str(r#","cells":[]}"#);
+    let ok = nested_notebook(127);
     let parsed = parse(ok.as_bytes());
-    assert!(
-        !matches!(parsed, Err(ParseError::InvalidJson { .. })),
-        "127 levels should not fail as invalid JSON: {parsed:?}"
-    );
+    assert!(parsed.is_ok(), "127 levels should load: {parsed:?}");
 
-    let mut deep = String::from(r#"{"nbformat":4,"nbformat_minor":0,"metadata":"#);
-    for _ in 0..130 {
-        deep.push_str(r#"{"a":"#);
-    }
-    deep.push('1');
-    for _ in 0..130 {
-        deep.push('}');
-    }
-    deep.push_str(r#","cells":[]}"#);
+    let deep = nested_notebook(128);
     assert!(matches!(
         parse(deep.as_bytes()),
         Err(ParseError::InvalidJson { .. })
@@ -189,4 +185,82 @@ fn rejects_duplicate_keys_regardless_of_spelling() {
             "metadata {metadata}"
         );
     }
+}
+
+fn with_cells(cells: &str) -> Vec<u8> {
+    format!(r#"{{"nbformat":4,"nbformat_minor":0,"metadata":{{}},"cells":{cells}}}"#).into_bytes()
+}
+
+fn with_output(output: &str) -> Vec<u8> {
+    with_cells(&format!(
+        r#"[{{"cell_type":"code","source":"","metadata":{{}},"outputs":[{output}],"execution_count":null}}]"#
+    ))
+}
+
+#[test]
+fn reports_required_field_paths() {
+    let cases = [
+        (with_cells(r#"{}"#), "/cells"),
+        (
+            br#"{"nbformat":4,"nbformat_minor":0,"metadata":[],"cells":[]}"#.to_vec(),
+            "/metadata",
+        ),
+        (
+            with_cells(r#"[{"cell_type":"markdown","source":1,"metadata":{}}]"#),
+            "/cells/0/source",
+        ),
+        (
+            with_cells(r#"[{"cell_type":"raw","source":["a",1],"metadata":{}}]"#),
+            "/cells/0/source",
+        ),
+        (
+            with_cells(r#"[{"cell_type":"markdown","source":""}]"#),
+            "/cells/0/metadata",
+        ),
+        (
+            with_output(r#"{"output_type":"display_data","metadata":{}}"#),
+            "/cells/0/outputs/0/data",
+        ),
+        (
+            with_output(r#"{"output_type":"execute_result","data":{},"metadata":{}}"#),
+            "/cells/0/outputs/0/execution_count",
+        ),
+        (
+            with_output(r#"{"output_type":"error","ename":"E","evalue":"v"}"#),
+            "/cells/0/outputs/0/traceback",
+        ),
+        (
+            with_output(r#"{"output_type":"error","ename":"E","evalue":"v","traceback":["a",1]}"#),
+            "/cells/0/outputs/0/traceback",
+        ),
+    ];
+    for (bytes, path) in cases {
+        assert_eq!(
+            mismatch(&bytes),
+            path,
+            "input {}",
+            String::from_utf8_lossy(&bytes)
+        );
+    }
+}
+
+#[test]
+fn checks_surrogate_pairing() {
+    let source = |literal: &str| {
+        with_cells(&format!(
+            r#"[{{"cell_type":"markdown","source":"{literal}","metadata":{{}}}}]"#
+        ))
+    };
+    assert!(parse(&source(r"😀")).is_ok(), "valid pair");
+    assert!(
+        matches!(
+            parse(&source(r"\udc00")),
+            Err(ParseError::InvalidJson { .. })
+        ),
+        "lone low surrogate"
+    );
+    assert!(
+        parse(&source(r"\\ud800")).is_ok(),
+        "escaped backslash is not an escape"
+    );
 }
