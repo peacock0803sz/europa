@@ -1,19 +1,8 @@
-//! Shared data types for Europa.
-//!
-//! The workspace skeleton exposes no types yet.
+//! Shared data types for Europa core models.
+#![deny(missing_docs)]
 
-/// Placeholder to keep the skeleton testable.
-#[must_use]
-pub fn version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reports_crate_version() {
-        assert!(!version().is_empty());
-    }
-}
+pub mod error;
+pub mod io;
+pub mod normalize;
+pub mod notebook;
+pub mod pos;
