@@ -585,9 +585,25 @@ pub fn parse(bytes: &[u8]) -> Result<Notebook, ParseError> {
 
 /// Serialize a notebook model back to `.ipynb` text.
 ///
-/// Keys sort in code point order at every level and numbers keep the spelling
-/// they were read with. Neither depends on `serde_json` features. Output uses
-/// one-space indentation and ends with a trailing newline.
+/// The text follows the layout nbformat writes: one-space indentation, keys
+/// in code point order at every level, `": "` and `,` separators, non-ASCII
+/// text unescaped and a trailing newline. None of it depends on `serde_json`
+/// features.
+///
+/// Values read by [`parse`] keep their form. Numbers keep the literal they
+/// were read with, and a string stays a string while an array of strings
+/// keeps its elements as they were.
+///
+/// Saving splits text into lines only for outputs built with the
+/// `Output::new_*` constructors, such as
+/// [`Output::new_stream`](crate::Output::new_stream). Their stream `text`, and
+/// their string values of MIME types that start with `text/` or are
+/// `application/javascript` or `image/svg+xml`, are written as arrays of
+/// lines split the way Python's `str.splitlines(True)` splits them. Every
+/// other value of those outputs, numbers included, is written as given.
+///
+/// The model is not changed, so those outputs stay new until the saved text
+/// is parsed again; see [`Output::is_new`](crate::Output::is_new).
 pub fn serialize(notebook: &Notebook) -> String {
     write_ipynb(&notebook.to_json())
 }
