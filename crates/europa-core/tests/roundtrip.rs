@@ -140,29 +140,27 @@ fn keeps_unknown_kinds_and_null_execution() {
     );
 }
 
-// Numeric boundary checks guard against silent Cargo feature unification
-// changing number handling. Do not delete or relax these assertions.
+// Numbers are written back with the spelling they were read with, so these
+// assertions pin the literal on each output line. The `float_roundtrip`
+// feature stays enabled only so validation rounds numbers correctly when it
+// decides whether a value is in range.
 #[test]
 fn pins_number_roundtrip() {
     let (_, text) = roundtrip("numbers.ipynb");
-    let out: serde_json::Value = serde_json::from_str(&text).expect("output parses");
-    let meta = out.pointer("/cells/0/metadata").expect("metadata exists");
-    assert_eq!(meta.get("one_point_zero"), Some(&serde_json::json!(1.0)));
-    assert_eq!(
-        meta.get("seventeen"),
-        Some(&serde_json::json!(1.2345678901234567))
-    );
-    assert_eq!(
-        meta.get("max_float"),
-        Some(&serde_json::json!(1.7976931348623157e308))
-    );
-    assert_eq!(
-        meta.get("min_normal"),
-        Some(&serde_json::json!(2.2250738585072014e-308))
-    );
-    assert_eq!(
-        meta.get("big_u64"),
-        Some(&serde_json::json!(18446744073709551615u64))
-    );
+    for line in [
+        r#""one_point_zero": 1.0"#,
+        r#""seventeen": 1.2345678901234567"#,
+        r#""max_float": 1.7976931348623157e308"#,
+        r#""min_normal": 2.2250738585072014e-308"#,
+        r#""big_u64": 18446744073709551615"#,
+        r#""beyond_u64": 18446744073709551616"#,
+        r#""precise_beyond": 1.00000000000000011102230246251565404236316680908203125"#,
+    ] {
+        assert!(
+            text.lines()
+                .any(|found| found.trim().trim_end_matches(',') == line),
+            "missing line {line} in:\n{text}"
+        );
+    }
     insta::assert_snapshot!("roundtrip-numbers", text);
 }

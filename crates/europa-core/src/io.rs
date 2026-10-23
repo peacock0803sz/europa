@@ -2,10 +2,10 @@
 
 use std::collections::HashSet;
 
-use serde::Serialize;
 use serde_json::Value;
 
 use crate::error::ParseError;
+use crate::json::{read_validated, write_ipynb};
 use crate::notebook::Notebook;
 
 fn line_col(prefix: &[u8]) -> (usize, usize) {
@@ -576,29 +576,18 @@ pub fn parse(bytes: &[u8]) -> Result<Notebook, ParseError> {
             }
         }
     }
-    let mut notebook: Notebook = serde_json::from_value(value)
-        .map_err(|error| mismatch("", &format!("structural mismatch: {error}")))?;
+    // The validation tree rounds numbers; rebuild from the text to keep literals.
+    drop(value);
+    let mut notebook = Notebook::from_json(read_validated(text)?)?;
     crate::normalize::assign_cell_ids(&mut notebook.cells);
     Ok(notebook)
 }
 
 /// Serialize a notebook model back to `.ipynb` text.
 ///
-/// Keys sort by byte order at every level, which relies on the
-/// `serde_json` `preserve_order` feature staying off. Output uses
+/// Keys sort in code point order at every level and numbers keep the spelling
+/// they were read with. Neither depends on `serde_json` features. Output uses
 /// one-space indentation and ends with a trailing newline.
-#[allow(clippy::missing_panics_doc)]
 pub fn serialize(notebook: &Notebook) -> String {
-    let value = serde_json::to_value(notebook).expect("notebook serializes to JSON");
-    let mut buffer = Vec::new();
-    let formatter = serde_json::ser::PrettyFormatter::with_indent(b" ");
-    let mut serializer = serde_json::ser::Serializer::with_formatter(&mut buffer, formatter);
-    value
-        .serialize(&mut serializer)
-        .expect("JSON writes to memory");
-    let mut text = String::from_utf8(buffer).expect("serializer emits UTF-8");
-    if !text.ends_with('\n') {
-        text.push('\n');
-    }
-    text
+    write_ipynb(&notebook.to_json())
 }
