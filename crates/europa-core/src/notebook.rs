@@ -128,7 +128,7 @@ pub struct StreamOutput {
     pub text: MultilineText,
     /// Unknown output fields, preserved unchanged.
     pub extra: JsonMap,
-    /// Whether the output was read from a file or built by Europa.
+    /// Whether the output counts as new; see [`Output::is_new`].
     pub(crate) origin: OutputOrigin,
 }
 
@@ -141,7 +141,7 @@ pub struct DisplayDataOutput {
     pub metadata: JsonMap,
     /// Unknown output fields, preserved unchanged.
     pub extra: JsonMap,
-    /// Whether the output was read from a file or built by Europa.
+    /// Whether the output counts as new; see [`Output::is_new`].
     pub(crate) origin: OutputOrigin,
 }
 
@@ -156,7 +156,7 @@ pub struct ExecuteResultOutput {
     pub execution_count: Option<i64>,
     /// Unknown output fields, preserved unchanged.
     pub extra: JsonMap,
-    /// Whether the output was read from a file or built by Europa.
+    /// Whether the output counts as new; see [`Output::is_new`].
     pub(crate) origin: OutputOrigin,
 }
 
@@ -171,7 +171,7 @@ pub struct ErrorOutput {
     pub traceback: Vec<String>,
     /// Unknown output fields, preserved unchanged.
     pub extra: JsonMap,
-    /// Whether the output was read from a file or built by Europa.
+    /// Whether the output counts as new; see [`Output::is_new`].
     pub(crate) origin: OutputOrigin,
 }
 
@@ -185,6 +185,10 @@ pub struct UnknownOutput {
 }
 
 /// Code cell output, dispatched by `output_type`.
+///
+/// Build outputs for a code cell with the `Output::new_*` constructors, so
+/// that saving splits their text into lines the way nbformat does; see
+/// [`Output::is_new`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum Output {
     /// Stream output.
@@ -201,23 +205,31 @@ pub enum Output {
 
 /// Where an output came from.
 ///
-/// [`crate::parse`] makes every output `Loaded` and `Output::new_*` makes
-/// `New` ones. [`crate::serialize`] leaves the model unchanged, so a saved
-/// notebook keeps its `New` outputs until it is parsed again, which turns all
-/// of them into `Loaded`.
+/// [`crate::parse`] and serde `Deserialize` make every output `Loaded` and
+/// `Output::new_*` makes `New` ones. [`crate::serialize`] leaves the model
+/// unchanged, so a saved notebook keeps its `New` outputs until it is parsed
+/// again, which turns all of them into `Loaded`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OutputOrigin {
-    /// Read from a file; written back in the form it was read.
+    /// Read by [`crate::parse`] or serde; written back in the form it was read.
     Loaded,
-    /// Built by Europa; written in the canonical nbformat form.
+    /// Built by an `Output::new_*` constructor; saving splits its text into
+    /// lines and writes every other value, numbers included, as given.
     New,
 }
 
 impl Output {
-    /// Whether Europa built this output, as opposed to reading it from a file.
+    /// Whether this output was built with an `Output::new_*` constructor.
     ///
-    /// Always false for [`Output::Unknown`]. A saved notebook that is parsed
-    /// again reports false for every output.
+    /// Only such outputs have their text split into lines on save; see
+    /// [`crate::serialize`]. Outputs from [`crate::parse`] or from serde
+    /// `Deserialize`, such as a kernel message read with `serde_json`, report
+    /// false and are written in the form they were read. Always false for
+    /// [`Output::Unknown`].
+    ///
+    /// Saving does not change the flag, and parsing the saved text gives
+    /// outputs that report false. The flag takes part in `==`, so a new output
+    /// never equals one that was read, even with the same content.
     ///
     /// ```
     /// use europa_core::Output;
@@ -236,7 +248,7 @@ impl Output {
         origin == OutputOrigin::New
     }
 
-    /// Build a stream output that has not been saved yet.
+    /// Build a new stream output; see [`Output::is_new`].
     ///
     /// The text is kept as one string; saving splits it into lines the way
     /// nbformat does. Add the result to a code cell's `outputs`.
@@ -261,9 +273,14 @@ impl Output {
         })
     }
 
-    /// Build a display data output that has not been saved yet.
+    /// Build a new display data output; see [`Output::is_new`].
     ///
-    /// Text-like MIME values are split into lines when the notebook is saved.
+    /// Saving splits the string values in `data` whose MIME type starts with
+    /// `text/`, or is `application/javascript` or `image/svg+xml`, into lines
+    /// the way nbformat does. Every other value, such as `application/json`
+    /// data, a base64 image or anything in `metadata`, is written as given.
+    /// Numbers keep the literal they were built with, so pass the spelling of
+    /// Python's `repr` to match what nbformat writes.
     ///
     /// ```
     /// use europa_core::{JsonMap, Output};
@@ -283,9 +300,10 @@ impl Output {
         })
     }
 
-    /// Build an execute result output that has not been saved yet.
+    /// Build a new execute result output; see [`Output::is_new`].
     ///
-    /// Text-like MIME values are split into lines when the notebook is saved.
+    /// Saving writes `data` and `metadata` as [`Output::new_display_data`]
+    /// describes.
     #[must_use]
     pub fn new_execute_result(
         data: JsonMap,
@@ -301,7 +319,9 @@ impl Output {
         })
     }
 
-    /// Build an error output that has not been saved yet.
+    /// Build a new error output; see [`Output::is_new`].
+    ///
+    /// Saving writes every field as given, as nbformat does for errors.
     #[must_use]
     pub fn new_error(
         ename: impl Into<String>,
