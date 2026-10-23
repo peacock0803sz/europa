@@ -152,6 +152,13 @@ pub type JsonMap = BTreeMap<String, JsonValue>;
 /// JSON value whose numbers keep their literal text.
 ///
 /// Equality follows structure and number literals.
+///
+/// Only [`crate::parse`] and [`crate::serialize`] keep literals. The generic
+/// serde impls treat numbers as values: serializing writes an integer literal
+/// as an integer and anything else as an `f64`, and deserializing builds the
+/// literal from the `f64` that `serde_json` produces. That spelling can differ
+/// from Python's `repr`, so do not use the serde path where output must match
+/// Jupyter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JsonValue {
     /// `null`.

@@ -13,7 +13,9 @@ use crate::normalize::MultilineText;
 ///
 /// Use [`crate::parse`] to load notebooks. It is the only supported entry
 /// point: it validates the input and assigns cell identifiers. The serde
-/// `Deserialize` impl skips both, leaving every [`Cell::id`] empty.
+/// `Deserialize` impl skips both, leaving every [`Cell::id`] empty. The serde
+/// impls also read and write numbers as values, so only [`crate::parse`] and
+/// [`crate::serialize`] keep number literals as written.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Notebook {
     /// Major format version, always 4 for accepted files.
@@ -216,6 +218,12 @@ impl Output {
     ///
     /// Always false for [`Output::Unknown`]. A saved notebook that is parsed
     /// again reports false for every output.
+    ///
+    /// ```
+    /// use europa_core::Output;
+    ///
+    /// assert!(Output::new_stream("stdout", "hi\n").is_new());
+    /// ```
     #[must_use]
     pub fn is_new(&self) -> bool {
         let origin = match self {
@@ -232,6 +240,17 @@ impl Output {
     ///
     /// The text is kept as one string; saving splits it into lines the way
     /// nbformat does. Add the result to a code cell's `outputs`.
+    ///
+    /// ```
+    /// use europa_core::{Cell, Output};
+    ///
+    /// let bytes = br#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"code","id":"a","metadata":{},"source":"","outputs":[],"execution_count":null}]}"#;
+    /// let mut notebook = europa_core::parse(bytes).expect("loads");
+    /// if let Cell::Code(code) = &mut notebook.cells[0] {
+    ///     code.outputs.push(Output::new_stream("stdout", "a\nb\n"));
+    /// }
+    /// assert!(europa_core::serialize(&notebook).contains("\"a\\n\",\n"));
+    /// ```
     #[must_use]
     pub fn new_stream(name: impl Into<String>, text: impl Into<String>) -> Output {
         Output::Stream(StreamOutput {
@@ -245,6 +264,15 @@ impl Output {
     /// Build a display data output that has not been saved yet.
     ///
     /// Text-like MIME values are split into lines when the notebook is saved.
+    ///
+    /// ```
+    /// use europa_core::{JsonMap, Output};
+    ///
+    /// let mut data = JsonMap::new();
+    /// data.insert("text/plain".to_owned(), "one\ntwo".into());
+    /// let output = Output::new_display_data(data, JsonMap::new());
+    /// assert!(output.is_new());
+    /// ```
     #[must_use]
     pub fn new_display_data(data: JsonMap, metadata: JsonMap) -> Output {
         Output::DisplayData(DisplayDataOutput {
