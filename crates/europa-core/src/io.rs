@@ -2,10 +2,10 @@
 
 use std::collections::HashSet;
 
-use serde::Serialize;
 use serde_json::Value;
 
 use crate::error::ParseError;
+use crate::json::{read_validated, write_ipynb};
 use crate::notebook::Notebook;
 
 fn line_col(prefix: &[u8]) -> (usize, usize) {
@@ -576,29 +576,34 @@ pub fn parse(bytes: &[u8]) -> Result<Notebook, ParseError> {
             }
         }
     }
-    let mut notebook: Notebook = serde_json::from_value(value)
-        .map_err(|error| mismatch("", &format!("structural mismatch: {error}")))?;
+    // The validation tree rounds numbers; rebuild from the text to keep literals.
+    drop(value);
+    let mut notebook = Notebook::from_json(read_validated(text)?)?;
     crate::normalize::assign_cell_ids(&mut notebook.cells);
     Ok(notebook)
 }
 
 /// Serialize a notebook model back to `.ipynb` text.
 ///
-/// Keys sort by byte order at every level, which relies on the
-/// `serde_json` `preserve_order` feature staying off. Output uses
-/// one-space indentation and ends with a trailing newline.
-#[allow(clippy::missing_panics_doc)]
+/// The text follows the layout nbformat writes: one-space indentation, keys
+/// in code point order at every level, `": "` and `,` separators, non-ASCII
+/// text unescaped and a trailing newline. None of it depends on `serde_json`
+/// features.
+///
+/// Values read by [`parse`] keep their form. Numbers keep the literal they
+/// were read with, and a string stays a string while an array of strings
+/// keeps its elements as they were.
+///
+/// Saving splits text into lines only for outputs built with the
+/// `Output::new_*` constructors, such as
+/// [`Output::new_stream`](crate::Output::new_stream). Their stream `text`, and
+/// their string values of MIME types that start with `text/` or are
+/// `application/javascript` or `image/svg+xml`, are written as arrays of
+/// lines split the way Python's `str.splitlines(True)` splits them. Every
+/// other value of those outputs, numbers included, is written as given.
+///
+/// The model is not changed, so those outputs stay new until the saved text
+/// is parsed again; see [`Output::is_new`](crate::Output::is_new).
 pub fn serialize(notebook: &Notebook) -> String {
-    let value = serde_json::to_value(notebook).expect("notebook serializes to JSON");
-    let mut buffer = Vec::new();
-    let formatter = serde_json::ser::PrettyFormatter::with_indent(b" ");
-    let mut serializer = serde_json::ser::Serializer::with_formatter(&mut buffer, formatter);
-    value
-        .serialize(&mut serializer)
-        .expect("JSON writes to memory");
-    let mut text = String::from_utf8(buffer).expect("serializer emits UTF-8");
-    if !text.ends_with('\n') {
-        text.push('\n');
-    }
-    text
+    write_ipynb(&notebook.to_json())
 }

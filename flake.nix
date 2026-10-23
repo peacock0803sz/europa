@@ -49,6 +49,10 @@
               libiconv
             ];
           };
+
+          devShells.nbformat = pkgs.mkShell {
+            packages = [ (pkgs.python3.withPackages (ps: [ ps.nbformat ])) ];
+          };
         };
       flake = { };
     };

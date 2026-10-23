@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::json::JsonValue;
 use crate::notebook::Cell;
 
 /// Assign in-memory identifiers to cells in document order, in place.
@@ -12,7 +13,7 @@ use crate::notebook::Cell;
 /// written back.
 #[allow(clippy::missing_panics_doc)]
 pub(crate) fn assign_cell_ids(cells: &mut [Cell]) {
-    use serde_json::Value;
+    use crate::json::JsonValue as Value;
     use std::collections::HashSet;
 
     fn file_id(cell: &Cell) -> Option<&str> {
@@ -109,12 +110,15 @@ enum MultilineRepr {
 /// Multiline text with its original representation preserved.
 ///
 /// Holds whether the input was a string or an array of strings and
-/// writes back the same form. Reading uses the normalized text with
-/// CRLF resolved to LF; lone carriage returns are kept.
+/// writes back the same form. The exception is the text of a stream output
+/// built with [`Output::new_stream`](crate::Output::new_stream), which saving
+/// splits into lines; the output writer does that, not this type. Reading
+/// uses the normalized text with CRLF resolved to LF; lone carriage returns
+/// are kept.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultilineText {
     raw: MultilineRepr,
-    /// Normalized reading text, computed on deserialization.
+    /// Normalized reading text, computed whenever a value is built.
     normalized: String,
 }
 
@@ -131,6 +135,56 @@ impl MultilineText {
     #[must_use]
     pub fn text(&self) -> &str {
         &self.normalized
+    }
+}
+
+impl MultilineText {
+    fn from_repr(raw: MultilineRepr) -> MultilineText {
+        let joined = match &raw {
+            MultilineRepr::Single(text) => text.clone(),
+            MultilineRepr::Multiple(parts) => parts.concat(),
+        };
+        let normalized = joined.replace("\r\n", "\n");
+        MultilineText { raw, normalized }
+    }
+
+    /// Keep `text` as one string.
+    pub(crate) fn single(text: String) -> MultilineText {
+        Self::from_repr(MultilineRepr::Single(text))
+    }
+
+    /// The original string, when the text is held as a single string.
+    pub(crate) fn as_single(&self) -> Option<&str> {
+        match &self.raw {
+            MultilineRepr::Single(text) => Some(text),
+            MultilineRepr::Multiple(_) => None,
+        }
+    }
+
+    /// Read a string or an array of strings, keeping which form was used.
+    pub(crate) fn from_json(value: &JsonValue) -> Option<MultilineText> {
+        match value {
+            JsonValue::String(text) => Some(Self::from_repr(MultilineRepr::Single(text.clone()))),
+            JsonValue::Array(items) => items
+                .iter()
+                .map(|item| item.as_str().map(str::to_owned))
+                .collect::<Option<Vec<_>>>()
+                .map(|parts| Self::from_repr(MultilineRepr::Multiple(parts))),
+            _ => None,
+        }
+    }
+
+    /// Write the form held: one string or the array of strings.
+    pub(crate) fn to_json(&self) -> JsonValue {
+        match &self.raw {
+            MultilineRepr::Single(text) => JsonValue::from(text.as_str()),
+            MultilineRepr::Multiple(parts) => JsonValue::Array(
+                parts
+                    .iter()
+                    .map(|part| JsonValue::from(part.as_str()))
+                    .collect(),
+            ),
+        }
     }
 }
 

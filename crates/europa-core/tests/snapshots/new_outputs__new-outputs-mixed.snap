@@ -1,0 +1,69 @@
+---
+source: crates/europa-core/tests/new_outputs.rs
+expression: text
+---
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "md-1",
+   "metadata": {},
+   "source": "line1\nline2"
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "code-1",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": "a\nb\n"
+    },
+    {
+     "data": {
+      "text/html": [
+       "<b>a</b>\n",
+       "<i>b</i>"
+      ],
+      "text/plain": "multi\nline"
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "e1\n",
+      "e2"
+     ]
+    },
+    {
+     "data": {
+      "text/plain": [
+       "n1\n",
+       "n2"
+      ]
+     },
+     "metadata": {},
+     "output_type": "display_data"
+    }
+   ],
+   "source": "x = 1\r\ny = 2"
+  },
+  {
+   "cell_type": "raw",
+   "id": "raw-1",
+   "metadata": {},
+   "source": [
+    "a\n",
+    "b"
+   ]
+  }
+ ],
+ "metadata": {},
+ "nbformat": 4,
+ "nbformat_minor": 5
+}

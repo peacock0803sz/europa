@@ -1,0 +1,79 @@
+---
+source: crates/europa-core/tests/golden.rs
+expression: text
+---
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "id": "new-outputs",
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": "lf\ncr\rcrlf\r\nvt\u000bff\ffs\u001cgs\u001drs\u001enells ps tail"
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": ""
+    },
+    {
+     "data": {
+      "application/javascript": "a();\nb();\n",
+      "application/json": {
+       "big": 123456789012345678901234567890,
+       "neg": -0.0,
+       "s": "keep\nme",
+       "x": 1e-05,
+       "y": 1e+16,
+       "z": 0.1
+      },
+      "application/pdf": "JVBERi0xLjQK",
+      "application/vnd.custom+json": {
+       "k": "line1\nline2"
+      },
+      "image/png": "iVBORw0KGgo=\nAAAA",
+      "image/svg+xml": "<svg>\n</svg>\n",
+      "text/html": "<b>x</b>\n<i>y</i>\n",
+      "text/latex": "",
+      "text/markdown": "# h\n\nbody",
+      "text/plain": "lf\ncr\rcrlf\r\nvt\u000bff\ffs\u001cgs\u001drs\u001enells ps tail"
+     },
+     "metadata": {
+      "image/png": {
+       "height": 480,
+       "width": 640
+      }
+     },
+     "output_type": "display_data"
+    },
+    {
+     "data": {
+      "text/plain": "row1\nrow2"
+     },
+     "execution_count": 3,
+     "metadata": {},
+     "output_type": "execute_result"
+    },
+    {
+     "ename": "ValueError",
+     "evalue": "bad\nvalue",
+     "output_type": "error",
+     "traceback": [
+      "line1\n",
+      "line2"
+     ]
+    }
+   ],
+   "source": [
+    "show()"
+   ]
+  }
+ ],
+ "metadata": {},
+ "nbformat": 4,
+ "nbformat_minor": 5
+}

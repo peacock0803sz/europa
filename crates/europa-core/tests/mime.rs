@@ -1,7 +1,11 @@
 //! MIME bundle values stay untouched.
 
-use europa_core::{parse, serialize, Cell, Output};
+use europa_core::{parse, serialize, Cell, JsonValue, Output};
 use serde_json::Value;
+
+fn as_value(value: Option<&JsonValue>) -> Option<Value> {
+    value.map(|inner| serde_json::to_value(inner).expect("JSON value converts"))
+}
 
 fn code_cell(bytes: &[u8]) -> europa_core::Notebook {
     parse(bytes).expect("MIME fixture should load")
@@ -16,8 +20,8 @@ fn preserves_mime_values() {
         Cell::Code(code) => match &code.outputs[0] {
             Output::ExecuteResult(result) => {
                 assert_eq!(
-                    result.data.get("application/json"),
-                    Some(&serde_json::json!({"a": [1, 2]}))
+                    as_value(result.data.get("application/json")),
+                    Some(serde_json::json!({"a": [1, 2]}))
                 );
                 insta::assert_snapshot!(
                     "mime-application-json",
@@ -42,8 +46,8 @@ fn preserves_mime_values() {
             Cell::Code(code) => match &code.outputs[0] {
                 Output::DisplayData(data) => {
                     assert_eq!(
-                        data.data.get(mime),
-                        Some(&Value::String("aGVsbG8=".to_owned()))
+                        as_value(data.data.get(mime)),
+                        Some(Value::String("aGVsbG8=".to_owned()))
                     );
                 }
                 other => panic!("expected display data, got {other:?}"),
@@ -59,8 +63,8 @@ fn preserves_mime_values() {
         Cell::Code(code) => match &code.outputs[0] {
             Output::DisplayData(data) => {
                 assert_eq!(
-                    data.data.get("image/svg+xml"),
-                    Some(&serde_json::json!(["<svg>", "</svg>"]))
+                    as_value(data.data.get("image/svg+xml")),
+                    Some(serde_json::json!(["<svg>", "</svg>"]))
                 );
                 insta::assert_snapshot!(
                     "mime-bundle",
@@ -99,8 +103,16 @@ fn keeps_invalid_dimensions_without_failing() {
         match &notebook.cells[0] {
             Cell::Code(code) => match &code.outputs[0] {
                 Output::DisplayData(data) => {
-                    assert_eq!(data.metadata.get("width"), Some(&width), "{dimensions}");
-                    assert_eq!(data.metadata.get("height"), Some(&height), "{dimensions}");
+                    assert_eq!(
+                        as_value(data.metadata.get("width")),
+                        Some(width.clone()),
+                        "{dimensions}"
+                    );
+                    assert_eq!(
+                        as_value(data.metadata.get("height")),
+                        Some(height.clone()),
+                        "{dimensions}"
+                    );
                 }
                 other => panic!("expected display data, got {other:?}"),
             },

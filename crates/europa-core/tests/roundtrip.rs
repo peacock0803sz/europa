@@ -112,6 +112,38 @@ fn keeps_source_form_and_ids() {
     assert_eq!(cells[4].get("id"), Some(&serde_json::json!(123)));
 }
 
+// The arrays in this fixture do not break where `str.splitlines` would, so
+// splitting read values again on save would move their boundaries.
+#[test]
+fn keeps_element_boundaries_of_read_arrays() {
+    let (_, text) = roundtrip("array_boundaries.ipynb");
+    let out: serde_json::Value = serde_json::from_str(&text).expect("output parses");
+    for (pointer, expected) in [
+        (
+            "/cells/0/outputs/0/text",
+            serde_json::json!(["a", "b\n", "c\rd"]),
+        ),
+        (
+            "/cells/0/outputs/1/data/text~1html",
+            serde_json::json!(["<b>", "x</b>"]),
+        ),
+        (
+            "/cells/0/outputs/1/data/image~1svg+xml",
+            serde_json::json!(["<svg>", "</svg>"]),
+        ),
+        (
+            "/cells/0/outputs/1/data/text~1plain",
+            serde_json::json!(["one\ntwo"]),
+        ),
+        (
+            "/cells/0/outputs/2/data/text~1plain",
+            serde_json::json!(["p", "q\n"]),
+        ),
+    ] {
+        assert_eq!(out.pointer(pointer), Some(&expected), "{pointer}");
+    }
+}
+
 #[test]
 fn keeps_unknown_kinds_and_null_execution() {
     use europa_core::{Cell, Output};
@@ -140,29 +172,28 @@ fn keeps_unknown_kinds_and_null_execution() {
     );
 }
 
-// Numeric boundary checks guard against silent Cargo feature unification
-// changing number handling. Do not delete or relax these assertions.
+// Numbers are written back with the spelling they were read with, so these
+// assertions pin the literal on each output line. Key order and number
+// spelling no longer depend on `serde_json` features. The features that
+// validation needs are checked by `from_literal_agrees_with_parse_near_f64_max`
+// in `src/json.rs`.
 #[test]
 fn pins_number_roundtrip() {
     let (_, text) = roundtrip("numbers.ipynb");
-    let out: serde_json::Value = serde_json::from_str(&text).expect("output parses");
-    let meta = out.pointer("/cells/0/metadata").expect("metadata exists");
-    assert_eq!(meta.get("one_point_zero"), Some(&serde_json::json!(1.0)));
-    assert_eq!(
-        meta.get("seventeen"),
-        Some(&serde_json::json!(1.2345678901234567))
-    );
-    assert_eq!(
-        meta.get("max_float"),
-        Some(&serde_json::json!(1.7976931348623157e308))
-    );
-    assert_eq!(
-        meta.get("min_normal"),
-        Some(&serde_json::json!(2.2250738585072014e-308))
-    );
-    assert_eq!(
-        meta.get("big_u64"),
-        Some(&serde_json::json!(18446744073709551615u64))
-    );
+    for line in [
+        r#""one_point_zero": 1.0"#,
+        r#""seventeen": 1.2345678901234567"#,
+        r#""max_float": 1.7976931348623157e308"#,
+        r#""min_normal": 2.2250738585072014e-308"#,
+        r#""big_u64": 18446744073709551615"#,
+        r#""beyond_u64": 18446744073709551616"#,
+        r#""precise_beyond": 1.00000000000000011102230246251565404236316680908203125"#,
+    ] {
+        assert!(
+            text.lines()
+                .any(|found| found.trim().trim_end_matches(',') == line),
+            "missing line {line} in:\n{text}"
+        );
+    }
     insta::assert_snapshot!("roundtrip-numbers", text);
 }

@@ -1,0 +1,3 @@
+# Keep the CRLF in the generator inputs and the LF in the expected outputs
+# byte-for-byte; Git must not convert either of them.
+crates/europa-core/tests/fixtures/golden/** -text
