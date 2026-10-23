@@ -110,12 +110,15 @@ enum MultilineRepr {
 /// Multiline text with its original representation preserved.
 ///
 /// Holds whether the input was a string or an array of strings and
-/// writes back the same form. Reading uses the normalized text with
-/// CRLF resolved to LF; lone carriage returns are kept.
+/// writes back the same form. The exception is the text of a stream output
+/// built with [`Output::new_stream`](crate::Output::new_stream), which saving
+/// splits into lines; the output writer does that, not this type. Reading
+/// uses the normalized text with CRLF resolved to LF; lone carriage returns
+/// are kept.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultilineText {
     raw: MultilineRepr,
-    /// Normalized reading text, computed on deserialization.
+    /// Normalized reading text, computed whenever a value is built.
     normalized: String,
 }
 
@@ -171,7 +174,7 @@ impl MultilineText {
         }
     }
 
-    /// Write back in the form that was read.
+    /// Write the form held: one string or the array of strings.
     pub(crate) fn to_json(&self) -> JsonValue {
         match &self.raw {
             MultilineRepr::Single(text) => JsonValue::from(text.as_str()),
