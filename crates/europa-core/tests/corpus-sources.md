@@ -45,3 +45,29 @@ sequences, unpaired surrogate escapes, and duplicate keys detected via
 `jq` cannot distinguish (fractional forms of integer fields or integers
 with 16 or more digits) become `review` for human confirmation. All
 other files become `load` or the first matching reject reason.
+
+## Rewriting with nbformat
+
+`corpus_write` compares what Europa saves with what Jupyter saves, so the
+comparison needs the corpus rewritten by nbformat. Run from the repository
+root, after fetching the corpus:
+
+```fish
+nix develop .#nbformat --command bash scripts/nbformat-rewrite.sh corpus
+EUROPA_JUPYTER_DIR=target/europa-corpus-jupyter cargo test -p europa-core --test corpus_write -- --ignored
+```
+
+The script reads every `load` row of `corpus-expected.tsv` from
+`EUROPA_CORPUS_DIR` and writes the nbformat rewrite to the same relative path
+under `EUROPA_JUPYTER_DIR` (default `target/europa-corpus-jupyter`).
+
+Before it deletes the `.ipynb` files in the destination, the script resolves
+both locations with `realpath -m` and stops without deleting anything unless
+the destination lies below the repository `target/` directory and neither
+location contains the other. Only `.ipynb` files inside the destination are
+deleted.
+
+The rewrite uses the pinned nbformat version in `scripts/nbformat-rewrite.sh`,
+the same one that produces the golden notebooks. `validate` can add random cell
+ids, which does not matter because the test compares Europa with the rewrite
+itself. The rewrites are not committed.
