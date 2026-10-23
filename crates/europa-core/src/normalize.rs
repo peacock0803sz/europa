@@ -135,16 +135,40 @@ impl MultilineText {
     }
 }
 
-#[allow(dead_code, unused_variables)]
 impl MultilineText {
+    fn from_repr(raw: MultilineRepr) -> MultilineText {
+        let joined = match &raw {
+            MultilineRepr::Single(text) => text.clone(),
+            MultilineRepr::Multiple(parts) => parts.concat(),
+        };
+        let normalized = joined.replace("\r\n", "\n");
+        MultilineText { raw, normalized }
+    }
+
     /// Read a string or an array of strings, keeping which form was used.
     pub(crate) fn from_json(value: &JsonValue) -> Option<MultilineText> {
-        todo!()
+        match value {
+            JsonValue::String(text) => Some(Self::from_repr(MultilineRepr::Single(text.clone()))),
+            JsonValue::Array(items) => items
+                .iter()
+                .map(|item| item.as_str().map(str::to_owned))
+                .collect::<Option<Vec<_>>>()
+                .map(|parts| Self::from_repr(MultilineRepr::Multiple(parts))),
+            _ => None,
+        }
     }
 
     /// Write back in the form that was read.
     pub(crate) fn to_json(&self) -> JsonValue {
-        todo!()
+        match &self.raw {
+            MultilineRepr::Single(text) => JsonValue::from(text.as_str()),
+            MultilineRepr::Multiple(parts) => JsonValue::Array(
+                parts
+                    .iter()
+                    .map(|part| JsonValue::from(part.as_str()))
+                    .collect(),
+            ),
+        }
     }
 }
 

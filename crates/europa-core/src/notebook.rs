@@ -1,7 +1,6 @@
 //! Notebook model types.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::error::ParseError;
 use crate::json::{JsonMap, JsonValue};
@@ -14,7 +13,7 @@ use crate::normalize::MultilineText;
 /// Use [`crate::parse`] to load notebooks. It is the only supported entry
 /// point: it validates the input and assigns cell identifiers. The serde
 /// `Deserialize` impl skips both, leaving every [`Cell::id`] empty.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Notebook {
     /// Major format version, always 4 for accepted files.
     pub nbformat: u32,
@@ -25,15 +24,13 @@ pub struct Notebook {
     /// Cells in document order.
     pub cells: Vec<Cell>,
     /// Unknown top-level fields, preserved unchanged.
-    #[serde(flatten)]
     pub extra: JsonMap,
 }
 
 /// Code cell with execution outputs.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CodeCell {
     /// In-memory identifier, never written back.
-    #[serde(skip, default)]
     pub(crate) mem_id: String,
     /// Cell source text.
     pub source: MultilineText,
@@ -44,50 +41,43 @@ pub struct CodeCell {
     /// Execution counter, or null when never executed.
     pub execution_count: Option<i64>,
     /// Unknown cell fields, preserved unchanged.
-    #[serde(flatten)]
     pub extra: JsonMap,
 }
 
 /// Markdown cell.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MarkdownCell {
     /// In-memory identifier, never written back.
-    #[serde(skip, default)]
     pub(crate) mem_id: String,
     /// Cell source text.
     pub source: MultilineText,
     /// Cell-level metadata object.
     pub metadata: JsonMap,
     /// Unknown cell fields, preserved unchanged.
-    #[serde(flatten)]
     pub extra: JsonMap,
 }
 
 /// Raw cell.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RawCell {
     /// In-memory identifier, never written back.
-    #[serde(skip, default)]
     pub(crate) mem_id: String,
     /// Cell source text.
     pub source: MultilineText,
     /// Cell-level metadata object.
     pub metadata: JsonMap,
     /// Unknown cell fields, preserved unchanged.
-    #[serde(flatten)]
     pub extra: JsonMap,
 }
 
 /// Cell with an unrecognized `cell_type`.
 ///
 /// Keeps the whole object unchanged.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UnknownCell {
     /// Entire original object.
-    #[serde(flatten)]
     pub value: JsonMap,
     /// In-memory identifier, never written back.
-    #[serde(skip, default)]
     pub(crate) mem_id: String,
 }
 
@@ -126,107 +116,30 @@ impl Cell {
     }
 }
 
-impl Serialize for Cell {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            Self::Code(inner) => {
-                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
-                if let Value::Object(ref mut map) = value {
-                    map.insert("cell_type".to_owned(), Value::String("code".to_owned()));
-                }
-                value.serialize(serializer)
-            }
-            Self::Markdown(inner) => {
-                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
-                if let Value::Object(ref mut map) = value {
-                    map.insert("cell_type".to_owned(), Value::String("markdown".to_owned()));
-                }
-                value.serialize(serializer)
-            }
-            Self::Raw(inner) => {
-                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
-                if let Value::Object(ref mut map) = value {
-                    map.insert("cell_type".to_owned(), Value::String("raw".to_owned()));
-                }
-                value.serialize(serializer)
-            }
-            Self::Unknown(inner) => inner.value.serialize(serializer),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for Cell {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let mut map = JsonMap::deserialize(deserializer)?;
-        let kind = match map.get("cell_type") {
-            Some(JsonValue::String(s)) => s.clone(),
-            _ => {
-                return Err(serde::de::Error::custom("missing or invalid cell_type"));
-            }
-        };
-        match kind.as_str() {
-            "code" | "markdown" | "raw" => {
-                map.remove("cell_type");
-                let value = serde_json::to_value(JsonValue::Object(map))
-                    .map_err(serde::de::Error::custom)?;
-                match kind.as_str() {
-                    "code" => {
-                        let inner: CodeCell =
-                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-                        Ok(Self::Code(inner))
-                    }
-                    "markdown" => {
-                        let inner: MarkdownCell =
-                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-                        Ok(Self::Markdown(inner))
-                    }
-                    _ => {
-                        let inner: RawCell =
-                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-                        Ok(Self::Raw(inner))
-                    }
-                }
-            }
-            _ => Ok(Self::Unknown(UnknownCell {
-                value: map,
-                mem_id: String::new(),
-            })),
-        }
-    }
-}
-
 /// Stream output with a name and text.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StreamOutput {
     /// Stream name such as stdout or stderr.
     pub name: String,
     /// Stream text.
     pub text: MultilineText,
     /// Unknown output fields, preserved unchanged.
-    #[serde(flatten)]
     pub extra: JsonMap,
 }
 
 /// Display data output with a MIME bundle.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DisplayDataOutput {
     /// MIME bundle mapping type to value.
     pub data: JsonMap,
     /// Per-MIME metadata object.
     pub metadata: JsonMap,
     /// Unknown output fields, preserved unchanged.
-    #[serde(flatten)]
     pub extra: JsonMap,
 }
 
 /// Execute result output with a MIME bundle.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExecuteResultOutput {
     /// MIME bundle mapping type to value.
     pub data: JsonMap,
@@ -235,12 +148,11 @@ pub struct ExecuteResultOutput {
     /// Execution counter, or null.
     pub execution_count: Option<i64>,
     /// Unknown output fields, preserved unchanged.
-    #[serde(flatten)]
     pub extra: JsonMap,
 }
 
 /// Error output with traceback.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ErrorOutput {
     /// Exception name.
     pub ename: String,
@@ -249,17 +161,15 @@ pub struct ErrorOutput {
     /// Traceback lines.
     pub traceback: Vec<String>,
     /// Unknown output fields, preserved unchanged.
-    #[serde(flatten)]
     pub extra: JsonMap,
 }
 
 /// Output with an unrecognized `output_type`.
 ///
 /// Keeps the whole object unchanged.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UnknownOutput {
     /// Entire original object.
-    #[serde(flatten)]
     pub value: JsonMap,
 }
 
@@ -278,226 +188,626 @@ pub enum Output {
     Unknown(UnknownOutput),
 }
 
-impl Serialize for Output {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            Self::Stream(inner) => {
-                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
-                if let Value::Object(ref mut map) = value {
-                    map.insert("output_type".to_owned(), Value::String("stream".to_owned()));
-                }
-                value.serialize(serializer)
-            }
-            Self::DisplayData(inner) => {
-                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
-                if let Value::Object(ref mut map) = value {
-                    map.insert(
-                        "output_type".to_owned(),
-                        Value::String("display_data".to_owned()),
-                    );
-                }
-                value.serialize(serializer)
-            }
-            Self::ExecuteResult(inner) => {
-                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
-                if let Value::Object(ref mut map) = value {
-                    map.insert(
-                        "output_type".to_owned(),
-                        Value::String("execute_result".to_owned()),
-                    );
-                }
-                value.serialize(serializer)
-            }
-            Self::Error(inner) => {
-                let mut value = serde_json::to_value(inner).map_err(serde::ser::Error::custom)?;
-                if let Value::Object(ref mut map) = value {
-                    map.insert("output_type".to_owned(), Value::String("error".to_owned()));
-                }
-                value.serialize(serializer)
-            }
-            Self::Unknown(inner) => inner.value.serialize(serializer),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for Output {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let mut map = JsonMap::deserialize(deserializer)?;
-        let kind = match map.get("output_type") {
-            Some(JsonValue::String(s)) => s.clone(),
-            _ => {
-                return Err(serde::de::Error::custom("missing or invalid output_type"));
-            }
-        };
-        match kind.as_str() {
-            "stream" | "display_data" | "execute_result" | "error" => {
-                map.remove("output_type");
-                let value = serde_json::to_value(JsonValue::Object(map))
-                    .map_err(serde::de::Error::custom)?;
-                match kind.as_str() {
-                    "stream" => {
-                        let inner: StreamOutput =
-                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-                        Ok(Self::Stream(inner))
-                    }
-                    "display_data" => {
-                        let inner: DisplayDataOutput =
-                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-                        Ok(Self::DisplayData(inner))
-                    }
-                    "execute_result" => {
-                        let inner: ExecuteResultOutput =
-                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-                        Ok(Self::ExecuteResult(inner))
-                    }
-                    _ => {
-                        let inner: ErrorOutput =
-                            serde_json::from_value(value).map_err(serde::de::Error::custom)?;
-                        Ok(Self::Error(inner))
-                    }
-                }
-            }
-            _ => Ok(Self::Unknown(UnknownOutput { value: map })),
-        }
-    }
-}
-
 // Conversion between the model and the literal-preserving JSON tree.
 
-#[allow(dead_code, unused_variables)]
-impl Notebook {
-    pub(crate) fn from_json(value: JsonValue) -> Result<Notebook, ParseError> {
-        todo!()
-    }
-
-    pub(crate) fn to_json(&self) -> JsonValue {
-        todo!()
+fn mismatch(path: &str, message: &str) -> ParseError {
+    ParseError::Mismatch {
+        path: path.to_owned(),
+        message: message.to_owned(),
     }
 }
 
-#[allow(dead_code, unused_variables)]
-impl Cell {
-    pub(crate) fn from_json(value: JsonValue, path: &str) -> Result<Cell, ParseError> {
-        todo!()
-    }
+fn child(path: &str, key: &str) -> String {
+    format!("{path}/{key}")
+}
 
-    pub(crate) fn to_json(&self) -> JsonValue {
-        todo!()
+fn take_object(
+    map: &mut JsonMap,
+    key: &str,
+    path: &str,
+    message: &str,
+) -> Result<JsonMap, ParseError> {
+    match map.remove(key) {
+        Some(JsonValue::Object(inner)) => Ok(inner),
+        _ => Err(mismatch(&child(path, key), message)),
     }
 }
 
-#[allow(dead_code, unused_variables)]
-impl Output {
-    pub(crate) fn from_json(value: JsonValue, path: &str) -> Result<Output, ParseError> {
-        todo!()
+fn take_string(
+    map: &mut JsonMap,
+    key: &str,
+    path: &str,
+    message: &str,
+) -> Result<String, ParseError> {
+    match map.remove(key) {
+        Some(JsonValue::String(text)) => Ok(text),
+        _ => Err(mismatch(&child(path, key), message)),
     }
+}
 
-    pub(crate) fn to_json(&self) -> JsonValue {
-        todo!()
+fn take_text(map: &mut JsonMap, key: &str, path: &str) -> Result<MultilineText, ParseError> {
+    map.remove(key)
+        .as_ref()
+        .and_then(MultilineText::from_json)
+        .ok_or_else(|| mismatch(&child(path, key), "must be a string or an array of strings"))
+}
+
+fn take_count(map: &mut JsonMap, path: &str) -> Result<Option<i64>, ParseError> {
+    match map.remove("execution_count") {
+        Some(JsonValue::Null) => Ok(None),
+        Some(JsonValue::Number(number)) if number.as_i64().is_some() => Ok(number.as_i64()),
+        _ => Err(mismatch(
+            &child(path, "execution_count"),
+            "execution_count must be an i64 integer or null",
+        )),
     }
+}
+
+fn count_to_json(count: Option<i64>) -> JsonValue {
+    count.map_or(JsonValue::Null, JsonValue::from)
 }
 
 /// Conversion of a struct to and from an object without its kind key.
 ///
 /// `UnknownCell` and `UnknownOutput` convert the whole object instead.
-#[allow(dead_code, unused_variables)]
 trait JsonMapConvert: Sized {
     fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError>;
     fn to_json_map(&self) -> JsonMap;
 }
 
+macro_rules! serde_via_map {
+    ($($ty:ty),* $(,)?) => {$(
+        impl Serialize for $ty {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.to_json_map().serialize(serializer)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $ty {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let map = JsonMap::deserialize(deserializer)?;
+                Self::from_json_map(map, "").map_err(serde::de::Error::custom)
+            }
+        }
+    )*};
+}
+
+serde_via_map!(
+    CodeCell,
+    MarkdownCell,
+    RawCell,
+    UnknownCell,
+    StreamOutput,
+    DisplayDataOutput,
+    ExecuteResultOutput,
+    ErrorOutput,
+    UnknownOutput,
+);
+
+macro_rules! serde_via_json {
+    ($($ty:ty),* $(,)?) => {$(
+        impl Serialize for $ty {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                self.to_json().serialize(serializer)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $ty {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let value = JsonValue::deserialize(deserializer)?;
+                Self::from_json(value, "").map_err(serde::de::Error::custom)
+            }
+        }
+    )*};
+}
+
+serde_via_json!(Cell, Output);
+
+impl Serialize for Notebook {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.to_json().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Notebook {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = JsonValue::deserialize(deserializer)?;
+        Self::from_json(value).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Notebook {
+    pub(crate) fn from_json(value: JsonValue) -> Result<Notebook, ParseError> {
+        let JsonValue::Object(mut map) = value else {
+            return Err(mismatch("", "root must be an object"));
+        };
+        let version = |map: &mut JsonMap, key: &str| match map.remove(key) {
+            Some(JsonValue::Number(number)) => number.as_u64().and_then(|n| u32::try_from(n).ok()),
+            _ => None,
+        };
+        let nbformat =
+            version(&mut map, "nbformat").ok_or_else(|| ParseError::InvalidNbformat {
+                path: "/nbformat".to_owned(),
+                message: "nbformat must be integer 4".to_owned(),
+            })?;
+        let nbformat_minor = version(&mut map, "nbformat_minor").ok_or_else(|| {
+            ParseError::InvalidNbformatMinor {
+                path: "/nbformat_minor".to_owned(),
+                message: "nbformat_minor must be a u32 integer".to_owned(),
+            }
+        })?;
+        let metadata = take_object(&mut map, "metadata", "", "metadata must be an object")?;
+        let items = match map.remove("cells") {
+            Some(JsonValue::Array(items)) => items,
+            _ => return Err(mismatch("/cells", "cells must be an array")),
+        };
+        let cells = items
+            .into_iter()
+            .enumerate()
+            .map(|(idx, item)| Cell::from_json(item, &format!("/cells/{idx}")))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Notebook {
+            nbformat,
+            nbformat_minor,
+            metadata,
+            cells,
+            extra: map,
+        })
+    }
+
+    pub(crate) fn to_json(&self) -> JsonValue {
+        let mut map = self.extra.clone();
+        map.insert("nbformat".to_owned(), u64::from(self.nbformat).into());
+        map.insert(
+            "nbformat_minor".to_owned(),
+            u64::from(self.nbformat_minor).into(),
+        );
+        map.insert("metadata".to_owned(), self.metadata.clone().into());
+        map.insert(
+            "cells".to_owned(),
+            self.cells
+                .iter()
+                .map(Cell::to_json)
+                .collect::<Vec<_>>()
+                .into(),
+        );
+        JsonValue::Object(map)
+    }
+}
+
+/// Split the object into its kind and the remaining fields.
+fn take_kind(
+    value: JsonValue,
+    kind_key: &str,
+    path: &str,
+    noun: &str,
+) -> Result<(String, JsonMap), ParseError> {
+    let JsonValue::Object(map) = value else {
+        return Err(mismatch(path, &format!("{noun} must be an object")));
+    };
+    match map.get(kind_key) {
+        Some(JsonValue::String(kind)) => Ok((kind.clone(), map)),
+        _ => Err(mismatch(
+            &child(path, kind_key),
+            &format!("{kind_key} must be a string"),
+        )),
+    }
+}
+
+impl Cell {
+    pub(crate) fn from_json(value: JsonValue, path: &str) -> Result<Cell, ParseError> {
+        let (kind, mut map) = take_kind(value, "cell_type", path, "cell")?;
+        match kind.as_str() {
+            "code" => {
+                map.remove("cell_type");
+                CodeCell::from_json_map(map, path).map(Cell::Code)
+            }
+            "markdown" => {
+                map.remove("cell_type");
+                MarkdownCell::from_json_map(map, path).map(Cell::Markdown)
+            }
+            "raw" => {
+                map.remove("cell_type");
+                RawCell::from_json_map(map, path).map(Cell::Raw)
+            }
+            _ => UnknownCell::from_json_map(map, path).map(Cell::Unknown),
+        }
+    }
+
+    pub(crate) fn to_json(&self) -> JsonValue {
+        let (kind, mut map) = match self {
+            Self::Code(inner) => ("code", inner.to_json_map()),
+            Self::Markdown(inner) => ("markdown", inner.to_json_map()),
+            Self::Raw(inner) => ("raw", inner.to_json_map()),
+            Self::Unknown(inner) => return JsonValue::Object(inner.to_json_map()),
+        };
+        map.insert("cell_type".to_owned(), kind.into());
+        JsonValue::Object(map)
+    }
+}
+
+impl Output {
+    pub(crate) fn from_json(value: JsonValue, path: &str) -> Result<Output, ParseError> {
+        let (kind, mut map) = take_kind(value, "output_type", path, "output")?;
+        match kind.as_str() {
+            "stream" => {
+                map.remove("output_type");
+                StreamOutput::from_json_map(map, path).map(Output::Stream)
+            }
+            "display_data" => {
+                map.remove("output_type");
+                DisplayDataOutput::from_json_map(map, path).map(Output::DisplayData)
+            }
+            "execute_result" => {
+                map.remove("output_type");
+                ExecuteResultOutput::from_json_map(map, path).map(Output::ExecuteResult)
+            }
+            "error" => {
+                map.remove("output_type");
+                ErrorOutput::from_json_map(map, path).map(Output::Error)
+            }
+            _ => UnknownOutput::from_json_map(map, path).map(Output::Unknown),
+        }
+    }
+
+    pub(crate) fn to_json(&self) -> JsonValue {
+        let (kind, mut map) = match self {
+            Self::Stream(inner) => ("stream", inner.to_json_map()),
+            Self::DisplayData(inner) => ("display_data", inner.to_json_map()),
+            Self::ExecuteResult(inner) => ("execute_result", inner.to_json_map()),
+            Self::Error(inner) => ("error", inner.to_json_map()),
+            Self::Unknown(inner) => return JsonValue::Object(inner.to_json_map()),
+        };
+        map.insert("output_type".to_owned(), kind.into());
+        JsonValue::Object(map)
+    }
+}
+
 impl JsonMapConvert for CodeCell {
-    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
-        todo!()
+    fn from_json_map(mut map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        let source = take_text(&mut map, "source", path)?;
+        let metadata = take_object(
+            &mut map,
+            "metadata",
+            path,
+            "cell metadata must be an object",
+        )?;
+        let outputs_path = child(path, "outputs");
+        let outputs = match map.remove("outputs") {
+            Some(JsonValue::Array(items)) => items
+                .into_iter()
+                .enumerate()
+                .map(|(idx, item)| Output::from_json(item, &format!("{outputs_path}/{idx}")))
+                .collect::<Result<Vec<_>, _>>()?,
+            _ => return Err(mismatch(&outputs_path, "outputs must be an array")),
+        };
+        let execution_count = take_count(&mut map, path)?;
+        Ok(CodeCell {
+            mem_id: String::new(),
+            source,
+            metadata,
+            outputs,
+            execution_count,
+            extra: map,
+        })
     }
 
     fn to_json_map(&self) -> JsonMap {
-        todo!()
+        let mut map = self.extra.clone();
+        map.insert("source".to_owned(), self.source.to_json());
+        map.insert("metadata".to_owned(), self.metadata.clone().into());
+        map.insert(
+            "outputs".to_owned(),
+            self.outputs
+                .iter()
+                .map(Output::to_json)
+                .collect::<Vec<_>>()
+                .into(),
+        );
+        map.insert(
+            "execution_count".to_owned(),
+            count_to_json(self.execution_count),
+        );
+        map
     }
 }
 
 impl JsonMapConvert for MarkdownCell {
-    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
-        todo!()
+    fn from_json_map(mut map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        let source = take_text(&mut map, "source", path)?;
+        let metadata = take_object(
+            &mut map,
+            "metadata",
+            path,
+            "cell metadata must be an object",
+        )?;
+        Ok(MarkdownCell {
+            mem_id: String::new(),
+            source,
+            metadata,
+            extra: map,
+        })
     }
 
     fn to_json_map(&self) -> JsonMap {
-        todo!()
+        let mut map = self.extra.clone();
+        map.insert("source".to_owned(), self.source.to_json());
+        map.insert("metadata".to_owned(), self.metadata.clone().into());
+        map
     }
 }
 
 impl JsonMapConvert for RawCell {
-    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
-        todo!()
+    fn from_json_map(mut map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        let source = take_text(&mut map, "source", path)?;
+        let metadata = take_object(
+            &mut map,
+            "metadata",
+            path,
+            "cell metadata must be an object",
+        )?;
+        Ok(RawCell {
+            mem_id: String::new(),
+            source,
+            metadata,
+            extra: map,
+        })
     }
 
     fn to_json_map(&self) -> JsonMap {
-        todo!()
+        let mut map = self.extra.clone();
+        map.insert("source".to_owned(), self.source.to_json());
+        map.insert("metadata".to_owned(), self.metadata.clone().into());
+        map
     }
 }
 
 impl JsonMapConvert for UnknownCell {
-    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
-        todo!()
+    fn from_json_map(map: JsonMap, _path: &str) -> Result<Self, ParseError> {
+        Ok(UnknownCell {
+            value: map,
+            mem_id: String::new(),
+        })
     }
 
     fn to_json_map(&self) -> JsonMap {
-        todo!()
+        self.value.clone()
     }
 }
 
 impl JsonMapConvert for StreamOutput {
-    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
-        todo!()
+    fn from_json_map(mut map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        let name = take_string(&mut map, "name", path, "stream name must be a string")?;
+        let text = take_text(&mut map, "text", path)?;
+        Ok(StreamOutput {
+            name,
+            text,
+            extra: map,
+        })
     }
 
     fn to_json_map(&self) -> JsonMap {
-        todo!()
+        let mut map = self.extra.clone();
+        map.insert("name".to_owned(), self.name.as_str().into());
+        map.insert("text".to_owned(), self.text.to_json());
+        map
     }
 }
 
 impl JsonMapConvert for DisplayDataOutput {
-    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
-        todo!()
+    fn from_json_map(mut map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        let data = take_object(&mut map, "data", path, "data must be an object")?;
+        let metadata = take_object(
+            &mut map,
+            "metadata",
+            path,
+            "output metadata must be an object",
+        )?;
+        Ok(DisplayDataOutput {
+            data,
+            metadata,
+            extra: map,
+        })
     }
 
     fn to_json_map(&self) -> JsonMap {
-        todo!()
+        let mut map = self.extra.clone();
+        map.insert("data".to_owned(), self.data.clone().into());
+        map.insert("metadata".to_owned(), self.metadata.clone().into());
+        map
     }
 }
 
 impl JsonMapConvert for ExecuteResultOutput {
-    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
-        todo!()
+    fn from_json_map(mut map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        let data = take_object(&mut map, "data", path, "data must be an object")?;
+        let metadata = take_object(
+            &mut map,
+            "metadata",
+            path,
+            "output metadata must be an object",
+        )?;
+        let execution_count = take_count(&mut map, path)?;
+        Ok(ExecuteResultOutput {
+            data,
+            metadata,
+            execution_count,
+            extra: map,
+        })
     }
 
     fn to_json_map(&self) -> JsonMap {
-        todo!()
+        let mut map = self.extra.clone();
+        map.insert("data".to_owned(), self.data.clone().into());
+        map.insert("metadata".to_owned(), self.metadata.clone().into());
+        map.insert(
+            "execution_count".to_owned(),
+            count_to_json(self.execution_count),
+        );
+        map
     }
 }
 
 impl JsonMapConvert for ErrorOutput {
-    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
-        todo!()
+    fn from_json_map(mut map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        let ename = take_string(&mut map, "ename", path, "ename must be a string")?;
+        let evalue = take_string(&mut map, "evalue", path, "evalue must be a string")?;
+        let traceback = match map.remove("traceback") {
+            Some(JsonValue::Array(lines)) => lines
+                .into_iter()
+                .map(|line| match line {
+                    JsonValue::String(text) => Some(text),
+                    _ => None,
+                })
+                .collect::<Option<Vec<_>>>(),
+            _ => None,
+        }
+        .ok_or_else(|| {
+            mismatch(
+                &child(path, "traceback"),
+                "traceback must be an array of strings",
+            )
+        })?;
+        Ok(ErrorOutput {
+            ename,
+            evalue,
+            traceback,
+            extra: map,
+        })
     }
 
     fn to_json_map(&self) -> JsonMap {
-        todo!()
+        let mut map = self.extra.clone();
+        map.insert("ename".to_owned(), self.ename.as_str().into());
+        map.insert("evalue".to_owned(), self.evalue.as_str().into());
+        map.insert(
+            "traceback".to_owned(),
+            self.traceback
+                .iter()
+                .map(|line| JsonValue::from(line.as_str()))
+                .collect::<Vec<_>>()
+                .into(),
+        );
+        map
     }
 }
 
 impl JsonMapConvert for UnknownOutput {
-    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
-        todo!()
+    fn from_json_map(map: JsonMap, _path: &str) -> Result<Self, ParseError> {
+        Ok(UnknownOutput { value: map })
     }
 
     fn to_json_map(&self) -> JsonMap {
-        todo!()
+        self.value.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::json::read_validated;
+
+    fn load(text: &str) -> Result<Notebook, ParseError> {
+        Notebook::from_json(read_validated(text).expect("reads"))
+    }
+
+    fn mismatch_path(text: &str) -> String {
+        match load(text) {
+            Err(ParseError::Mismatch { path, .. }) => path,
+            other => panic!("expected a mismatch, got {other:?}"),
+        }
+    }
+
+    const HEAD: &str = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":"#;
+
+    #[test]
+    fn reports_missing_cells() {
+        assert_eq!(
+            mismatch_path(r#"{"nbformat":4,"nbformat_minor":5,"metadata":{}}"#),
+            "/cells"
+        );
+    }
+
+    #[test]
+    fn reports_missing_execution_count() {
+        let text =
+            format!(r#"{HEAD}[{{"cell_type":"code","source":"","metadata":{{}},"outputs":[]}}]}}"#);
+        assert_eq!(mismatch_path(&text), "/cells/0/execution_count");
+    }
+
+    #[test]
+    fn reports_missing_output_type() {
+        let text = format!(
+            r#"{HEAD}[{{"cell_type":"code","source":"","metadata":{{}},"outputs":[{{}}],"execution_count":null}}]}}"#
+        );
+        assert_eq!(mismatch_path(&text), "/cells/0/outputs/0/output_type");
+    }
+
+    #[test]
+    fn reports_numeric_source() {
+        let text = format!(r#"{HEAD}[{{"cell_type":"raw","source":3,"metadata":{{}}}}]}}"#);
+        assert_eq!(mismatch_path(&text), "/cells/0/source");
+    }
+
+    #[test]
+    fn known_fields_and_kind_win_over_extra() {
+        let mut extra = JsonMap::new();
+        extra.insert("source".to_owned(), JsonValue::from(1_i64));
+        extra.insert("cell_type".to_owned(), JsonValue::from("other"));
+        extra.insert("kept".to_owned(), JsonValue::from(true));
+        let cell = Cell::Code(CodeCell {
+            mem_id: "cell-1".to_owned(),
+            source: MultilineText::from_json(&JsonValue::from("a")).expect("string"),
+            metadata: JsonMap::new(),
+            outputs: Vec::new(),
+            execution_count: None,
+            extra,
+        });
+        let object = cell.to_json();
+        let map = object.as_object().expect("object");
+        assert_eq!(map["source"], JsonValue::from("a"));
+        assert_eq!(map["cell_type"], JsonValue::from("code"));
+        assert_eq!(map["kept"], JsonValue::from(true));
+        assert!(!map.contains_key("id"), "in-memory id is never written");
+    }
+
+    #[test]
+    fn serde_keeps_kind_keys_on_the_enums_only() {
+        let notebook = load(&format!(
+            r#"{HEAD}[{{"cell_type":"code","source":"","metadata":{{}},"outputs":[],"execution_count":null}}]}}"#
+        ))
+        .expect("loads");
+        let Cell::Code(inner) = &notebook.cells[0] else {
+            panic!("code cell");
+        };
+        let bare = serde_json::to_value(inner).expect("serializes");
+        assert!(bare.get("cell_type").is_none());
+        let tagged = serde_json::to_value(&notebook.cells[0]).expect("serializes");
+        assert_eq!(tagged["cell_type"], "code");
+    }
+
+    #[test]
+    fn plain_deserialize_leaves_ids_empty() {
+        let text = format!(r#"{HEAD}[{{"cell_type":"markdown","source":"","metadata":{{}}}}]}}"#);
+        let notebook: Notebook = serde_json::from_str(&text).expect("deserializes");
+        assert_eq!(notebook.cells[0].id(), "");
     }
 }
