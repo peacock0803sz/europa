@@ -401,8 +401,14 @@ impl<'de> Deserialize<'de> for JsonValue {
 
 /// Build a value tree from text that `serde_json` already accepted.
 ///
-/// Keeps number literals unchanged. Never panics: input that does not follow
-/// the grammar yields [`ParseError::Mismatch`] with an empty path.
+/// Callers must validate the text with `serde_json` first, because the reader
+/// trusts that validation. Number literals are copied as written without
+/// checking the number grammar again, so unvalidated text such as `[01]` or
+/// `[1.]` would get through. Nesting depth is bounded only by that validation,
+/// since the reader recurses once per level without a limit of its own.
+///
+/// Never panics: a broken structure yields [`ParseError::Mismatch`] with an
+/// empty path.
 pub(crate) fn read_validated(text: &str) -> Result<JsonValue, ParseError> {
     let mut reader = Reader { text, pos: 0 };
     let value = reader.value()?;
