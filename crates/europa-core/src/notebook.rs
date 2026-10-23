@@ -125,6 +125,8 @@ pub struct StreamOutput {
     pub text: MultilineText,
     /// Unknown output fields, preserved unchanged.
     pub extra: JsonMap,
+    /// Whether the output was read from a file or built by Europa.
+    pub(crate) origin: OutputOrigin,
 }
 
 /// Display data output with a MIME bundle.
@@ -136,6 +138,8 @@ pub struct DisplayDataOutput {
     pub metadata: JsonMap,
     /// Unknown output fields, preserved unchanged.
     pub extra: JsonMap,
+    /// Whether the output was read from a file or built by Europa.
+    pub(crate) origin: OutputOrigin,
 }
 
 /// Execute result output with a MIME bundle.
@@ -149,6 +153,8 @@ pub struct ExecuteResultOutput {
     pub execution_count: Option<i64>,
     /// Unknown output fields, preserved unchanged.
     pub extra: JsonMap,
+    /// Whether the output was read from a file or built by Europa.
+    pub(crate) origin: OutputOrigin,
 }
 
 /// Error output with traceback.
@@ -162,6 +168,8 @@ pub struct ErrorOutput {
     pub traceback: Vec<String>,
     /// Unknown output fields, preserved unchanged.
     pub extra: JsonMap,
+    /// Whether the output was read from a file or built by Europa.
+    pub(crate) origin: OutputOrigin,
 }
 
 /// Output with an unrecognized `output_type`.
@@ -186,6 +194,72 @@ pub enum Output {
     Error(ErrorOutput),
     /// Unrecognized output kind, preserved as-is.
     Unknown(UnknownOutput),
+}
+
+/// Where an output came from.
+///
+/// [`crate::parse`] makes every output `Loaded` and `Output::new_*` makes
+/// `New` ones. [`crate::serialize`] leaves the model unchanged, so a saved
+/// notebook keeps its `New` outputs until it is parsed again, which turns all
+/// of them into `Loaded`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum OutputOrigin {
+    /// Read from a file; written back in the form it was read.
+    Loaded,
+    /// Built by Europa; written in the canonical nbformat form.
+    New,
+}
+
+#[allow(dead_code, unused_variables)]
+impl Output {
+    /// Whether Europa built this output, as opposed to reading it from a file.
+    ///
+    /// Always false for [`Output::Unknown`]. A saved notebook that is parsed
+    /// again reports false for every output.
+    #[must_use]
+    pub fn is_new(&self) -> bool {
+        todo!()
+    }
+
+    /// Build a stream output that has not been saved yet.
+    ///
+    /// The text is kept as one string; saving splits it into lines the way
+    /// nbformat does. Add the result to a code cell's `outputs`.
+    #[must_use]
+    pub fn new_stream(name: impl Into<String>, text: impl Into<String>) -> Output {
+        todo!()
+    }
+
+    /// Build a display data output that has not been saved yet.
+    ///
+    /// Text-like MIME values are split into lines when the notebook is saved.
+    #[must_use]
+    pub fn new_display_data(data: JsonMap, metadata: JsonMap) -> Output {
+        todo!()
+    }
+
+    /// Build an execute result output that has not been saved yet.
+    ///
+    /// Text-like MIME values are split into lines when the notebook is saved.
+    #[must_use]
+    pub fn new_execute_result(
+        data: JsonMap,
+        metadata: JsonMap,
+        execution_count: Option<i64>,
+    ) -> Output {
+        todo!()
+    }
+
+    /// Build an error output that has not been saved yet.
+    #[must_use]
+    pub fn new_error(
+        ename: impl Into<String>,
+        evalue: impl Into<String>,
+        traceback: Vec<String>,
+    ) -> Output {
+        todo!()
+    }
 }
 
 // Conversion between the model and the literal-preserving JSON tree.
@@ -604,6 +678,7 @@ impl JsonMapConvert for StreamOutput {
             name,
             text,
             extra: map,
+            origin: OutputOrigin::Loaded,
         })
     }
 
@@ -628,6 +703,7 @@ impl JsonMapConvert for DisplayDataOutput {
             data,
             metadata,
             extra: map,
+            origin: OutputOrigin::Loaded,
         })
     }
 
@@ -654,6 +730,7 @@ impl JsonMapConvert for ExecuteResultOutput {
             metadata,
             execution_count,
             extra: map,
+            origin: OutputOrigin::Loaded,
         })
     }
 
@@ -694,6 +771,7 @@ impl JsonMapConvert for ErrorOutput {
             evalue,
             traceback,
             extra: map,
+            origin: OutputOrigin::Loaded,
         })
     }
 

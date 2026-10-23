@@ -12,6 +12,7 @@
 //! ```
 #![deny(missing_docs)]
 
+mod canonical;
 pub mod error;
 pub mod io;
 pub mod json;

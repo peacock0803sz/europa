@@ -145,6 +145,18 @@ impl MultilineText {
         MultilineText { raw, normalized }
     }
 
+    /// Keep `text` as one string.
+    #[allow(dead_code, unused_variables)]
+    pub(crate) fn single(text: String) -> MultilineText {
+        todo!()
+    }
+
+    /// The original string, when the text is held as a single string.
+    #[allow(dead_code)]
+    pub(crate) fn as_single(&self) -> Option<&str> {
+        todo!()
+    }
+
     /// Read a string or an array of strings, keeping which form was used.
     pub(crate) fn from_json(value: &JsonValue) -> Option<MultilineText> {
         match value {
