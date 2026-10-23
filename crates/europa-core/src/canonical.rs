@@ -60,9 +60,18 @@ mod tests {
     }
 
     #[test]
+    fn does_not_split_at_other_characters() {
+        for code in [0x00, 0x09, 0x0E, 0x1B, 0x1F, 0x7F, 0x84, 0x86, 0x2027] {
+            let text = format!("a{}b", ch(code));
+            assert_eq!(split_lines(&text), [text.as_str()], "U+{code:04X}");
+        }
+    }
+
+    #[test]
     fn treats_crlf_as_one_break() {
         assert_eq!(split_lines("a\r\nb"), ["a\r\n", "b"]);
         assert_eq!(split_lines("a\r\r\nb"), ["a\r", "\r\n", "b"]);
+        assert_eq!(split_lines("a\n\rb"), ["a\n", "\r", "b"]);
     }
 
     #[test]
@@ -114,6 +123,10 @@ mod tests {
             "application/vnd.custom+json",
             "application/pdf",
             "application/javascriptx",
+            "Text/Plain",
+            "TEXT/html",
+            "application/xml",
+            "application/atom+xml",
         ] {
             assert!(!is_split_mime(mime), "{mime}");
         }
