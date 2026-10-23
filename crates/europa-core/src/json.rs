@@ -403,9 +403,10 @@ impl<'de> Deserialize<'de> for JsonValue {
 ///
 /// Callers must validate the text with `serde_json` first, because the reader
 /// trusts that validation. Number literals are copied as written without
-/// checking the number grammar again, so unvalidated text such as `[01]` or
-/// `[1.]` would get through. Nesting depth is bounded only by that validation,
-/// since the reader recurses once per level without a limit of its own.
+/// checking the number grammar or the finite `f64` range again, so
+/// unvalidated text such as `[01]`, `[1.]` or `[1e400]` would get through.
+/// Nesting depth is bounded only by that validation, since the reader
+/// recurses once per level without a limit of its own.
 ///
 /// Never panics: a broken structure yields [`ParseError::Mismatch`] with an
 /// empty path.
@@ -665,6 +666,16 @@ mod tests {
         }
     }
 
+    // Guards the `serde_json` features that validation in `parse` relies on.
+    // `float_roundtrip` must stay enabled: without it, validation rounds
+    // `1.7976931348623158e308` to infinity and rejects it, while `from_literal`
+    // reads it as `f64::MAX`. `arbitrary_precision` must stay disabled, also
+    // through feature unification with other crates: with it, validation
+    // accepts literals that overflow `f64`, such as `1e400`. Either change
+    // fails this test. `arbitrary_precision` also fails
+    // `serde_reads_numbers_with_their_spelling`, because `serde_json` then hands
+    // numbers other than `u64` and `i64` integers, such as `1.5`, to
+    // `visit_map` instead of `visit_f64`.
     #[test]
     fn from_literal_agrees_with_parse_near_f64_max() {
         for literal in [

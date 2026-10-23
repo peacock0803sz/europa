@@ -3,12 +3,9 @@
 use europa_core::{parse, serialize};
 
 // Key order and number spelling come from `europa-core` itself and no longer
-// depend on `serde_json` features. `float_roundtrip` stays enabled so that
-// validation rounds numbers near `f64::MAX` the same way
-// `JsonNumber::from_literal` does. `arbitrary_precision` must stay disabled,
-// also through feature unification with other crates, because validation
-// would then accept literals that overflow `f64`, such as `1e400`. Do not
-// delete or relax this test.
+// depend on `serde_json` features. Do not delete or relax this test. The
+// features that validation needs are checked by
+// `from_literal_agrees_with_parse_near_f64_max` in `src/json.rs`.
 #[test]
 fn writes_deterministic_format() {
     let input = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"b":"é","a":1},"cells":[{"cell_type":"markdown","metadata":{},"source":"héllo"}]}"#;

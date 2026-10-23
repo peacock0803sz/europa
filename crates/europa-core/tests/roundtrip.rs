@@ -142,11 +142,9 @@ fn keeps_unknown_kinds_and_null_execution() {
 
 // Numbers are written back with the spelling they were read with, so these
 // assertions pin the literal on each output line. Key order and number
-// spelling no longer depend on `serde_json` features. `float_roundtrip` stays
-// enabled so that validation rounds numbers near `f64::MAX` the same way
-// `JsonNumber::from_literal` does. `arbitrary_precision` must stay disabled,
-// also through feature unification with other crates, because validation
-// would then accept literals that overflow `f64`, such as `1e400`.
+// spelling no longer depend on `serde_json` features. The features that
+// validation needs are checked by `from_literal_agrees_with_parse_near_f64_max`
+// in `src/json.rs`.
 #[test]
 fn pins_number_roundtrip() {
     let (_, text) = roundtrip("numbers.ipynb");
