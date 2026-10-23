@@ -192,6 +192,58 @@ fn new_stream_splits_into_lines_but_reads_as_one_text() {
     assert_eq!(stream.text.text(), "a\nb\n");
 }
 
+/// Check that the model holds the text of each new output as one string.
+///
+/// `MultilineText` serializes the form it holds, which tells one string from
+/// an array. The CRLF also tells it from the normalized reading text.
+fn assert_held_as_one_string(outputs: &[Output]) {
+    let Output::Stream(stream) = &outputs[0] else {
+        panic!("stream output");
+    };
+    assert_eq!(
+        serde_json::to_value(&stream.text).expect("serializes"),
+        serde_json::json!("a\r\nb\n")
+    );
+    let one_string = europa_core::JsonValue::from("x\ny");
+    let Output::DisplayData(display) = &outputs[1] else {
+        panic!("display data output");
+    };
+    assert_eq!(display.data.get("text/plain"), Some(&one_string));
+    let Output::ExecuteResult(result) = &outputs[2] else {
+        panic!("execute result output");
+    };
+    assert_eq!(result.data.get("text/plain"), Some(&one_string));
+}
+
+#[test]
+fn new_outputs_keep_one_string_in_the_model() {
+    let mut data = europa_core::JsonMap::new();
+    data.insert("text/plain".to_owned(), "x\ny".into());
+    let outputs = vec![
+        Output::new_stream("stdout", "a\r\nb\n"),
+        Output::new_display_data(data.clone(), europa_core::JsonMap::new()),
+        Output::new_execute_result(data, europa_core::JsonMap::new(), Some(1)),
+    ];
+    assert_held_as_one_string(&outputs);
+    let mut notebook = parse(&fixture("jupyter", "new_outputs.ipynb")).expect("parses");
+    *code_outputs(&mut notebook, "new-outputs") = outputs;
+    let value: Value = serde_json::from_str(&serialize(&notebook)).expect("output parses");
+    assert_eq!(
+        value.pointer("/cells/0/outputs/0/text"),
+        Some(&serde_json::json!(["a\r\n", "b\n"]))
+    );
+    for idx in [1, 2] {
+        assert_eq!(
+            value.pointer(&format!("/cells/0/outputs/{idx}/data/text~1plain")),
+            Some(&serde_json::json!(["x\n", "y"]))
+        );
+    }
+    let Cell::Code(code) = &notebook.cells[0] else {
+        panic!("code cell");
+    };
+    assert_held_as_one_string(&code.outputs);
+}
+
 #[test]
 fn loaded_values_keep_their_form_next_to_new_outputs() {
     let mut notebook = parse(&fixture("foreign", "text_forms.ipynb")).expect("parses");
