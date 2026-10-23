@@ -403,18 +403,210 @@ impl<'de> Deserialize<'de> for JsonValue {
 ///
 /// Keeps number literals unchanged. Never panics: input that does not follow
 /// the grammar yields [`ParseError::Mismatch`] with an empty path.
-#[allow(dead_code, unused_variables)]
 pub(crate) fn read_validated(text: &str) -> Result<JsonValue, ParseError> {
-    todo!()
+    let mut reader = Reader { text, pos: 0 };
+    let value = reader.value()?;
+    reader.skip_whitespace();
+    if reader.pos == text.len() {
+        Ok(value)
+    } else {
+        Err(reader.unexpected())
+    }
+}
+
+/// Recursive descent over text that `serde_json` has already validated.
+struct Reader<'a> {
+    text: &'a str,
+    pos: usize,
+}
+
+impl Reader<'_> {
+    fn unexpected(&self) -> ParseError {
+        ParseError::Mismatch {
+            path: String::new(),
+            message: format!("internal inconsistency at byte {}", self.pos),
+        }
+    }
+
+    fn peek(&self) -> Option<u8> {
+        self.text.as_bytes().get(self.pos).copied()
+    }
+
+    fn skip_whitespace(&mut self) {
+        while matches!(self.peek(), Some(b' ' | b'\t' | b'\n' | b'\r')) {
+            self.pos += 1;
+        }
+    }
+
+    fn expect(&mut self, byte: u8) -> Result<(), ParseError> {
+        if self.peek() == Some(byte) {
+            self.pos += 1;
+            Ok(())
+        } else {
+            Err(self.unexpected())
+        }
+    }
+
+    fn keyword(&mut self, word: &str, value: JsonValue) -> Result<JsonValue, ParseError> {
+        if self.text[self.pos..].starts_with(word) {
+            self.pos += word.len();
+            Ok(value)
+        } else {
+            Err(self.unexpected())
+        }
+    }
+
+    fn value(&mut self) -> Result<JsonValue, ParseError> {
+        self.skip_whitespace();
+        match self.peek() {
+            Some(b'{') => self.object(),
+            Some(b'[') => self.array(),
+            Some(b'"') => self.string().map(JsonValue::String),
+            Some(b't') => self.keyword("true", JsonValue::Bool(true)),
+            Some(b'f') => self.keyword("false", JsonValue::Bool(false)),
+            Some(b'n') => self.keyword("null", JsonValue::Null),
+            Some(b'-' | b'0'..=b'9') => self.number(),
+            _ => Err(self.unexpected()),
+        }
+    }
+
+    fn number(&mut self) -> Result<JsonValue, ParseError> {
+        let start = self.pos;
+        while matches!(
+            self.peek(),
+            Some(b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9')
+        ) {
+            self.pos += 1;
+        }
+        Ok(JsonValue::Number(JsonNumber::from_validated(
+            &self.text[start..self.pos],
+        )))
+    }
+
+    fn string(&mut self) -> Result<String, ParseError> {
+        let start = self.pos;
+        self.expect(b'"')?;
+        let bytes = self.text.as_bytes();
+        while let Some(&byte) = bytes.get(self.pos) {
+            match byte {
+                b'"' => {
+                    self.pos += 1;
+                    return serde_json::from_str::<String>(&self.text[start..self.pos])
+                        .map_err(|_| self.unexpected());
+                }
+                b'\\' => self.pos += 2,
+                _ => self.pos += 1,
+            }
+        }
+        Err(self.unexpected())
+    }
+
+    fn array(&mut self) -> Result<JsonValue, ParseError> {
+        self.expect(b'[')?;
+        let mut items = Vec::new();
+        self.skip_whitespace();
+        if self.peek() == Some(b']') {
+            self.pos += 1;
+            return Ok(JsonValue::Array(items));
+        }
+        loop {
+            items.push(self.value()?);
+            self.skip_whitespace();
+            match self.peek() {
+                Some(b',') => self.pos += 1,
+                Some(b']') => {
+                    self.pos += 1;
+                    return Ok(JsonValue::Array(items));
+                }
+                _ => return Err(self.unexpected()),
+            }
+        }
+    }
+
+    fn object(&mut self) -> Result<JsonValue, ParseError> {
+        self.expect(b'{')?;
+        let mut map = JsonMap::new();
+        self.skip_whitespace();
+        if self.peek() == Some(b'}') {
+            self.pos += 1;
+            return Ok(JsonValue::Object(map));
+        }
+        loop {
+            self.skip_whitespace();
+            let key = self.string()?;
+            self.skip_whitespace();
+            self.expect(b':')?;
+            map.insert(key, self.value()?);
+            self.skip_whitespace();
+            match self.peek() {
+                Some(b',') => self.pos += 1,
+                Some(b'}') => {
+                    self.pos += 1;
+                    return Ok(JsonValue::Object(map));
+                }
+                _ => return Err(self.unexpected()),
+            }
+        }
+    }
 }
 
 /// Write a value in the layout nbformat uses for `.ipynb` files.
 ///
 /// One-space indent, keys in code point order, `": "` and `,` separators,
 /// non-ASCII text unescaped and a single trailing newline.
-#[allow(dead_code, unused_variables)]
+#[allow(dead_code)]
 pub(crate) fn write_ipynb(value: &JsonValue) -> String {
-    todo!()
+    let mut out = Vec::new();
+    write_value(&mut out, value, 0);
+    out.push(b'\n');
+    String::from_utf8(out).expect("writer emits UTF-8")
+}
+
+fn write_indent(out: &mut Vec<u8>, depth: usize) {
+    out.push(b'\n');
+    out.resize(out.len() + depth, b' ');
+}
+
+fn write_string(out: &mut Vec<u8>, text: &str) {
+    serde_json::to_writer(&mut *out, text).expect("JSON writes to memory");
+}
+
+fn write_value(out: &mut Vec<u8>, value: &JsonValue, depth: usize) {
+    match value {
+        JsonValue::Null => out.extend_from_slice(b"null"),
+        JsonValue::Bool(true) => out.extend_from_slice(b"true"),
+        JsonValue::Bool(false) => out.extend_from_slice(b"false"),
+        JsonValue::Number(number) => out.extend_from_slice(number.as_str().as_bytes()),
+        JsonValue::String(text) => write_string(out, text),
+        JsonValue::Array(items) if items.is_empty() => out.extend_from_slice(b"[]"),
+        JsonValue::Array(items) => {
+            out.push(b'[');
+            for (idx, item) in items.iter().enumerate() {
+                if idx > 0 {
+                    out.push(b',');
+                }
+                write_indent(out, depth + 1);
+                write_value(out, item, depth + 1);
+            }
+            write_indent(out, depth);
+            out.push(b']');
+        }
+        JsonValue::Object(map) if map.is_empty() => out.extend_from_slice(b"{}"),
+        JsonValue::Object(map) => {
+            out.push(b'{');
+            for (idx, (key, item)) in map.iter().enumerate() {
+                if idx > 0 {
+                    out.push(b',');
+                }
+                write_indent(out, depth + 1);
+                write_string(out, key);
+                out.extend_from_slice(b": ");
+                write_value(out, item, depth + 1);
+            }
+            write_indent(out, depth);
+            out.push(b'}');
+        }
+    }
 }
 
 #[cfg(test)]
@@ -562,5 +754,156 @@ mod tests {
             .map(|item| item.as_number().expect("number").as_str())
             .collect();
         assert_eq!(literals, ["1", "-2", "1.5", "18446744073709551615"]);
+    }
+}
+
+#[cfg(test)]
+mod read_write_tests {
+    use super::*;
+
+    /// Builds the JSON escape sequence (backslash, `u`, four hex digits) for
+    /// `hex` at runtime so the test source never contains a literal escape.
+    fn esc(hex: &str) -> String {
+        format!("\\{}{}", 'u', hex)
+    }
+
+    fn read(text: &str) -> JsonValue {
+        read_validated(text).expect("reads")
+    }
+
+    #[test]
+    fn read_keeps_number_literals() {
+        let value = read("[-0, 1E5, 1e-400, 18446744073709551616, 1.7976931348623158e308]");
+        let literals: Vec<&str> = value
+            .as_array()
+            .expect("array")
+            .iter()
+            .map(|item| item.as_number().expect("number").as_str())
+            .collect();
+        assert_eq!(
+            literals,
+            [
+                "-0",
+                "1E5",
+                "1e-400",
+                "18446744073709551616",
+                "1.7976931348623158e308"
+            ]
+        );
+    }
+
+    #[test]
+    fn read_skips_whitespace_and_reads_empty_containers() {
+        let value = read("\r\n{ \"a\" :\t[ ] ,\r\n \"b\": { } }\r\n");
+        let map = value.as_object().expect("object");
+        assert_eq!(map["a"], JsonValue::Array(Vec::new()));
+        assert_eq!(map["b"], JsonValue::Object(JsonMap::new()));
+    }
+
+    #[test]
+    fn read_handles_deep_nesting() {
+        let text = format!("{}{}", "[".repeat(127), "]".repeat(127));
+        let mut value = read(&text);
+        let mut depth = 0;
+        while let JsonValue::Array(mut items) = value {
+            depth += 1;
+            match items.pop() {
+                Some(inner) => value = inner,
+                None => break,
+            }
+        }
+        assert_eq!(depth, 127);
+    }
+
+    #[test]
+    fn read_decodes_escapes_like_serde_json() {
+        let text = format!(
+            "{{\"k{0}\": \"a\\n\\\"\\\\\\/{1}{2}{3}\"}}",
+            esc("00e9"),
+            esc("d83d"),
+            esc("de00"),
+            esc("0041")
+        );
+        let expected: serde_json::Value = serde_json::from_str(&text).expect("serde_json reads");
+        let value = read(&text);
+        assert_eq!(serde_json::to_value(&value).expect("converts"), expected);
+    }
+
+    #[test]
+    fn read_reports_broken_text_without_panicking() {
+        for text in ["\"abc", "\"a\\", "[1, @]", "{\"a\" 1}", "", "tru"] {
+            assert!(
+                matches!(
+                    read_validated(text),
+                    Err(ParseError::Mismatch { ref path, .. }) if path.is_empty()
+                ),
+                "{text:?}"
+            );
+        }
+        let bad_escape = format!("\"{}\"", esc("zz"));
+        assert!(read_validated(&bad_escape).is_err());
+    }
+
+    #[test]
+    fn write_uses_one_space_indent_and_sorted_keys() {
+        let value = read(r#"{"b": [1, {"z": null, "a": true}], "a": {}, "c": []}"#);
+        assert_eq!(
+            write_ipynb(&value),
+            "{\n \"a\": {},\n \"b\": [\n  1,\n  {\n   \"a\": true,\n   \"z\": null\n  }\n ],\n \"c\": []\n}\n"
+        );
+    }
+
+    #[test]
+    fn write_orders_keys_by_code_point() {
+        let mut map = JsonMap::new();
+        for key in ["\u{1F600}", "\u{e9}", "a", "Z"] {
+            map.insert(key.to_owned(), JsonValue::Null);
+        }
+        assert_eq!(
+            write_ipynb(&JsonValue::Object(map)),
+            "{\n \"Z\": null,\n \"a\": null,\n \"\u{e9}\": null,\n \"\u{1F600}\": null\n}\n"
+        );
+    }
+
+    #[test]
+    fn write_escapes_only_what_python_escapes() {
+        let mut text = String::new();
+        for code in 0_u32..0x20 {
+            text.push(char::from_u32(code).expect("control char"));
+        }
+        text.push_str("\"\\/\u{7f}\u{2028}\u{2029}\u{e9}\u{1F600}");
+        let written = write_ipynb(&JsonValue::String(text));
+        let mut expected = String::from("\"\\u0000");
+        for code in 1_u32..0x20 {
+            match code {
+                8 => expected.push_str("\\b"),
+                9 => expected.push_str("\\t"),
+                10 => expected.push_str("\\n"),
+                12 => expected.push_str("\\f"),
+                13 => expected.push_str("\\r"),
+                _ => expected.push_str(&format!("\\u{code:04x}")),
+            }
+        }
+        expected.push_str("\\\"\\\\/\u{7f}\u{2028}\u{2029}\u{e9}\u{1F600}\"\n");
+        assert_eq!(written, expected);
+    }
+
+    #[test]
+    fn write_keeps_number_literals_and_ends_with_one_newline() {
+        let value = read("[1E5, 1.50, -0]");
+        assert_eq!(write_ipynb(&value), "[\n 1E5,\n 1.50,\n -0\n]\n");
+    }
+
+    #[test]
+    fn write_after_read_is_a_fixed_point() {
+        let source = format!(
+            r#"{{"z": [1E5, "x\ty", {{"k": 1.50}}], "a": "caf{}"}}"#,
+            esc("00e9")
+        );
+        let first = write_ipynb(&read(&source));
+        let second = write_ipynb(&read(&first));
+        let third = write_ipynb(&read(&second));
+        assert_eq!(first, second);
+        assert_eq!(second, third);
     }
 }
