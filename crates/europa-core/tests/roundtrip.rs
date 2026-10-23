@@ -112,6 +112,38 @@ fn keeps_source_form_and_ids() {
     assert_eq!(cells[4].get("id"), Some(&serde_json::json!(123)));
 }
 
+// The arrays in this fixture do not break where `str.splitlines` would, so
+// splitting read values again on save would move their boundaries.
+#[test]
+fn keeps_element_boundaries_of_read_arrays() {
+    let (_, text) = roundtrip("array_boundaries.ipynb");
+    let out: serde_json::Value = serde_json::from_str(&text).expect("output parses");
+    for (pointer, expected) in [
+        (
+            "/cells/0/outputs/0/text",
+            serde_json::json!(["a", "b\n", "c\rd"]),
+        ),
+        (
+            "/cells/0/outputs/1/data/text~1html",
+            serde_json::json!(["<b>", "x</b>"]),
+        ),
+        (
+            "/cells/0/outputs/1/data/image~1svg+xml",
+            serde_json::json!(["<svg>", "</svg>"]),
+        ),
+        (
+            "/cells/0/outputs/1/data/text~1plain",
+            serde_json::json!(["one\ntwo"]),
+        ),
+        (
+            "/cells/0/outputs/2/data/text~1plain",
+            serde_json::json!(["p", "q\n"]),
+        ),
+    ] {
+        assert_eq!(out.pointer(pointer), Some(&expected), "{pointer}");
+    }
+}
+
 #[test]
 fn keeps_unknown_kinds_and_null_execution() {
     use europa_core::{Cell, Output};
