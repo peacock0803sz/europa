@@ -27,6 +27,34 @@ nix develop .#nbformat --command bash scripts/nbformat-rewrite.sh golden
 The command deletes `jupyter/*.ipynb` and rewrites every file in `foreign/`
 with `nbformat.read` and `nbformat.write`. Generate on Linux or macOS only.
 
+Then check that nbformat leaves its own output unchanged:
+
+```fish
+nix develop .#nbformat --command bash scripts/nbformat-rewrite.sh fixpoint
+```
+
+`fixpoint` rewrites every file in `jupyter/` again with nbformat and fails
+unless the bytes stay the same. CI runs `golden`, expects no changes under
+`fixtures/golden/`, and then runs `fixpoint`.
+
+The insta snapshots in `tests/snapshots/` that mirror these files fail
+`cargo test` until they are reviewed:
+
+- `golden__golden-jupyter-*` for each changed file in `jupyter/`.
+- `golden__golden-foreign-*` for each changed source in `foreign/`.
+- `new_outputs__new-outputs-expected` when `jupyter/new_outputs.ipynb`
+  changes, since it mirrors that file.
+- `new_outputs__new-outputs-mixed` when `foreign/text_forms.ipynb` changes,
+  since it is built from that file.
+
+Run the tests and review each change on its own instead of accepting them
+all at once. A snapshot should change the same way as the file it comes from.
+
+```fish
+cargo insta test -p europa-core
+cargo insta review
+```
+
 ## Rules for sources
 
 - A source with `nbformat_minor` of 5 or higher gives every cell a unique `id`,
@@ -47,8 +75,10 @@ with `nbformat.read` and `nbformat.write`. Generate on Linux or macOS only.
 
 ## Upgrading nbformat
 
-Change the version in `scripts/nbformat-rewrite.sh` and in the CI workflow in
-the same commit, regenerate, and review the diff of `jupyter/`. Updating
-`flake.lock` can change the nbformat that nixpkgs provides, which is the
-trigger for this procedure. The unstable channel has already moved to
-nbformat 5.11.1, so the next lock update requires it.
+Change the version in `scripts/nbformat-rewrite.sh`, in the CI workflow and
+in [Pinned versions](#pinned-versions) in the same commit, regenerate, and
+review the diff of `jupyter/` and the snapshots as described in
+[Regenerating](#regenerating). Updating `flake.lock` can change the nbformat
+that nixpkgs provides, which is the trigger for this procedure. The unstable
+channel has already moved to nbformat 5.11.1, so the next lock update
+requires it.
