@@ -393,7 +393,10 @@ impl Notebook {
     }
 }
 
-/// Split the object into its kind and the remaining fields.
+/// Read the kind of an object and return it with the whole object.
+///
+/// The kind key stays in the object. Callers remove it for the kinds they
+/// know and keep it for unknown kinds, which preserve the object as it was.
 fn take_kind(
     value: JsonValue,
     kind_key: &str,
