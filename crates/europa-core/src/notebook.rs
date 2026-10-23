@@ -211,7 +211,9 @@ pub enum Output {
 /// again, which turns all of them into `Loaded`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OutputOrigin {
-    /// Read by [`crate::parse`] or serde; written back in the form it was read.
+    /// Read by [`crate::parse`] or serde. Saving splits nothing and writes its
+    /// strings and arrays of strings back as they were; number literals
+    /// survive only [`crate::parse`], see [`JsonValue`].
     Loaded,
     /// Built by an `Output::new_*` constructor; saving splits its text into
     /// lines and writes every other value, numbers included, as given.
@@ -224,8 +226,10 @@ impl Output {
     /// Only such outputs have their text split into lines on save; see
     /// [`crate::serialize`]. Outputs from [`crate::parse`] or from serde
     /// `Deserialize`, such as a kernel message read with `serde_json`, report
-    /// false and are written in the form they were read. Always false for
-    /// [`Output::Unknown`].
+    /// false. Saving splits nothing in them and writes their strings and
+    /// arrays of strings back as they were. Number literals survive only
+    /// [`crate::parse`], because serde rebuilds numbers from `f64`; see
+    /// [`JsonValue`]. Always false for [`Output::Unknown`].
     ///
     /// Saving does not change the flag, and parsing the saved text gives
     /// outputs that report false. The flag takes part in `==`, so a new output
