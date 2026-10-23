@@ -1,8 +1,9 @@
 //! Notebook model types.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
+use crate::json::{JsonMap, JsonValue};
 use crate::normalize::MultilineText;
 
 /// Notebook document in nbformat v4.
@@ -19,12 +20,12 @@ pub struct Notebook {
     /// Minor format version.
     pub nbformat_minor: u32,
     /// Notebook-level metadata object.
-    pub metadata: Map<String, Value>,
+    pub metadata: JsonMap,
     /// Cells in document order.
     pub cells: Vec<Cell>,
     /// Unknown top-level fields, preserved unchanged.
     #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: JsonMap,
 }
 
 /// Code cell with execution outputs.
@@ -36,14 +37,14 @@ pub struct CodeCell {
     /// Cell source text.
     pub source: MultilineText,
     /// Cell-level metadata object.
-    pub metadata: Map<String, Value>,
+    pub metadata: JsonMap,
     /// Execution outputs in order.
     pub outputs: Vec<Output>,
     /// Execution counter, or null when never executed.
     pub execution_count: Option<i64>,
     /// Unknown cell fields, preserved unchanged.
     #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: JsonMap,
 }
 
 /// Markdown cell.
@@ -55,10 +56,10 @@ pub struct MarkdownCell {
     /// Cell source text.
     pub source: MultilineText,
     /// Cell-level metadata object.
-    pub metadata: Map<String, Value>,
+    pub metadata: JsonMap,
     /// Unknown cell fields, preserved unchanged.
     #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: JsonMap,
 }
 
 /// Raw cell.
@@ -70,10 +71,10 @@ pub struct RawCell {
     /// Cell source text.
     pub source: MultilineText,
     /// Cell-level metadata object.
-    pub metadata: Map<String, Value>,
+    pub metadata: JsonMap,
     /// Unknown cell fields, preserved unchanged.
     #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: JsonMap,
 }
 
 /// Cell with an unrecognized `cell_type`.
@@ -83,7 +84,7 @@ pub struct RawCell {
 pub struct UnknownCell {
     /// Entire original object.
     #[serde(flatten)]
-    pub value: Map<String, Value>,
+    pub value: JsonMap,
     /// In-memory identifier, never written back.
     #[serde(skip, default)]
     pub(crate) mem_id: String,
@@ -161,9 +162,9 @@ impl<'de> Deserialize<'de> for Cell {
     where
         D: serde::Deserializer<'de>,
     {
-        let mut map = Map::deserialize(deserializer)?;
+        let mut map = JsonMap::deserialize(deserializer)?;
         let kind = match map.get("cell_type") {
-            Some(Value::String(s)) => s.clone(),
+            Some(JsonValue::String(s)) => s.clone(),
             _ => {
                 return Err(serde::de::Error::custom("missing or invalid cell_type"));
             }
@@ -171,7 +172,8 @@ impl<'de> Deserialize<'de> for Cell {
         match kind.as_str() {
             "code" | "markdown" | "raw" => {
                 map.remove("cell_type");
-                let value = Value::Object(map);
+                let value = serde_json::to_value(JsonValue::Object(map))
+                    .map_err(serde::de::Error::custom)?;
                 match kind.as_str() {
                     "code" => {
                         let inner: CodeCell =
@@ -207,33 +209,33 @@ pub struct StreamOutput {
     pub text: MultilineText,
     /// Unknown output fields, preserved unchanged.
     #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: JsonMap,
 }
 
 /// Display data output with a MIME bundle.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DisplayDataOutput {
     /// MIME bundle mapping type to value.
-    pub data: Map<String, Value>,
+    pub data: JsonMap,
     /// Per-MIME metadata object.
-    pub metadata: Map<String, Value>,
+    pub metadata: JsonMap,
     /// Unknown output fields, preserved unchanged.
     #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: JsonMap,
 }
 
 /// Execute result output with a MIME bundle.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExecuteResultOutput {
     /// MIME bundle mapping type to value.
-    pub data: Map<String, Value>,
+    pub data: JsonMap,
     /// Per-MIME metadata object.
-    pub metadata: Map<String, Value>,
+    pub metadata: JsonMap,
     /// Execution counter, or null.
     pub execution_count: Option<i64>,
     /// Unknown output fields, preserved unchanged.
     #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: JsonMap,
 }
 
 /// Error output with traceback.
@@ -247,7 +249,7 @@ pub struct ErrorOutput {
     pub traceback: Vec<String>,
     /// Unknown output fields, preserved unchanged.
     #[serde(flatten)]
-    pub extra: Map<String, Value>,
+    pub extra: JsonMap,
 }
 
 /// Output with an unrecognized `output_type`.
@@ -257,7 +259,7 @@ pub struct ErrorOutput {
 pub struct UnknownOutput {
     /// Entire original object.
     #[serde(flatten)]
-    pub value: Map<String, Value>,
+    pub value: JsonMap,
 }
 
 /// Code cell output, dispatched by `output_type`.
@@ -325,9 +327,9 @@ impl<'de> Deserialize<'de> for Output {
     where
         D: serde::Deserializer<'de>,
     {
-        let mut map = Map::deserialize(deserializer)?;
+        let mut map = JsonMap::deserialize(deserializer)?;
         let kind = match map.get("output_type") {
-            Some(Value::String(s)) => s.clone(),
+            Some(JsonValue::String(s)) => s.clone(),
             _ => {
                 return Err(serde::de::Error::custom("missing or invalid output_type"));
             }
@@ -335,7 +337,8 @@ impl<'de> Deserialize<'de> for Output {
         match kind.as_str() {
             "stream" | "display_data" | "execute_result" | "error" => {
                 map.remove("output_type");
-                let value = Value::Object(map);
+                let value = serde_json::to_value(JsonValue::Object(map))
+                    .map_err(serde::de::Error::custom)?;
                 match kind.as_str() {
                     "stream" => {
                         let inner: StreamOutput =

@@ -12,7 +12,7 @@ use crate::notebook::Cell;
 /// written back.
 #[allow(clippy::missing_panics_doc)]
 pub(crate) fn assign_cell_ids(cells: &mut [Cell]) {
-    use serde_json::Value;
+    use crate::json::JsonValue as Value;
     use std::collections::HashSet;
 
     fn file_id(cell: &Cell) -> Option<&str> {
