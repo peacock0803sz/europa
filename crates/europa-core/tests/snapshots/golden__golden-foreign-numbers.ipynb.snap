@@ -1,0 +1,145 @@
+---
+source: crates/europa-core/tests/golden.rs
+expression: text
+---
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "num-1",
+   "metadata": {
+    "x_numbers": {
+     "beyond_u64": 18446744073709551616,
+     "exp_lower": 1e-05,
+     "exp_plus": 1e+16,
+     "exp_upper": 1E5,
+     "neg_zero_float": -0.0,
+     "neg_zero_int": -0,
+     "precise_beyond": 1.00000000000000011102230246251565404236316680908203125,
+     "tenth": 0.1,
+     "trailing_zero": 1.50,
+     "underflow": 1e-400
+    }
+   },
+   "outputs": [
+    {
+     "data": {
+      "application/json": {
+       "beyond_u64": 18446744073709551616,
+       "exp_lower": 1e-05,
+       "exp_plus": 1e+16,
+       "exp_upper": 1E5,
+       "neg_zero_float": -0.0,
+       "neg_zero_int": -0,
+       "precise_beyond": 1.00000000000000011102230246251565404236316680908203125,
+       "tenth": 0.1,
+       "trailing_zero": 1.50,
+       "underflow": 1e-400
+      }
+     },
+     "metadata": {
+      "x_numbers": {
+       "beyond_u64": 18446744073709551616,
+       "exp_lower": 1e-05,
+       "exp_plus": 1e+16,
+       "exp_upper": 1E5,
+       "neg_zero_float": -0.0,
+       "neg_zero_int": -0,
+       "precise_beyond": 1.00000000000000011102230246251565404236316680908203125,
+       "tenth": 0.1,
+       "trailing_zero": 1.50,
+       "underflow": 1e-400
+      }
+     },
+     "output_type": "display_data",
+     "x_numbers": {
+      "beyond_u64": 18446744073709551616,
+      "exp_lower": 1e-05,
+      "exp_plus": 1e+16,
+      "exp_upper": 1E5,
+      "neg_zero_float": -0.0,
+      "neg_zero_int": -0,
+      "precise_beyond": 1.00000000000000011102230246251565404236316680908203125,
+      "tenth": 0.1,
+      "trailing_zero": 1.50,
+      "underflow": 1e-400
+     }
+    },
+    {
+     "output_type": "x-future",
+     "x_numbers": {
+      "beyond_u64": 18446744073709551616,
+      "exp_lower": 1e-05,
+      "exp_plus": 1e+16,
+      "exp_upper": 1E5,
+      "neg_zero_float": -0.0,
+      "neg_zero_int": -0,
+      "precise_beyond": 1.00000000000000011102230246251565404236316680908203125,
+      "tenth": 0.1,
+      "trailing_zero": 1.50,
+      "underflow": 1e-400
+     }
+    }
+   ],
+   "source": "x",
+   "x_numbers": {
+    "beyond_u64": 18446744073709551616,
+    "exp_lower": 1e-05,
+    "exp_plus": 1e+16,
+    "exp_upper": 1E5,
+    "neg_zero_float": -0.0,
+    "neg_zero_int": -0,
+    "precise_beyond": 1.00000000000000011102230246251565404236316680908203125,
+    "tenth": 0.1,
+    "trailing_zero": 1.50,
+    "underflow": 1e-400
+   }
+  },
+  {
+   "cell_type": "x-future",
+   "id": "num-2",
+   "metadata": {},
+   "x_numbers": {
+    "beyond_u64": 18446744073709551616,
+    "exp_lower": 1e-05,
+    "exp_plus": 1e+16,
+    "exp_upper": 1E5,
+    "neg_zero_float": -0.0,
+    "neg_zero_int": -0,
+    "precise_beyond": 1.00000000000000011102230246251565404236316680908203125,
+    "tenth": 0.1,
+    "trailing_zero": 1.50,
+    "underflow": 1e-400
+   }
+  }
+ ],
+ "metadata": {
+  "x_numbers": {
+   "beyond_u64": 18446744073709551616,
+   "exp_lower": 1e-05,
+   "exp_plus": 1e+16,
+   "exp_upper": 1E5,
+   "neg_zero_float": -0.0,
+   "neg_zero_int": -0,
+   "precise_beyond": 1.00000000000000011102230246251565404236316680908203125,
+   "tenth": 0.1,
+   "trailing_zero": 1.50,
+   "underflow": 1e-400
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5,
+ "x_numbers": {
+  "beyond_u64": 18446744073709551616,
+  "exp_lower": 1e-05,
+  "exp_plus": 1e+16,
+  "exp_upper": 1E5,
+  "neg_zero_float": -0.0,
+  "neg_zero_int": -0,
+  "precise_beyond": 1.00000000000000011102230246251565404236316680908203125,
+  "tenth": 0.1,
+  "trailing_zero": 1.50,
+  "underflow": 1e-400
+ }
+}
