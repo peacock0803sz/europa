@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::canonical::{is_split_mime, split_lines};
 use crate::error::ParseError;
 use crate::json::{JsonMap, JsonValue};
 use crate::normalize::MultilineText;
@@ -203,7 +204,6 @@ pub enum Output {
 /// notebook keeps its `New` outputs until it is parsed again, which turns all
 /// of them into `Loaded`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
 pub(crate) enum OutputOrigin {
     /// Read from a file; written back in the form it was read.
     Loaded,
@@ -211,7 +211,6 @@ pub(crate) enum OutputOrigin {
     New,
 }
 
-#[allow(dead_code, unused_variables)]
 impl Output {
     /// Whether Europa built this output, as opposed to reading it from a file.
     ///
@@ -219,7 +218,14 @@ impl Output {
     /// again reports false for every output.
     #[must_use]
     pub fn is_new(&self) -> bool {
-        todo!()
+        let origin = match self {
+            Self::Stream(inner) => inner.origin,
+            Self::DisplayData(inner) => inner.origin,
+            Self::ExecuteResult(inner) => inner.origin,
+            Self::Error(inner) => inner.origin,
+            Self::Unknown(_) => return false,
+        };
+        origin == OutputOrigin::New
     }
 
     /// Build a stream output that has not been saved yet.
@@ -228,7 +234,12 @@ impl Output {
     /// nbformat does. Add the result to a code cell's `outputs`.
     #[must_use]
     pub fn new_stream(name: impl Into<String>, text: impl Into<String>) -> Output {
-        todo!()
+        Output::Stream(StreamOutput {
+            name: name.into(),
+            text: MultilineText::single(text.into()),
+            extra: JsonMap::new(),
+            origin: OutputOrigin::New,
+        })
     }
 
     /// Build a display data output that has not been saved yet.
@@ -236,7 +247,12 @@ impl Output {
     /// Text-like MIME values are split into lines when the notebook is saved.
     #[must_use]
     pub fn new_display_data(data: JsonMap, metadata: JsonMap) -> Output {
-        todo!()
+        Output::DisplayData(DisplayDataOutput {
+            data,
+            metadata,
+            extra: JsonMap::new(),
+            origin: OutputOrigin::New,
+        })
     }
 
     /// Build an execute result output that has not been saved yet.
@@ -248,7 +264,13 @@ impl Output {
         metadata: JsonMap,
         execution_count: Option<i64>,
     ) -> Output {
-        todo!()
+        Output::ExecuteResult(ExecuteResultOutput {
+            data,
+            metadata,
+            execution_count,
+            extra: JsonMap::new(),
+            origin: OutputOrigin::New,
+        })
     }
 
     /// Build an error output that has not been saved yet.
@@ -258,8 +280,44 @@ impl Output {
         evalue: impl Into<String>,
         traceback: Vec<String>,
     ) -> Output {
-        todo!()
+        Output::Error(ErrorOutput {
+            ename: ename.into(),
+            evalue: evalue.into(),
+            traceback,
+            extra: JsonMap::new(),
+            origin: OutputOrigin::New,
+        })
     }
+}
+
+/// Text of a stream output as it is written.
+///
+/// Only a new output holding one string is split into lines. Everything read
+/// from a file keeps the form it had.
+fn stream_text_to_json(text: &MultilineText, origin: OutputOrigin) -> JsonValue {
+    match (origin, text.as_single()) {
+        (OutputOrigin::New, Some(single)) => lines_to_json(single),
+        _ => text.to_json(),
+    }
+}
+
+/// MIME bundle as it is written.
+///
+/// Only a new output has its text-like string values split into lines.
+fn mime_bundle_to_json(data: &JsonMap, origin: OutputOrigin) -> JsonValue {
+    let mut bundle = data.clone();
+    if origin == OutputOrigin::New {
+        for (mime, value) in &mut bundle {
+            if let (true, JsonValue::String(text)) = (is_split_mime(mime), &*value) {
+                *value = lines_to_json(text);
+            }
+        }
+    }
+    JsonValue::Object(bundle)
+}
+
+fn lines_to_json(text: &str) -> JsonValue {
+    JsonValue::Array(split_lines(text).into_iter().map(JsonValue::from).collect())
 }
 
 // Conversion between the model and the literal-preserving JSON tree.
@@ -685,7 +743,10 @@ impl JsonMapConvert for StreamOutput {
     fn to_json_map(&self) -> JsonMap {
         let mut map = self.extra.clone();
         map.insert("name".to_owned(), self.name.as_str().into());
-        map.insert("text".to_owned(), self.text.to_json());
+        map.insert(
+            "text".to_owned(),
+            stream_text_to_json(&self.text, self.origin),
+        );
         map
     }
 }
@@ -709,7 +770,10 @@ impl JsonMapConvert for DisplayDataOutput {
 
     fn to_json_map(&self) -> JsonMap {
         let mut map = self.extra.clone();
-        map.insert("data".to_owned(), self.data.clone().into());
+        map.insert(
+            "data".to_owned(),
+            mime_bundle_to_json(&self.data, self.origin),
+        );
         map.insert("metadata".to_owned(), self.metadata.clone().into());
         map
     }
@@ -736,7 +800,10 @@ impl JsonMapConvert for ExecuteResultOutput {
 
     fn to_json_map(&self) -> JsonMap {
         let mut map = self.extra.clone();
-        map.insert("data".to_owned(), self.data.clone().into());
+        map.insert(
+            "data".to_owned(),
+            mime_bundle_to_json(&self.data, self.origin),
+        );
         map.insert("metadata".to_owned(), self.metadata.clone().into());
         map.insert(
             "execution_count".to_owned(),

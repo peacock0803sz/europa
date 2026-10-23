@@ -561,7 +561,6 @@ impl Reader<'_> {
 ///
 /// One-space indent, keys in code point order, `": "` and `,` separators,
 /// non-ASCII text unescaped and a single trailing newline.
-#[allow(dead_code)]
 pub(crate) fn write_ipynb(value: &JsonValue) -> String {
     let mut out = Vec::new();
     write_value(&mut out, value, 0);

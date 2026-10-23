@@ -146,15 +146,16 @@ impl MultilineText {
     }
 
     /// Keep `text` as one string.
-    #[allow(dead_code, unused_variables)]
     pub(crate) fn single(text: String) -> MultilineText {
-        todo!()
+        Self::from_repr(MultilineRepr::Single(text))
     }
 
     /// The original string, when the text is held as a single string.
-    #[allow(dead_code)]
     pub(crate) fn as_single(&self) -> Option<&str> {
-        todo!()
+        match &self.raw {
+            MultilineRepr::Single(text) => Some(text),
+            MultilineRepr::Multiple(_) => None,
+        }
     }
 
     /// Read a string or an array of strings, keeping which form was used.
