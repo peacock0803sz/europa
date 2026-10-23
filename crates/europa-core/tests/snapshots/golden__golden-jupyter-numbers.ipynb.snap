@@ -1,0 +1,147 @@
+---
+source: crates/europa-core/tests/golden.rs
+expression: saved
+---
+{
+ "cells": [
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "num-1",
+   "metadata": {
+    "x_numbers": {
+     "beyond_u64": 18446744073709551616,
+     "exp_lower": 1e-05,
+     "exp_plus": 1e+16,
+     "exp_upper": 100000.0,
+     "neg_zero_float": -0.0,
+     "neg_zero_int": 0,
+     "precise_beyond": 1.0,
+     "tenth": 0.1,
+     "trailing_zero": 1.5,
+     "underflow": 0.0
+    }
+   },
+   "outputs": [
+    {
+     "data": {
+      "application/json": {
+       "beyond_u64": 18446744073709551616,
+       "exp_lower": 1e-05,
+       "exp_plus": 1e+16,
+       "exp_upper": 100000.0,
+       "neg_zero_float": -0.0,
+       "neg_zero_int": 0,
+       "precise_beyond": 1.0,
+       "tenth": 0.1,
+       "trailing_zero": 1.5,
+       "underflow": 0.0
+      }
+     },
+     "metadata": {
+      "x_numbers": {
+       "beyond_u64": 18446744073709551616,
+       "exp_lower": 1e-05,
+       "exp_plus": 1e+16,
+       "exp_upper": 100000.0,
+       "neg_zero_float": -0.0,
+       "neg_zero_int": 0,
+       "precise_beyond": 1.0,
+       "tenth": 0.1,
+       "trailing_zero": 1.5,
+       "underflow": 0.0
+      }
+     },
+     "output_type": "display_data",
+     "x_numbers": {
+      "beyond_u64": 18446744073709551616,
+      "exp_lower": 1e-05,
+      "exp_plus": 1e+16,
+      "exp_upper": 100000.0,
+      "neg_zero_float": -0.0,
+      "neg_zero_int": 0,
+      "precise_beyond": 1.0,
+      "tenth": 0.1,
+      "trailing_zero": 1.5,
+      "underflow": 0.0
+     }
+    },
+    {
+     "output_type": "x-future",
+     "x_numbers": {
+      "beyond_u64": 18446744073709551616,
+      "exp_lower": 1e-05,
+      "exp_plus": 1e+16,
+      "exp_upper": 100000.0,
+      "neg_zero_float": -0.0,
+      "neg_zero_int": 0,
+      "precise_beyond": 1.0,
+      "tenth": 0.1,
+      "trailing_zero": 1.5,
+      "underflow": 0.0
+     }
+    }
+   ],
+   "source": [
+    "x"
+   ],
+   "x_numbers": {
+    "beyond_u64": 18446744073709551616,
+    "exp_lower": 1e-05,
+    "exp_plus": 1e+16,
+    "exp_upper": 100000.0,
+    "neg_zero_float": -0.0,
+    "neg_zero_int": 0,
+    "precise_beyond": 1.0,
+    "tenth": 0.1,
+    "trailing_zero": 1.5,
+    "underflow": 0.0
+   }
+  },
+  {
+   "cell_type": "x-future",
+   "id": "num-2",
+   "metadata": {},
+   "x_numbers": {
+    "beyond_u64": 18446744073709551616,
+    "exp_lower": 1e-05,
+    "exp_plus": 1e+16,
+    "exp_upper": 100000.0,
+    "neg_zero_float": -0.0,
+    "neg_zero_int": 0,
+    "precise_beyond": 1.0,
+    "tenth": 0.1,
+    "trailing_zero": 1.5,
+    "underflow": 0.0
+   }
+  }
+ ],
+ "metadata": {
+  "x_numbers": {
+   "beyond_u64": 18446744073709551616,
+   "exp_lower": 1e-05,
+   "exp_plus": 1e+16,
+   "exp_upper": 100000.0,
+   "neg_zero_float": -0.0,
+   "neg_zero_int": 0,
+   "precise_beyond": 1.0,
+   "tenth": 0.1,
+   "trailing_zero": 1.5,
+   "underflow": 0.0
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5,
+ "x_numbers": {
+  "beyond_u64": 18446744073709551616,
+  "exp_lower": 1e-05,
+  "exp_plus": 1e+16,
+  "exp_upper": 100000.0,
+  "neg_zero_float": -0.0,
+  "neg_zero_int": 0,
+  "precise_beyond": 1.0,
+  "tenth": 0.1,
+  "trailing_zero": 1.5,
+  "underflow": 0.0
+ }
+}
