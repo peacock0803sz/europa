@@ -2,9 +2,10 @@
 
 use europa_core::{parse, serialize};
 
-// Key order and number formatting depend on the workspace keeping
-// `preserve_order` and `arbitrary_precision` disabled while
-// `float_roundtrip` stays enabled. Do not delete or relax this test.
+// Key order and number spelling come from `europa-core` itself and no longer
+// depend on `serde_json` features. `float_roundtrip` stays enabled only so
+// validation rounds numbers correctly when it checks their range. Do not
+// delete or relax this test.
 #[test]
 fn writes_deterministic_format() {
     let input = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{"b":"é","a":1},"cells":[{"cell_type":"markdown","metadata":{},"source":"héllo"}]}"#;
