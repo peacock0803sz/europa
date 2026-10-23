@@ -37,8 +37,8 @@ nix develop .#nbformat --command bash scripts/nbformat-rewrite.sh fixpoint
 unless the bytes stay the same. CI runs `golden`, expects no changes under
 `fixtures/golden/`, and then runs `fixpoint`.
 
-The insta snapshots in `tests/snapshots/` that mirror these files fail
-`cargo test` until they are reviewed:
+The insta snapshots in `snapshots/` that are built from the files in
+`foreign/` and `jupyter/` fail `cargo test` until they are reviewed:
 
 - `golden__golden-jupyter-*` for each changed file in `jupyter/`.
 - `golden__golden-foreign-*` for each changed source in `foreign/`.
