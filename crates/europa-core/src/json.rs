@@ -11,6 +11,8 @@ use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::error::ParseError;
+
 /// JSON number kept as its literal text.
 ///
 /// Two numbers are equal only when their literals are equal, so `1.0` and
@@ -395,6 +397,24 @@ impl<'de> Deserialize<'de> for JsonValue {
     {
         deserializer.deserialize_any(JsonValueVisitor)
     }
+}
+
+/// Build a value tree from text that `serde_json` already accepted.
+///
+/// Keeps number literals unchanged. Never panics: input that does not follow
+/// the grammar yields [`ParseError::Mismatch`] with an empty path.
+#[allow(dead_code, unused_variables)]
+pub(crate) fn read_validated(text: &str) -> Result<JsonValue, ParseError> {
+    todo!()
+}
+
+/// Write a value in the layout nbformat uses for `.ipynb` files.
+///
+/// One-space indent, keys in code point order, `": "` and `,` separators,
+/// non-ASCII text unescaped and a single trailing newline.
+#[allow(dead_code, unused_variables)]
+pub(crate) fn write_ipynb(value: &JsonValue) -> String {
+    todo!()
 }
 
 #[cfg(test)]

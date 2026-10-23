@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::error::ParseError;
 use crate::json::{JsonMap, JsonValue};
 use crate::normalize::MultilineText;
 
@@ -364,5 +365,139 @@ impl<'de> Deserialize<'de> for Output {
             }
             _ => Ok(Self::Unknown(UnknownOutput { value: map })),
         }
+    }
+}
+
+// Conversion between the model and the literal-preserving JSON tree.
+
+#[allow(dead_code, unused_variables)]
+impl Notebook {
+    pub(crate) fn from_json(value: JsonValue) -> Result<Notebook, ParseError> {
+        todo!()
+    }
+
+    pub(crate) fn to_json(&self) -> JsonValue {
+        todo!()
+    }
+}
+
+#[allow(dead_code, unused_variables)]
+impl Cell {
+    pub(crate) fn from_json(value: JsonValue, path: &str) -> Result<Cell, ParseError> {
+        todo!()
+    }
+
+    pub(crate) fn to_json(&self) -> JsonValue {
+        todo!()
+    }
+}
+
+#[allow(dead_code, unused_variables)]
+impl Output {
+    pub(crate) fn from_json(value: JsonValue, path: &str) -> Result<Output, ParseError> {
+        todo!()
+    }
+
+    pub(crate) fn to_json(&self) -> JsonValue {
+        todo!()
+    }
+}
+
+/// Conversion of a struct to and from an object without its kind key.
+///
+/// `UnknownCell` and `UnknownOutput` convert the whole object instead.
+#[allow(dead_code, unused_variables)]
+trait JsonMapConvert: Sized {
+    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError>;
+    fn to_json_map(&self) -> JsonMap;
+}
+
+impl JsonMapConvert for CodeCell {
+    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        todo!()
+    }
+
+    fn to_json_map(&self) -> JsonMap {
+        todo!()
+    }
+}
+
+impl JsonMapConvert for MarkdownCell {
+    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        todo!()
+    }
+
+    fn to_json_map(&self) -> JsonMap {
+        todo!()
+    }
+}
+
+impl JsonMapConvert for RawCell {
+    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        todo!()
+    }
+
+    fn to_json_map(&self) -> JsonMap {
+        todo!()
+    }
+}
+
+impl JsonMapConvert for UnknownCell {
+    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        todo!()
+    }
+
+    fn to_json_map(&self) -> JsonMap {
+        todo!()
+    }
+}
+
+impl JsonMapConvert for StreamOutput {
+    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        todo!()
+    }
+
+    fn to_json_map(&self) -> JsonMap {
+        todo!()
+    }
+}
+
+impl JsonMapConvert for DisplayDataOutput {
+    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        todo!()
+    }
+
+    fn to_json_map(&self) -> JsonMap {
+        todo!()
+    }
+}
+
+impl JsonMapConvert for ExecuteResultOutput {
+    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        todo!()
+    }
+
+    fn to_json_map(&self) -> JsonMap {
+        todo!()
+    }
+}
+
+impl JsonMapConvert for ErrorOutput {
+    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        todo!()
+    }
+
+    fn to_json_map(&self) -> JsonMap {
+        todo!()
+    }
+}
+
+impl JsonMapConvert for UnknownOutput {
+    fn from_json_map(map: JsonMap, path: &str) -> Result<Self, ParseError> {
+        todo!()
+    }
+
+    fn to_json_map(&self) -> JsonMap {
+        todo!()
     }
 }

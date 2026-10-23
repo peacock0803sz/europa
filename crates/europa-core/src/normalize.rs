@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::json::JsonValue;
 use crate::notebook::Cell;
 
 /// Assign in-memory identifiers to cells in document order, in place.
@@ -131,6 +132,19 @@ impl MultilineText {
     #[must_use]
     pub fn text(&self) -> &str {
         &self.normalized
+    }
+}
+
+#[allow(dead_code, unused_variables)]
+impl MultilineText {
+    /// Read a string or an array of strings, keeping which form was used.
+    pub(crate) fn from_json(value: &JsonValue) -> Option<MultilineText> {
+        todo!()
+    }
+
+    /// Write back in the form that was read.
+    pub(crate) fn to_json(&self) -> JsonValue {
+        todo!()
     }
 }
 
