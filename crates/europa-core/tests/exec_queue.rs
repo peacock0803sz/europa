@@ -237,3 +237,95 @@ fn deleting_cells_clears_queue_results_and_links() {
     let _ = apply(&mut state, remove("c1"));
     assert_eq!(state.cell_for(&MsgId::new("m1")), None);
 }
+
+#[test]
+fn running_cell_queued_twice_stays_single() {
+    use europa_core::CellExecState;
+    let mut state = ExecState::default();
+    let _ = apply(&mut state, enqueue("c1"));
+    let _ = apply(&mut state, sent("c1", "m1"));
+    assert_eq!(apply(&mut state, enqueue("c1")), Applied::default());
+    assert_eq!(apply(&mut state, enqueue("c1")), Applied::default());
+    assert_eq!(state.queue().collect::<Vec<_>>(), vec!["c1"]);
+    assert_eq!(state.state("c1"), CellExecState::Running);
+    let text = serde_json::to_string(&state).expect("serializes");
+    assert_eq!(
+        serde_json::from_str::<ExecState>(&text).expect("validates"),
+        state
+    );
+}
+
+#[test]
+fn late_reply_after_reset_is_ignored() {
+    use europa_core::{CellExecState, ReplyStatus};
+    let mut state = ExecState::default();
+    let _ = apply(&mut state, enqueue("c1"));
+    let _ = apply(&mut state, enqueue("c2"));
+    let _ = apply(&mut state, sent("c1", "m1"));
+    let _ = apply(&mut state, ExecEvent::Reset);
+    let before = state.clone();
+    assert_eq!(
+        apply(&mut state, reply("m1", ReplyStatus::Ok)),
+        Applied::default()
+    );
+    assert_eq!(state, before);
+    assert_eq!(state.running(), None);
+
+    // The old reply must not complete a fresh run of the same cell.
+    let _ = apply(&mut state, enqueue("c1"));
+    let _ = apply(&mut state, sent("c1", "m2"));
+    let before = state.clone();
+    assert_eq!(
+        apply(&mut state, reply("m1", ReplyStatus::Ok)),
+        Applied::default()
+    );
+    assert_eq!(state, before);
+    assert_eq!(state.state("c1"), CellExecState::Running);
+    assert_eq!(state.cell_for(&MsgId::new("m2")), Some("c1"));
+}
+
+#[test]
+fn removed_running_cell_leaves_no_trace() {
+    use europa_core::{CellExecState, ReplyStatus};
+    let mut state = ExecState::default();
+    let _ = apply(&mut state, enqueue("c1"));
+    let _ = apply(&mut state, enqueue("c2"));
+    let _ = apply(&mut state, sent("c1", "m1"));
+    let applied = apply(&mut state, remove("c1"));
+    assert_eq!(
+        applied.effect,
+        Some(ExecEffect::Execute {
+            cell_id: "c2".to_owned()
+        })
+    );
+    // The removed run's reply arrives before the promoted cell's send.
+    let before = state.clone();
+    assert_eq!(
+        apply(&mut state, reply("m1", ReplyStatus::Ok)),
+        Applied::default()
+    );
+    assert_eq!(state, before);
+    assert_eq!(state.state("c2"), CellExecState::Running);
+    // A late send for the removed cell is ignored too.
+    assert_eq!(apply(&mut state, sent("c1", "m1")), Applied::default());
+    assert_eq!(state, before);
+    assert_eq!(state.cell_for(&MsgId::new("m1")), None);
+
+    // A running cell that is also queued for a rerun leaves both slots.
+    let mut state = ExecState::default();
+    let _ = apply(&mut state, enqueue("c1"));
+    let _ = apply(&mut state, enqueue("c2"));
+    let _ = apply(&mut state, sent("c1", "m1"));
+    let _ = apply(&mut state, enqueue("c1"));
+    assert_eq!(state.queue().collect::<Vec<_>>(), vec!["c2", "c1"]);
+    let applied = apply(&mut state, remove("c1"));
+    assert_eq!(
+        applied.effect,
+        Some(ExecEffect::Execute {
+            cell_id: "c2".to_owned()
+        })
+    );
+    assert_eq!(state.queue().count(), 0);
+    assert_eq!(state.running(), Some("c2"));
+    assert_eq!(state.state("c1"), CellExecState::Idle);
+}
