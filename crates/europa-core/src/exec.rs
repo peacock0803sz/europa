@@ -610,20 +610,32 @@ mod tests {
         );
     }
 
+    fn assert_violates(text: &str, invariant: u8) {
+        let err = serde_json::from_str::<ExecState>(text).expect_err("violation is rejected");
+        let wanted = format!("invariant {invariant} violated");
+        assert!(
+            err.to_string().contains(&wanted),
+            "expected {wanted:?} in {err}"
+        );
+    }
+
     #[test]
     fn rejects_each_invariant_violation() {
         // Invariant 1: queue holds the same cell twice.
         let duplicate = r#"{"queue":["c1","c1"],"running":{"cell_id":"c1","msg_id":null,"idle_seen":false},"results":{},"correlation":{},"dirty":false}"#;
-        assert!(serde_json::from_str::<ExecState>(duplicate).is_err());
-        // Invariant 2: running id has no matching correlation entry.
+        assert_violates(duplicate, 1);
+        // Invariant 2: running id has no correlation entry.
         let dangling = r#"{"queue":[],"running":{"cell_id":"c1","msg_id":"m1","idle_seen":false},"results":{},"correlation":{},"dirty":false}"#;
-        assert!(serde_json::from_str::<ExecState>(dangling).is_err());
+        assert_violates(dangling, 2);
+        // Invariant 2: running id has an entry, but it points to another cell.
+        let mislinked = r#"{"queue":[],"running":{"cell_id":"c1","msg_id":"m1","idle_seen":false},"results":{},"correlation":{"m1":"c2"},"dirty":false}"#;
+        assert_violates(mislinked, 2);
         // Invariant 3: idle flag without a message id.
         let idle_without_id = r#"{"queue":[],"running":{"cell_id":"c1","msg_id":null,"idle_seen":true},"results":{},"correlation":{},"dirty":false}"#;
-        assert!(serde_json::from_str::<ExecState>(idle_without_id).is_err());
+        assert_violates(idle_without_id, 3);
         // Invariant 4: waiters without a running cell.
         let waiter_without_running =
             r#"{"queue":["c1"],"running":null,"results":{},"correlation":{},"dirty":false}"#;
-        assert!(serde_json::from_str::<ExecState>(waiter_without_running).is_err());
+        assert_violates(waiter_without_running, 4);
     }
 }
