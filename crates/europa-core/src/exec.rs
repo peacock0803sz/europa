@@ -317,10 +317,14 @@ impl ExecState {
                 }
             }
             ExecEvent::Output { parent } => match self.correlation.get(&parent) {
-                Some(cell_id) => Applied {
-                    effect: None,
-                    cell: Some(cell_id.clone()),
-                },
+                Some(cell_id) => {
+                    let cell_id = cell_id.clone();
+                    self.dirty = true;
+                    Applied {
+                        effect: None,
+                        cell: Some(cell_id),
+                    }
+                }
                 None => Applied::default(),
             },
             ExecEvent::Idle { parent } => {
@@ -339,8 +343,22 @@ impl ExecState {
                 }
                 Applied::default()
             }
-            ExecEvent::Reset => todo!(),
-            ExecEvent::Saved => todo!(),
+            ExecEvent::Reset => {
+                if let Some(running) = &self.running {
+                    self.results.remove(&running.cell_id.clone());
+                }
+                for queued in self.queue.iter().cloned().collect::<Vec<_>>() {
+                    self.results.remove(&queued);
+                }
+                self.queue.clear();
+                self.running = None;
+                self.correlation.clear();
+                Applied::default()
+            }
+            ExecEvent::Saved => {
+                self.dirty = false;
+                Applied::default()
+            }
         }
     }
 
