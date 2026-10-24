@@ -85,8 +85,8 @@ fn two_cells_run_in_order() {
         enqueue("c2"),
         sent("c1", "m1"),
         reply("m1", ReplyStatus::Ok),
-        idle("m1"),
         sent("c2", "m2"),
+        idle("m1"),
         reply("m2", ReplyStatus::Ok),
         idle("m2"),
     ];
