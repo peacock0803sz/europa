@@ -7,9 +7,11 @@
 //! the transition, so the same event sequence always yields the same state.
 //!
 //! Cell status is derived from queue, running slot, and results rather than
-//! stored per cell. Correlation records survive until `status: idle` so late
-//! outputs still map to their original cell, including when `idle` arrives
-//! before `execute_reply`. Send failures and lost kernels are recovered by the
+//! stored per cell. A correlation entry is kept until both `execute_reply` and
+//! `status: idle` have been observed for its message id, in either order, so
+//! late outputs still map to their original cell. [`ExecEvent::Reset`] and
+//! [`ExecEvent::RemoveCell`] drop entries early, so outputs arriving after
+//! them are not mapped. Send failures and lost kernels are recovered by the
 //! caller with [`ExecEvent::Reset`].
 
 use std::collections::{BTreeMap, VecDeque};
@@ -53,7 +55,7 @@ impl From<&str> for MsgId {
 /// Execution stage of a single cell, derived by [`ExecState::state`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CellExecState {
-    /// Waiting, with no queue entry, running slot, or terminal result.
+    /// Not scheduled: no queue entry, running slot, or terminal result.
     Idle,
     /// Waiting in the queue for its turn.
     Queued,
@@ -61,13 +63,15 @@ pub enum CellExecState {
     Running,
     /// Finished successfully.
     Done,
-    /// Finished with an error or abortion.
+    /// Finished with an error or was aborted.
     Error,
 }
 
 /// Outcome of an `execute_reply`.
 ///
-/// `Ok` maps to `Done`, while `Error` and `Aborted` map to `Error`.
+/// [`ReplyStatus::Ok`] maps to [`CellExecState::Done`], while
+/// [`ReplyStatus::Error`] and [`ReplyStatus::Aborted`] map to
+/// [`CellExecState::Error`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ReplyStatus {
     /// Execution succeeded.
@@ -81,9 +85,9 @@ pub enum ReplyStatus {
 /// Last terminal result of a cell.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum Outcome {
-    /// Execution succeeded.
+    /// Execution succeeded; derives [`CellExecState::Done`].
     Done,
-    /// Execution failed or was aborted.
+    /// Execution failed or was aborted; derives [`CellExecState::Error`].
     Error,
 }
 
@@ -103,7 +107,18 @@ pub(crate) struct Running {
 /// `Default` is the state right after opening a notebook: every cell is idle
 /// and the dirty flag is false. Per-cell status is not stored; [`ExecState::state`]
 /// derives it from queue, running slot, and results. The hand-written
-/// `Deserialize` impl validates the invariants and returns `Err` on violation.
+/// `Deserialize` impl validates the invariants below and returns `Err` on
+/// violation.
+///
+/// # Invariants
+///
+/// These hold after every [`ExecState::apply`]:
+///
+/// 1. The queue never holds the same cell twice.
+/// 2. If the running cell has a message id, the correlation map has an entry
+///    for that id pointing to the running cell.
+/// 3. If the running cell has seen `status: idle`, it has a message id.
+/// 4. If the queue is non-empty, a cell is running.
 ///
 /// ```
 /// use europa_core::{CellExecState, ExecEvent, ExecState, MsgId, ReplyStatus};
@@ -148,7 +163,7 @@ impl<'de> serde::Deserialize<'de> for ExecState {
         let mut seen = std::collections::BTreeSet::new();
         if fields.queue.iter().any(|cell| !seen.insert(cell)) {
             return Err(serde::de::Error::custom(
-                "invariant 1 violated: queue holds the same cell twice",
+                "invariant 1 violated: queue must not hold the same cell twice",
             ));
         }
         if let Some(running) = &fields.running {
@@ -159,19 +174,19 @@ impl<'de> serde::Deserialize<'de> for ExecState {
                     .is_none_or(|cell| cell != &running.cell_id)
                 {
                     return Err(serde::de::Error::custom(
-                        "invariant 2 violated: running id lacks a matching correlation entry",
+                        "invariant 2 violated: running msg_id must have a correlation entry pointing to the running cell",
                     ));
                 }
             }
             if running.idle_seen && running.msg_id.is_none() {
                 return Err(serde::de::Error::custom(
-                    "invariant 3 violated: idle flag without a message id",
+                    "invariant 3 violated: running idle_seen requires msg_id to be set",
                 ));
             }
         }
         if !fields.queue.is_empty() && fields.running.is_none() {
             return Err(serde::de::Error::custom(
-                "invariant 4 violated: waiters without a running cell",
+                "invariant 4 violated: non-empty queue requires a running cell",
             ));
         }
         Ok(Self {
@@ -189,11 +204,20 @@ impl<'de> serde::Deserialize<'de> for ExecState {
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum ExecEvent {
     /// The user ran a cell; bulk runs send one event per cell in request order.
+    ///
+    /// - A cell that is already queued moves to the back of the queue.
+    /// - The running cell is appended to the queue, scheduling a rerun after
+    ///   the current run finishes; the running slot is left untouched.
+    /// - Any other cell has its previous terminal result cleared, is appended
+    ///   to the queue, and is promoted if nothing is running.
     Enqueue {
         /// Target cell id.
         cell_id: String,
     },
     /// `Execute` was handled and `execute_request` returned this message id.
+    ///
+    /// Ignored when `cell_id` is not the running cell or the running cell
+    /// already has a message id.
     Sent {
         /// Target cell id.
         cell_id: String,
@@ -201,6 +225,10 @@ pub enum ExecEvent {
         msg_id: MsgId,
     },
     /// An `execute_reply` arrived on the shell channel.
+    ///
+    /// Records the terminal result of the running cell and promotes the next
+    /// queued cell. Ignored when `parent` is not the running cell's message
+    /// id; [`Applied::cell`] is then `None`, so callers can log the unknown id.
     Reply {
         /// Parent message id of the reply.
         parent: MsgId,
@@ -209,19 +237,37 @@ pub enum ExecEvent {
     },
     /// An iopub message arrived that updates outputs or the execution count.
     /// Do not send for `status`-like messages that change nothing.
+    ///
+    /// Sets the dirty flag. Ignored when `parent` has no correlation entry;
+    /// [`Applied::cell`] is then `None`, so callers can log the unknown id.
     Output {
         /// Parent message id of the output.
         parent: MsgId,
     },
     /// `status: idle` arrived on iopub.
+    ///
+    /// For the running cell's message id this only marks idle as seen and
+    /// keeps the correlation entry until `Reply`; for a finished cell it drops
+    /// the entry. Ignored when `parent` has no correlation entry.
     Idle {
         /// Parent message id of the idle status.
         parent: MsgId,
     },
     /// An interrupt or restart happened. The caller also sends this after a
     /// send failure or a lost kernel to return queued and running cells to idle.
+    ///
+    /// Clears the terminal results of queued and running cells, empties the
+    /// queue and running slot, and drops all correlation entries, so later
+    /// replies and outputs for earlier message ids are ignored. Results of
+    /// other cells and the dirty flag are unchanged.
     Reset,
     /// A cell was deleted.
+    ///
+    /// Removes the cell from the queue, its terminal result, and every
+    /// correlation entry pointing to it. If the cell was running, the slot is
+    /// released immediately and the next queued cell is promoted without
+    /// waiting for the kernel; the removed run's later reply and outputs are
+    /// ignored.
     RemoveCell {
         /// Deleted cell id.
         cell_id: String,
