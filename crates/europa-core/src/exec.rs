@@ -241,8 +241,99 @@ impl ExecState {
     /// promotion happens per call, so the returned effect holds at most one
     /// `Execute`.
     pub fn apply(&mut self, event: ExecEvent) -> Applied {
-        let _ = event;
-        todo!()
+        match event {
+            ExecEvent::Enqueue { cell_id } => {
+                if let Some(pos) = self.queue.iter().position(|queued| *queued == cell_id) {
+                    self.queue.remove(pos);
+                    self.queue.push_back(cell_id);
+                    return Applied::default();
+                }
+                if self
+                    .running
+                    .as_ref()
+                    .is_some_and(|running| running.cell_id == cell_id)
+                {
+                    self.queue.push_back(cell_id);
+                    return Applied::default();
+                }
+                self.results.remove(&cell_id);
+                self.queue.push_back(cell_id);
+                Applied {
+                    effect: self.promote(),
+                    cell: None,
+                }
+            }
+            ExecEvent::Sent { cell_id, msg_id } => {
+                let matches = self
+                    .running
+                    .as_ref()
+                    .is_some_and(|running| running.cell_id == cell_id && running.msg_id.is_none());
+                if !matches {
+                    return Applied::default();
+                }
+                if let Some(running) = self.running.as_mut() {
+                    running.msg_id = Some(msg_id.clone());
+                }
+                self.correlation.insert(msg_id, cell_id);
+                Applied::default()
+            }
+            ExecEvent::Reply { parent, status } => {
+                let matches = self
+                    .running
+                    .as_ref()
+                    .is_some_and(|running| running.msg_id.as_ref() == Some(&parent));
+                if !matches {
+                    return Applied::default();
+                }
+                let running = self.running.take().expect("checked above");
+                let outcome = match status {
+                    ReplyStatus::Ok => Outcome::Done,
+                    ReplyStatus::Error | ReplyStatus::Aborted => Outcome::Error,
+                };
+                self.results.insert(running.cell_id.clone(), outcome);
+                if running.idle_seen {
+                    self.correlation.remove(&parent);
+                }
+                Applied {
+                    effect: self.promote(),
+                    cell: Some(running.cell_id),
+                }
+            }
+            ExecEvent::RemoveCell { cell_id } => {
+                self.queue.retain(|queued| *queued != cell_id);
+                self.results.remove(&cell_id);
+                self.correlation.retain(|_, linked| *linked != cell_id);
+                let was_running = self
+                    .running
+                    .as_ref()
+                    .is_some_and(|running| running.cell_id == cell_id);
+                if !was_running {
+                    return Applied::default();
+                }
+                self.running = None;
+                Applied {
+                    effect: self.promote(),
+                    cell: None,
+                }
+            }
+            ExecEvent::Output { .. } => todo!(),
+            ExecEvent::Idle { .. } => todo!(),
+            ExecEvent::Reset => todo!(),
+            ExecEvent::Saved => todo!(),
+        }
+    }
+
+    fn promote(&mut self) -> Option<ExecEffect> {
+        if self.running.is_some() || self.queue.is_empty() {
+            return None;
+        }
+        let cell_id = self.queue.pop_front().expect("checked above");
+        self.running = Some(Running {
+            cell_id: cell_id.clone(),
+            msg_id: None,
+            idle_seen: false,
+        });
+        Some(ExecEffect::Execute { cell_id })
     }
 
     /// Derive the execution stage of a cell.
