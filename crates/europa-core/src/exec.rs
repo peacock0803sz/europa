@@ -402,17 +402,15 @@ impl ExecState {
                     }
                     return Applied::default();
                 }
-                if self.correlation.remove(&parent).is_some() {
-                    return Applied::default();
-                }
+                self.correlation.remove(&parent);
                 Applied::default()
             }
             ExecEvent::Reset => {
                 if let Some(running) = &self.running {
                     self.results.remove(&running.cell_id);
                 }
-                for queued in self.queue.iter().cloned().collect::<Vec<_>>() {
-                    self.results.remove(&queued);
+                for queued in &self.queue {
+                    self.results.remove(queued);
                 }
                 self.queue.clear();
                 self.running = None;
