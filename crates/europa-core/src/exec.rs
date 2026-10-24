@@ -316,8 +316,29 @@ impl ExecState {
                     cell: None,
                 }
             }
-            ExecEvent::Output { .. } => todo!(),
-            ExecEvent::Idle { .. } => todo!(),
+            ExecEvent::Output { parent } => match self.correlation.get(&parent) {
+                Some(cell_id) => Applied {
+                    effect: None,
+                    cell: Some(cell_id.clone()),
+                },
+                None => Applied::default(),
+            },
+            ExecEvent::Idle { parent } => {
+                let is_running = self
+                    .running
+                    .as_ref()
+                    .is_some_and(|running| running.msg_id.as_ref() == Some(&parent));
+                if is_running {
+                    if let Some(running) = self.running.as_mut() {
+                        running.idle_seen = true;
+                    }
+                    return Applied::default();
+                }
+                if self.correlation.remove(&parent).is_some() {
+                    return Applied::default();
+                }
+                Applied::default()
+            }
             ExecEvent::Reset => todo!(),
             ExecEvent::Saved => todo!(),
         }
