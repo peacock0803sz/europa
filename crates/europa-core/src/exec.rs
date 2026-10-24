@@ -104,6 +104,24 @@ pub(crate) struct Running {
 /// and the dirty flag is false. Per-cell status is not stored; [`ExecState::state`]
 /// derives it from queue, running slot, and results. The hand-written
 /// `Deserialize` impl validates the invariants and returns `Err` on violation.
+///
+/// ```
+/// use europa_core::{CellExecState, ExecEvent, ExecState, MsgId, ReplyStatus};
+///
+/// let mut state = ExecState::default();
+/// let _ = state.apply(ExecEvent::Enqueue {
+///     cell_id: "c1".to_owned(),
+/// });
+/// let _ = state.apply(ExecEvent::Sent {
+///     cell_id: "c1".to_owned(),
+///     msg_id: MsgId::new("m1"),
+/// });
+/// let _ = state.apply(ExecEvent::Reply {
+///     parent: MsgId::new("m1"),
+///     status: ReplyStatus::Ok,
+/// });
+/// assert_eq!(state.state("c1"), CellExecState::Done);
+/// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct ExecState {
     pub(crate) queue: VecDeque<String>,
