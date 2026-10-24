@@ -1,0 +1,437 @@
+//! Execution state for one notebook.
+//!
+//! Tracks queue, running cell, terminal results, message correlation, and the
+//! dirty flag as a pure state machine. Advance it with [`ExecState::apply`];
+//! the caller performs the returned [`ExecEffect`] and feeds observed message
+//! ids back as [`ExecEvent::Sent`]. This keeps id generation and IO outside
+//! the transition, so the same event sequence always yields the same state.
+//!
+//! Cell status is derived from queue, running slot, and results rather than
+//! stored per cell. Correlation records survive until `status: idle` so late
+//! outputs still map to their original cell, including when `idle` arrives
+//! before `execute_reply`. Send failures and lost kernels are recovered by the
+//! caller with [`ExecEvent::Reset`].
+
+use std::collections::{BTreeMap, VecDeque};
+
+/// Parent message id of an `execute_request`.
+///
+/// Created by the kernel layer; this module only compares and records it.
+/// Serializes as a plain string and orders as one for map keys.
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(transparent)]
+pub struct MsgId(String);
+
+impl MsgId {
+    /// Wrap a message id.
+    #[must_use]
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    /// Borrow the id as a string slice.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for MsgId {
+    fn from(id: String) -> Self {
+        Self(id)
+    }
+}
+
+impl From<&str> for MsgId {
+    fn from(id: &str) -> Self {
+        Self(id.to_owned())
+    }
+}
+
+/// Execution stage of a single cell, derived by [`ExecState::state`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum CellExecState {
+    /// Waiting, with no queue entry, running slot, or terminal result.
+    Idle,
+    /// Waiting in the queue for its turn.
+    Queued,
+    /// Currently executing.
+    Running,
+    /// Finished successfully.
+    Done,
+    /// Finished with an error or abortion.
+    Error,
+}
+
+/// Outcome of an `execute_reply`.
+///
+/// `Ok` maps to `Done`, while `Error` and `Aborted` map to `Error`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ReplyStatus {
+    /// Execution succeeded.
+    Ok,
+    /// Execution failed.
+    Error,
+    /// Execution was aborted.
+    Aborted,
+}
+
+/// Last terminal result of a cell.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) enum Outcome {
+    /// Execution succeeded.
+    Done,
+    /// Execution failed or was aborted.
+    Error,
+}
+
+/// Running slot of the state machine.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Running {
+    /// Id of the running cell.
+    pub(crate) cell_id: String,
+    /// Message id once `Sent` arrives; `None` between promotion and `Sent`.
+    pub(crate) msg_id: Option<MsgId>,
+    /// Whether `status: idle` arrived before `execute_reply`.
+    pub(crate) idle_seen: bool,
+}
+
+/// Execution state of one notebook.
+///
+/// `Default` is the state right after opening a notebook: every cell is idle
+/// and the dirty flag is false. Per-cell status is not stored; [`ExecState::state`]
+/// derives it from queue, running slot, and results. The hand-written
+/// `Deserialize` impl validates the invariants and returns `Err` on violation.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct ExecState {
+    pub(crate) queue: VecDeque<String>,
+    pub(crate) running: Option<Running>,
+    pub(crate) results: BTreeMap<String, Outcome>,
+    pub(crate) correlation: BTreeMap<MsgId, String>,
+    pub(crate) dirty: bool,
+}
+
+impl<'de> serde::Deserialize<'de> for ExecState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct Fields {
+            queue: VecDeque<String>,
+            running: Option<Running>,
+            results: BTreeMap<String, Outcome>,
+            correlation: BTreeMap<MsgId, String>,
+            dirty: bool,
+        }
+        let fields = Fields::deserialize(deserializer)?;
+        let mut seen = std::collections::BTreeSet::new();
+        if fields.queue.iter().any(|cell| !seen.insert(cell)) {
+            return Err(serde::de::Error::custom(
+                "invariant 1 violated: queue holds the same cell twice",
+            ));
+        }
+        if let Some(running) = &fields.running {
+            if let Some(msg) = &running.msg_id {
+                if fields
+                    .correlation
+                    .get(msg)
+                    .is_none_or(|cell| cell != &running.cell_id)
+                {
+                    return Err(serde::de::Error::custom(
+                        "invariant 2 violated: running id lacks a matching correlation entry",
+                    ));
+                }
+            }
+            if running.idle_seen && running.msg_id.is_none() {
+                return Err(serde::de::Error::custom(
+                    "invariant 3 violated: idle flag without a message id",
+                ));
+            }
+        }
+        if !fields.queue.is_empty() && fields.running.is_none() {
+            return Err(serde::de::Error::custom(
+                "invariant 4 violated: waiters without a running cell",
+            ));
+        }
+        Ok(Self {
+            queue: fields.queue,
+            running: fields.running,
+            results: fields.results,
+            correlation: fields.correlation,
+            dirty: fields.dirty,
+        })
+    }
+}
+
+/// Event that advances [`ExecState`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum ExecEvent {
+    /// The user ran a cell; bulk runs send one event per cell in request order.
+    Enqueue {
+        /// Target cell id.
+        cell_id: String,
+    },
+    /// `Execute` was handled and `execute_request` returned this message id.
+    Sent {
+        /// Target cell id.
+        cell_id: String,
+        /// Message id assigned by the kernel layer.
+        msg_id: MsgId,
+    },
+    /// An `execute_reply` arrived on the shell channel.
+    Reply {
+        /// Parent message id of the reply.
+        parent: MsgId,
+        /// Reply outcome.
+        status: ReplyStatus,
+    },
+    /// An iopub message arrived that updates outputs or the execution count.
+    /// Do not send for `status`-like messages that change nothing.
+    Output {
+        /// Parent message id of the output.
+        parent: MsgId,
+    },
+    /// `status: idle` arrived on iopub.
+    Idle {
+        /// Parent message id of the idle status.
+        parent: MsgId,
+    },
+    /// An interrupt or restart happened. The caller also sends this after a
+    /// send failure or a lost kernel to return queued and running cells to idle.
+    Reset,
+    /// A cell was deleted.
+    RemoveCell {
+        /// Deleted cell id.
+        cell_id: String,
+    },
+    /// A save succeeded. Do not send on failure.
+    Saved,
+}
+
+/// Work the caller must perform after [`ExecState::apply`].
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "effect", rename_all = "snake_case")]
+pub enum ExecEffect {
+    /// Send `execute_request` for this cell, then apply `Sent` with the
+    /// returned id before any other event.
+    Execute {
+        /// Cell to execute.
+        cell_id: String,
+    },
+}
+
+/// Result of applying one [`ExecEvent`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[must_use]
+pub struct Applied {
+    /// Work the caller must perform, if any.
+    pub effect: Option<ExecEffect>,
+    /// Cell a reply or output mapped to, if any.
+    pub cell: Option<String>,
+}
+
+impl ExecState {
+    /// Advance the state with one event.
+    ///
+    /// Has no IO and returns the same result for the same input. At most one
+    /// promotion happens per call, so the returned effect holds at most one
+    /// `Execute`.
+    pub fn apply(&mut self, event: ExecEvent) -> Applied {
+        let _ = event;
+        todo!()
+    }
+
+    /// Derive the execution stage of a cell.
+    ///
+    /// Running wins over queued, queued wins over the last terminal result,
+    /// and anything else is idle.
+    #[must_use]
+    pub fn state(&self, cell_id: &str) -> CellExecState {
+        if self
+            .running
+            .as_ref()
+            .is_some_and(|running| running.cell_id == cell_id)
+        {
+            return CellExecState::Running;
+        }
+        if self.queue.iter().any(|queued| queued == cell_id) {
+            return CellExecState::Queued;
+        }
+        match self.results.get(cell_id) {
+            Some(Outcome::Done) => CellExecState::Done,
+            Some(Outcome::Error) => CellExecState::Error,
+            None => CellExecState::Idle,
+        }
+    }
+
+    /// Iterate the waiting queue from front to back.
+    pub fn queue(&self) -> impl Iterator<Item = &str> + '_ {
+        self.queue.iter().map(String::as_str)
+    }
+
+    /// Borrow the running cell id, if any.
+    #[must_use]
+    pub fn running(&self) -> Option<&str> {
+        self.running
+            .as_ref()
+            .map(|running| running.cell_id.as_str())
+    }
+
+    /// Look up which cell a parent message id belongs to.
+    #[must_use]
+    pub fn cell_for(&self, parent: &MsgId) -> Option<&str> {
+        self.correlation.get(parent).map(String::as_str)
+    }
+
+    /// Whether the notebook has unsaved output changes.
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state_with(
+        queue: &[&str],
+        running: Option<Running>,
+        results: &[(&str, Outcome)],
+        correlation: &[(&str, &str)],
+        dirty: bool,
+    ) -> ExecState {
+        ExecState {
+            queue: queue.iter().map(|cell| (*cell).to_owned()).collect(),
+            running,
+            results: results
+                .iter()
+                .map(|(cell, outcome)| ((*cell).to_owned(), outcome.clone()))
+                .collect(),
+            correlation: correlation
+                .iter()
+                .map(|(id, cell)| (MsgId::new(*id), (*cell).to_owned()))
+                .collect(),
+            dirty,
+        }
+    }
+
+    fn running(cell: &str, msg: Option<&str>, idle_seen: bool) -> Running {
+        Running {
+            cell_id: cell.to_owned(),
+            msg_id: msg.map(MsgId::new),
+            idle_seen,
+        }
+    }
+
+    #[test]
+    fn derives_state_with_running_over_queue_over_result() {
+        let state = state_with(
+            &["c1"],
+            Some(running("c1", Some("m1"), false)),
+            &[("c1", Outcome::Done), ("c2", Outcome::Done)],
+            &[("m1", "c1")],
+            false,
+        );
+        // Same cell in every slot still reports running.
+        assert_eq!(state.state("c1"), CellExecState::Running);
+        // Queued waiter with a terminal result still reports queued.
+        let queued = state_with(
+            &["c2"],
+            Some(running("c1", Some("m1"), false)),
+            &[("c2", Outcome::Done)],
+            &[("m1", "c1")],
+            false,
+        );
+        assert_eq!(queued.state("c2"), CellExecState::Queued);
+        assert_eq!(queued.state("c1"), CellExecState::Running);
+    }
+
+    #[test]
+    fn derives_done_error_and_idle() {
+        let state = state_with(
+            &[],
+            None,
+            &[("c1", Outcome::Done), ("c2", Outcome::Error)],
+            &[],
+            false,
+        );
+        assert_eq!(state.state("c1"), CellExecState::Done);
+        assert_eq!(state.state("c2"), CellExecState::Error);
+        assert_eq!(state.state("missing"), CellExecState::Idle);
+    }
+
+    #[test]
+    fn reads_queue_running_correlation_and_dirty() {
+        let state = state_with(
+            &["c2", "c3"],
+            Some(running("c1", Some("m1"), false)),
+            &[],
+            &[("m1", "c1")],
+            true,
+        );
+        assert_eq!(
+            state.queue().collect::<Vec<_>>(),
+            vec!["c2", "c3"],
+            "queue reads front to back"
+        );
+        assert_eq!(state.running(), Some("c1"));
+        assert_eq!(state.cell_for(&MsgId::new("m1")), Some("c1"));
+        assert_eq!(state.cell_for(&MsgId::new("unknown")), None);
+        assert!(state.is_dirty());
+    }
+
+    #[test]
+    fn default_reports_idle_and_clean() {
+        let state = ExecState::default();
+        assert_eq!(state.state("c1"), CellExecState::Idle);
+        assert_eq!(state.state("anything"), CellExecState::Idle);
+        assert!(!state.is_dirty());
+        assert_eq!(state.running(), None);
+        assert_eq!(state.queue().count(), 0);
+    }
+
+    #[test]
+    fn round_trips_valid_states() {
+        let fresh = ExecState::default();
+        let text = serde_json::to_string(&fresh).expect("serializes");
+        assert_eq!(
+            serde_json::from_str::<ExecState>(&text).expect("loads"),
+            fresh
+        );
+
+        let full = state_with(
+            &["c2", "c3"],
+            Some(running("c1", Some("m1"), false)),
+            &[("c0", Outcome::Done)],
+            &[("m1", "c1")],
+            true,
+        );
+        let text = serde_json::to_string(&full).expect("serializes");
+        assert_eq!(
+            serde_json::from_str::<ExecState>(&text).expect("loads"),
+            full
+        );
+    }
+
+    #[test]
+    fn rejects_each_invariant_violation() {
+        // Invariant 1: queue holds the same cell twice.
+        let duplicate = r#"{"queue":["c1","c1"],"running":{"cell_id":"c1","msg_id":null,"idle_seen":false},"results":{},"correlation":{},"dirty":false}"#;
+        assert!(serde_json::from_str::<ExecState>(duplicate).is_err());
+        // Invariant 2: running id has no matching correlation entry.
+        let dangling = r#"{"queue":[],"running":{"cell_id":"c1","msg_id":"m1","idle_seen":false},"results":{},"correlation":{},"dirty":false}"#;
+        assert!(serde_json::from_str::<ExecState>(dangling).is_err());
+        // Invariant 3: idle flag without a message id.
+        let idle_without_id = r#"{"queue":[],"running":{"cell_id":"c1","msg_id":null,"idle_seen":true},"results":{},"correlation":{},"dirty":false}"#;
+        assert!(serde_json::from_str::<ExecState>(idle_without_id).is_err());
+        // Invariant 4: waiters without a running cell.
+        let waiter_without_running =
+            r#"{"queue":["c1"],"running":null,"results":{},"correlation":{},"dirty":false}"#;
+        assert!(serde_json::from_str::<ExecState>(waiter_without_running).is_err());
+    }
+}

@@ -18,6 +18,7 @@
 
 mod canonical;
 pub mod error;
+pub mod exec;
 pub mod io;
 pub mod json;
 pub mod normalize;
@@ -25,6 +26,7 @@ pub mod notebook;
 pub mod pos;
 
 pub use error::ParseError;
+pub use exec::{Applied, CellExecState, ExecEffect, ExecEvent, ExecState, MsgId, ReplyStatus};
 pub use io::{parse, serialize};
 pub use json::{JsonMap, JsonNumber, JsonValue};
 pub use normalize::MultilineText;
