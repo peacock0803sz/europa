@@ -363,7 +363,7 @@ impl ExecState {
             }
             ExecEvent::Reset => {
                 if let Some(running) = &self.running {
-                    self.results.remove(&running.cell_id.clone());
+                    self.results.remove(&running.cell_id);
                 }
                 for queued in self.queue.iter().cloned().collect::<Vec<_>>() {
                     self.results.remove(&queued);
