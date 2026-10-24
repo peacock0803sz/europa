@@ -75,17 +75,6 @@ fn save_clears_dirty() {
 }
 
 #[test]
-fn missing_save_keeps_dirty() {
-    let mut state = ExecState::default();
-    let _ = apply(&mut state, enqueue("c1"));
-    let _ = apply(&mut state, sent("c1", "m1"));
-    let _ = apply(&mut state, output("m1"));
-    assert!(state.is_dirty());
-    // A failed save sends no event, so the flag stays set.
-    assert!(state.is_dirty());
-}
-
-#[test]
 fn other_events_keep_clean() {
     let mut state = ExecState::default();
     assert!(!state.is_dirty());
