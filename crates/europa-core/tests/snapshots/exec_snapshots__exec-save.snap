@@ -1,0 +1,10 @@
+---
+source: crates/europa-core/tests/exec_snapshots.rs
+expression: trace(&events)
+---
+{"event":"enqueue","cell_id":"c1"} => {"effect":{"effect":"execute","cell_id":"c1"},"cell":null} | {"queue":[],"running":{"cell_id":"c1","msg_id":null,"idle_seen":false},"results":{},"correlation":{},"dirty":false}
+{"event":"sent","cell_id":"c1","msg_id":"m1"} => {"effect":null,"cell":null} | {"queue":[],"running":{"cell_id":"c1","msg_id":"m1","idle_seen":false},"results":{},"correlation":{"m1":"c1"},"dirty":false}
+{"event":"output","parent":"m1"} => {"effect":null,"cell":"c1"} | {"queue":[],"running":{"cell_id":"c1","msg_id":"m1","idle_seen":false},"results":{},"correlation":{"m1":"c1"},"dirty":true}
+{"event":"saved"} => {"effect":null,"cell":null} | {"queue":[],"running":{"cell_id":"c1","msg_id":"m1","idle_seen":false},"results":{},"correlation":{"m1":"c1"},"dirty":false}
+{"event":"output","parent":"m1"} => {"effect":null,"cell":"c1"} | {"queue":[],"running":{"cell_id":"c1","msg_id":"m1","idle_seen":false},"results":{},"correlation":{"m1":"c1"},"dirty":true}
+{"event":"saved"} => {"effect":null,"cell":null} | {"queue":[],"running":{"cell_id":"c1","msg_id":"m1","idle_seen":false},"results":{},"correlation":{"m1":"c1"},"dirty":false}
