@@ -14,7 +14,7 @@
 //! them are not mapped. Send failures and lost kernels are recovered by the
 //! caller with [`ExecEvent::Reset`].
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Parent message id of an `execute_request`.
 ///
@@ -119,6 +119,8 @@ pub(crate) struct Running {
 ///    for that id pointing to the running cell.
 /// 3. If the running cell has seen `status: idle`, it has a message id.
 /// 4. If the queue is non-empty, a cell is running.
+/// 5. Every pending clear is keyed by a message id that has a correlation
+///    entry.
 ///
 /// ```
 /// use europa_core::{CellExecState, ExecEvent, ExecState, MsgId, ReplyStatus};
@@ -144,6 +146,9 @@ pub struct ExecState {
     pub(crate) results: BTreeMap<String, Outcome>,
     pub(crate) correlation: BTreeMap<MsgId, String>,
     pub(crate) dirty: bool,
+    // Skipped when empty so states without a pending clear serialize as before.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub(crate) pending_clear: BTreeSet<MsgId>,
 }
 
 impl<'de> serde::Deserialize<'de> for ExecState {
@@ -158,6 +163,8 @@ impl<'de> serde::Deserialize<'de> for ExecState {
             results: BTreeMap<String, Outcome>,
             correlation: BTreeMap<MsgId, String>,
             dirty: bool,
+            #[serde(default)]
+            pending_clear: BTreeSet<MsgId>,
         }
         let fields = Fields::deserialize(deserializer)?;
         let mut seen = std::collections::BTreeSet::new();
@@ -189,12 +196,22 @@ impl<'de> serde::Deserialize<'de> for ExecState {
                 "invariant 4 violated: non-empty queue requires a running cell",
             ));
         }
+        if fields
+            .pending_clear
+            .iter()
+            .any(|parent| !fields.correlation.contains_key(parent))
+        {
+            return Err(serde::de::Error::custom(
+                "invariant 5 violated: pending_clear must only hold correlated message ids",
+            ));
+        }
         Ok(Self {
             queue: fields.queue,
             running: fields.running,
             results: fields.results,
             correlation: fields.correlation,
             dirty: fields.dirty,
+            pending_clear: fields.pending_clear,
         })
     }
 }
@@ -479,6 +496,13 @@ impl ExecState {
         self.correlation.get(parent).map(String::as_str)
     }
 
+    /// Whether the run with this parent id received `clear_output(wait=true)`
+    /// and has not cleared its outputs yet.
+    #[must_use]
+    pub fn is_clear_pending(&self, parent: &MsgId) -> bool {
+        self.pending_clear.contains(parent)
+    }
+
     /// Whether the notebook has unsaved output changes.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
@@ -509,6 +533,7 @@ mod tests {
                 .map(|(id, cell)| (MsgId::new(*id), (*cell).to_owned()))
                 .collect(),
             dirty,
+            pending_clear: BTreeSet::new(),
         }
     }
 
@@ -637,5 +662,34 @@ mod tests {
         let waiter_without_running =
             r#"{"queue":["c1"],"running":null,"results":{},"correlation":{},"dirty":false}"#;
         assert_violates(waiter_without_running, 4);
+        // Invariant 5: pending clear without a correlation entry.
+        let orphan_clear = r#"{"queue":[],"running":null,"results":{},"correlation":{},"dirty":false,"pending_clear":["m1"]}"#;
+        assert_violates(orphan_clear, 5);
+    }
+
+    #[test]
+    fn round_trips_pending_clear() {
+        let mut state = state_with(
+            &[],
+            Some(running("c1", Some("m1"), false)),
+            &[],
+            &[("m1", "c1")],
+            false,
+        );
+        state.pending_clear.insert(MsgId::new("m1"));
+        let text = serde_json::to_string(&state).expect("serializes");
+        assert!(text.contains(r#""pending_clear":["m1"]"#));
+        assert_eq!(
+            serde_json::from_str::<ExecState>(&text).expect("loads"),
+            state
+        );
+        assert!(state.is_clear_pending(&MsgId::new("m1")));
+        assert!(!state.is_clear_pending(&MsgId::new("m2")));
+    }
+
+    #[test]
+    fn omits_empty_pending_clear_from_json() {
+        let text = serde_json::to_string(&ExecState::default()).expect("serializes");
+        assert!(!text.contains("pending_clear"), "{text}");
     }
 }
