@@ -114,8 +114,13 @@ pub fn apply_iopub(
 fn append_output(outputs: &mut Vec<Output>, name: &str, text: &str) {
     if let Some(Output::Stream(last)) = outputs.last_mut() {
         if last.name == name {
+            // A long line printed piece by piece would otherwise be copied
+            // and renormalized on every chunk.
             let edited = last.origin == OutputOrigin::New
-                && last.text.edit_tail(|body| append_stream(body, text));
+                && match last.text.as_single() {
+                    Some(body) if appends_verbatim(body, text) => last.text.push_tail(text),
+                    _ => last.text.edit_tail(|body| append_stream(body, text)),
+                };
             if !edited {
                 last.rebuild_text(|body| append_stream(body, text));
             }
@@ -130,12 +135,17 @@ fn append_output(outputs: &mut Vec<Output>, name: &str, text: &str) {
 /// Append a stream chunk to the text of the last output, resolving `\r`.
 ///
 /// Only the last line of `existing` is rebuilt, so the cost of one call does
-/// not grow with the length of the whole text. A `\r` run before `\n` belongs
-/// to the newline; elsewhere `\r` discards what the line held before it. A
-/// trailing `\r` is kept until the next chunk shows whether it ends the line
-/// or overwrites it, which makes the result independent of how the text is
-/// split into chunks.
+/// not grow with the length of the whole text, and a chunk that
+/// [`appends_verbatim`] is pushed without copying even that line. A `\r` run
+/// before `\n` belongs to the newline; elsewhere `\r` discards what the line
+/// held before it. A trailing `\r` is kept until the next chunk shows whether
+/// it ends the line or overwrites it, which makes the result independent of
+/// how the text is split into chunks.
 pub(crate) fn append_stream(existing: &mut String, chunk: &str) {
+    if appends_verbatim(existing, chunk) {
+        existing.push_str(chunk);
+        return;
+    }
     let cut = existing.rfind('\n').map_or(0, |at| at + 1);
     let mut tail = existing.split_off(cut);
     tail.push_str(chunk);
@@ -156,6 +166,17 @@ pub(crate) fn append_stream(existing: &mut String, chunk: &str) {
     }
 }
 
+/// Whether [`append_stream`] would just push `chunk` onto `existing`.
+///
+/// That holds when neither `chunk` nor the last line of `existing` has a
+/// `\r` to resolve. Text built by [`append_stream`] keeps at most a trailing
+/// `\r` in its last line, but text given to [`Output::new_stream`] or read
+/// from a file may hold one anywhere. The check scans only the last line.
+fn appends_verbatim(existing: &str, chunk: &str) -> bool {
+    let cut = existing.rfind('\n').map_or(0, |at| at + 1);
+    !chunk.contains('\r') && !existing[cut..].contains('\r')
+}
+
 /// The part of a line that survives carriage-return overwrites.
 fn after_last_cr(line: &str) -> &str {
     line.rsplit('\r').next().unwrap_or_default()
@@ -174,6 +195,20 @@ mod tests {
     #[test]
     fn appends_plain_text() {
         assert_eq!(append("", "10%"), "10%");
+    }
+
+    #[test]
+    fn plain_chunks_extend_a_long_line() {
+        let mut text = "a\n".to_owned();
+        for _ in 0..3 {
+            append_stream(&mut text, "..");
+        }
+        assert_eq!(text, "a\n......");
+    }
+
+    #[test]
+    fn carriage_return_left_inside_the_last_line_is_still_resolved() {
+        assert_eq!(append("a\nx\ry", "z"), "a\nyz");
     }
 
     #[test]

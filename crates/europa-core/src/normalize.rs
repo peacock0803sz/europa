@@ -172,6 +172,25 @@ impl MultilineText {
         true
     }
 
+    /// Append `tail` to the text held as a single string.
+    ///
+    /// Returns `false` and leaves the text alone when it is held as an array
+    /// of strings. `tail` must hold no `\r` and the text must not end with
+    /// `\r`, so no CRLF forms across the join and `tail` is already
+    /// normalized.
+    pub(crate) fn push_tail(&mut self, tail: &str) -> bool {
+        let MultilineRepr::Single(text) = &mut self.raw else {
+            return false;
+        };
+        debug_assert!(
+            !tail.contains('\r') && !text.ends_with('\r'),
+            "push_tail must not need renormalizing"
+        );
+        text.push_str(tail);
+        self.normalized.push_str(tail);
+        true
+    }
+
     /// Keep `text` as one string.
     pub(crate) fn single(text: String) -> MultilineText {
         Self::from_repr(MultilineRepr::Single(text))
@@ -277,6 +296,18 @@ mod tests {
                 normalized: "hello\nworld".to_owned(),
             }
         );
+    }
+
+    #[test]
+    fn push_tail_extends_raw_and_reading_text() {
+        let mut text = MultilineText::single("a\r\nb".to_owned());
+        assert!(text.push_tail("c"));
+        assert_eq!(text.as_single(), Some("a\r\nbc"));
+        assert_eq!(text.text(), "a\nbc");
+
+        let mut array = roundtrip(serde_json::json!(["a"]));
+        assert!(!array.push_tail("b"));
+        assert_eq!(array.text(), "a");
     }
 
     #[test]
