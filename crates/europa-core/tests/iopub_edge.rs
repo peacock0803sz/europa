@@ -103,6 +103,31 @@ fn appending_to_a_loaded_stream_rebuilds_it_as_new() {
     assert!(!saved.contains(r#""50%""#));
 }
 
+const LOADED_SINGLE: &str = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"code","id":"c1","metadata":{},"source":"","outputs":[{"output_type":"stream","name":"stdout","text":"a\r\nb","x-extra":1}],"execution_count":null}]}"#;
+
+// A loaded output held as one string could be edited in place, but that would
+// keep it loaded and write the CRLF text back unsplit.
+#[test]
+fn appending_to_a_loaded_stream_held_as_a_string_rebuilds_it_as_new() {
+    let mut book = europa_core::parse(LOADED_SINGLE.as_bytes()).expect("loads");
+    let mut exec = running("c1", "m1");
+    let _ = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", "\rc"));
+    assert_eq!(outputs(&book, "c1"), r#"stdout:"a\nc""#);
+
+    let Cell::Code(code) = &book.cells[0] else {
+        panic!("code cell");
+    };
+    assert!(code.outputs[0].is_new());
+    let Output::Stream(merged) = &code.outputs[0] else {
+        panic!("stream output");
+    };
+    assert!(merged.extra.contains_key("x-extra"), "unknown field kept");
+
+    let saved = europa_core::serialize(&book);
+    let lines = "     \"text\": [\n      \"a\\n\",\n      \"c\"\n     ],";
+    assert!(saved.contains(lines), "{saved}");
+}
+
 #[test]
 fn appending_to_a_new_stream_held_as_an_array_rebuilds_it_as_a_string() {
     let mut book = notebook(&["c1"]);
