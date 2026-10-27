@@ -3,6 +3,18 @@
 //! [`apply_iopub`] folds `stream` and `clear_output` messages into a code
 //! cell's outputs. It has no IO, so the same input always yields the same
 //! result.
+//!
+//! Design decisions:
+//!
+//! - A deferred `clear_output(wait=true)` is keyed by the parent message id
+//!   and stored in [`ExecState`], so it is dropped together with the
+//!   correlation entry and never leaks into a later run of the same cell.
+//! - A run that ends while a clear is still pending keeps its outputs; the
+//!   clear only fires when the next output arrives.
+//! - `\r` rebuilds only the last line. A trailing `\r` stays in the text until
+//!   the next chunk shows whether it ends the line or overwrites it, which
+//!   keeps the result independent of how the text is chunked.
+//! - The notebook is marked as changed only when the list of outputs changes.
 
 use crate::exec::{ExecEvent, ExecState, MsgId};
 use crate::notebook::{Cell, Notebook, Output, OutputOrigin};

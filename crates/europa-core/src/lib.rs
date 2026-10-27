@@ -38,6 +38,35 @@
 //! assert_eq!(done.cell.as_deref(), Some("c1"));
 //! assert_eq!(state.state("c1"), CellExecState::Done);
 //! ```
+//!
+//! Output messages from the kernel are folded into the cell with
+//! [`apply_iopub`]. A `\r` overwrites the current line, so a progress bar
+//! leaves only its latest state.
+//!
+//! ```
+//! use europa_core::{apply_iopub, ExecEvent, ExecState, IopubMsg, MsgId};
+//!
+//! let bytes = br#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"code","id":"c1","metadata":{},"source":"","outputs":[],"execution_count":null}]}"#;
+//! let mut notebook = europa_core::parse(bytes).expect("loads");
+//! let mut state = ExecState::default();
+//! let _ = state.apply(ExecEvent::Enqueue {
+//!     cell_id: "c1".to_owned(),
+//! });
+//! let _ = state.apply(ExecEvent::Sent {
+//!     cell_id: "c1".to_owned(),
+//!     msg_id: MsgId::new("m1"),
+//! });
+//! for text in ["\r10%", "\r20%"] {
+//!     let msg = IopubMsg::Stream {
+//!         parent: MsgId::new("m1"),
+//!         name: "stdout".to_owned(),
+//!         text: text.to_owned(),
+//!     };
+//!     assert_eq!(apply_iopub(&mut state, &mut notebook, &msg).as_deref(), Some("c1"));
+//! }
+//! assert!(europa_core::serialize(&notebook).contains(r#""20%""#));
+//! assert!(!europa_core::serialize(&notebook).contains("10%"));
+//! ```
 #![deny(missing_docs)]
 
 mod canonical;
