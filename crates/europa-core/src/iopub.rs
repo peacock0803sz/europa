@@ -1,0 +1,73 @@
+//! Applying iopub messages to notebook outputs.
+//!
+//! [`apply_iopub`] folds `stream` and `clear_output` messages into a code
+//! cell's outputs. It has no IO, so the same input always yields the same
+//! result.
+
+use crate::exec::{ExecState, MsgId};
+use crate::notebook::Notebook;
+
+/// An iopub message that changes cell outputs.
+///
+/// The kernel layer converts wire messages into this type before handing them
+/// to [`apply_iopub`]; this crate never sees the wire format. The `name` of a
+/// stream is not restricted to `stdout` and `stderr`. Messages such as
+/// `display_data` are not covered yet; the specs that handle them add the
+/// variants.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "msg", rename_all = "snake_case")]
+pub enum IopubMsg {
+    /// A `stream` message.
+    Stream {
+        /// Parent message id of the originating `execute_request`.
+        parent: MsgId,
+        /// Stream name such as `stdout` or `stderr`.
+        name: String,
+        /// Text chunk to append.
+        text: String,
+    },
+    /// A `clear_output` message.
+    ClearOutput {
+        /// Parent message id of the originating `execute_request`.
+        parent: MsgId,
+        /// Defer clearing until the next output arrives.
+        wait: bool,
+    },
+}
+
+/// Apply one iopub message to the outputs of the cell it belongs to.
+///
+/// Steps:
+///
+/// 1. Look the cell up by the parent id; return `None` and change nothing when
+///    the id is unknown or the notebook has no code cell with that id.
+/// 2. `clear_output(wait=true)` records the parent as pending and leaves the
+///    outputs alone.
+/// 3. `clear_output(wait=false)` drops any pending record and empties the
+///    outputs.
+/// 4. A `stream` with empty text changes nothing.
+/// 5. A `stream` with text first empties the outputs if the parent is pending,
+///    then appends to the last output when it is a stream of the same name,
+///    or pushes a new stream output.
+/// 6. Only the non-empty stream of step 5 and a `clear_output(wait=false)` that
+///    removed at least one output mark the notebook as changed.
+/// 7. Return the cell id for every message that passed step 1.
+///
+/// Has no IO and returns the same result for the same input. Returns the id
+/// of the cell that was updated, or `None` when the parent id is unknown or
+/// no matching code cell exists.
+pub fn apply_iopub(
+    exec: &mut ExecState,
+    notebook: &mut Notebook,
+    msg: &IopubMsg,
+) -> Option<String> {
+    let _ = (exec, notebook, msg);
+    todo!()
+}
+
+/// Append a stream chunk to the text of the last output, resolving `\r`.
+#[allow(dead_code)]
+pub(crate) fn append_stream(existing: &mut String, chunk: &str) {
+    let _ = (existing, chunk);
+    todo!()
+}
