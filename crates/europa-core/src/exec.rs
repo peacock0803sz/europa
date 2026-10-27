@@ -246,6 +246,9 @@ pub enum ExecEvent {
     /// Records the terminal result of the running cell and promotes the next
     /// queued cell. Ignored when `parent` is not the running cell's message
     /// id; [`Applied::cell`] is then `None`, so callers can log the unknown id.
+    ///
+    /// When it drops the correlation entry, it drops the pending clear for the
+    /// same id too.
     Reply {
         /// Parent message id of the reply.
         parent: MsgId,
@@ -265,7 +268,8 @@ pub enum ExecEvent {
     ///
     /// For the running cell's message id this only marks idle as seen and
     /// keeps the correlation entry until `Reply`; for a finished cell it drops
-    /// the entry. Ignored when `parent` has no correlation entry.
+    /// the entry and its pending clear. Ignored when `parent` has no
+    /// correlation entry.
     Idle {
         /// Parent message id of the idle status.
         parent: MsgId,
@@ -274,14 +278,16 @@ pub enum ExecEvent {
     /// send failure or a lost kernel to return queued and running cells to idle.
     ///
     /// Clears the terminal results of queued and running cells, empties the
-    /// queue and running slot, and drops all correlation entries, so later
-    /// replies and outputs for earlier message ids are ignored. Results of
+    /// queue and running slot, and drops all correlation entries and pending
+    /// clears, so later replies and outputs for earlier message ids are
+    /// ignored. Results of
     /// other cells and the dirty flag are unchanged.
     Reset,
     /// A cell was deleted.
     ///
     /// Removes the cell from the queue, its terminal result, and every
-    /// correlation entry pointing to it. If the cell was running, the slot is
+    /// correlation entry pointing to it, along with the pending clears of those
+    /// entries. If the cell was running, the slot is
     /// released immediately and the next queued cell is promoted without
     /// waiting for the kernel; the removed run's later reply and outputs are
     /// ignored.
@@ -374,6 +380,7 @@ impl ExecState {
                 self.results.insert(running.cell_id.clone(), outcome);
                 if running.idle_seen {
                     self.correlation.remove(&parent);
+                    self.pending_clear.remove(&parent);
                 }
                 Applied {
                     effect: self.promote(),
@@ -384,6 +391,8 @@ impl ExecState {
                 self.queue.retain(|queued| *queued != cell_id);
                 self.results.remove(&cell_id);
                 self.correlation.retain(|_, linked| *linked != cell_id);
+                self.pending_clear
+                    .retain(|parent| self.correlation.contains_key(parent));
                 let was_running = self
                     .running
                     .as_ref()
@@ -420,6 +429,7 @@ impl ExecState {
                     return Applied::default();
                 }
                 self.correlation.remove(&parent);
+                self.pending_clear.remove(&parent);
                 Applied::default()
             }
             ExecEvent::Reset => {
@@ -432,6 +442,7 @@ impl ExecState {
                 self.queue.clear();
                 self.running = None;
                 self.correlation.clear();
+                self.pending_clear.clear();
                 Applied::default()
             }
             ExecEvent::Saved => {

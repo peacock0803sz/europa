@@ -1,7 +1,7 @@
 mod common;
 
 use common::{clear, notebook, outputs, running, stream};
-use europa_core::{apply_iopub, ExecState, IopubMsg, MsgId, Notebook};
+use europa_core::{apply_iopub, ExecEvent, ExecState, IopubMsg, MsgId, Notebook, ReplyStatus};
 
 /// A running `c1` (`m1`) that already printed `a\n`.
 fn printed() -> (ExecState, Notebook) {
@@ -97,4 +97,74 @@ fn outputs_len(book: &Notebook) -> usize {
     } else {
         text.split(", ").count()
     }
+}
+
+fn pending() -> (ExecState, Notebook) {
+    let (mut exec, mut book) = printed();
+    let _ = apply_iopub(&mut exec, &mut book, &clear("m1", true));
+    (exec, book)
+}
+
+fn reply_ok() -> ExecEvent {
+    ExecEvent::Reply {
+        parent: m1(),
+        status: ReplyStatus::Ok,
+    }
+}
+
+fn idle() -> ExecEvent {
+    ExecEvent::Idle { parent: m1() }
+}
+
+#[test]
+fn ending_a_run_drops_the_pending_clear_and_keeps_outputs() {
+    let (mut exec, book) = pending();
+    let _ = exec.apply(reply_ok());
+    let _ = exec.apply(idle());
+    assert_eq!(outputs(&book, "c1"), r#"stdout:"a\n""#);
+    assert!(!exec.is_clear_pending(&m1()));
+}
+
+#[test]
+fn pending_clear_survives_until_both_idle_and_reply_are_seen() {
+    let (mut exec, _book) = pending();
+    let _ = exec.apply(idle());
+    assert!(exec.is_clear_pending(&m1()));
+    let _ = exec.apply(reply_ok());
+    assert!(!exec.is_clear_pending(&m1()));
+}
+
+#[test]
+fn reset_drops_the_pending_clear() {
+    let (mut exec, _book) = pending();
+    let _ = exec.apply(ExecEvent::Reset);
+    assert!(!exec.is_clear_pending(&m1()));
+    let text = serde_json::to_string(&exec).expect("serializes");
+    serde_json::from_str::<ExecState>(&text).expect("still valid");
+}
+
+#[test]
+fn removing_the_cell_drops_the_pending_clear() {
+    let (mut exec, _book) = pending();
+    let _ = exec.apply(ExecEvent::RemoveCell {
+        cell_id: "c1".to_owned(),
+    });
+    assert!(!exec.is_clear_pending(&m1()));
+    let text = serde_json::to_string(&exec).expect("serializes");
+    serde_json::from_str::<ExecState>(&text).expect("still valid");
+}
+
+#[test]
+fn a_rerun_is_not_cleared_by_the_previous_runs_pending_clear() {
+    let (mut exec, mut book) = pending();
+    let _ = exec.apply(reply_ok());
+    let _ = exec.apply(ExecEvent::Enqueue {
+        cell_id: "c1".to_owned(),
+    });
+    let _ = exec.apply(ExecEvent::Sent {
+        cell_id: "c1".to_owned(),
+        msg_id: MsgId::new("m2"),
+    });
+    let _ = apply_iopub(&mut exec, &mut book, &stream("m2", "stdout", "z"));
+    assert_eq!(outputs(&book, "c1"), r#"stdout:"a\nz""#);
 }
