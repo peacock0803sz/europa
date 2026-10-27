@@ -184,6 +184,19 @@ pub struct UnknownOutput {
     pub value: JsonMap,
 }
 
+impl StreamOutput {
+    /// Rebuild as a new output whose text is the reading text after `f`.
+    ///
+    /// The name and unknown fields stay. Saving then splits the text into
+    /// lines, which a loaded string or array form cannot keep once changed.
+    pub(crate) fn rebuild_text(&mut self, f: impl FnOnce(&mut String)) {
+        let mut body = self.text.text().to_owned();
+        f(&mut body);
+        self.text = MultilineText::single(body);
+        self.origin = OutputOrigin::New;
+    }
+}
+
 /// Code cell output, dispatched by `output_type`.
 ///
 /// Build outputs for a code cell with the `Output::new_*` constructors, so

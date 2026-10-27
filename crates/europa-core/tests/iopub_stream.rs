@@ -88,3 +88,63 @@ fn hundred_progress_updates_leave_one_output() {
     let parts: Vec<&str> = chunks.iter().map(String::as_str).collect();
     assert_eq!(deliver(&parts), r#"stdout:"100%""#);
 }
+
+fn deliver_all(messages: &[(&str, &str)]) -> String {
+    let (mut exec, mut book) = fresh();
+    for (name, text) in messages {
+        let _ = apply_iopub(&mut exec, &mut book, &stream("m1", name, text));
+    }
+    outputs(&book, "c1")
+}
+
+#[test]
+fn same_name_chunks_merge() {
+    assert_eq!(
+        deliver_all(&[("stdout", "a\n"), ("stdout", "b\n")]),
+        r#"stdout:"a\nb\n""#
+    );
+}
+
+#[test]
+fn name_switch_starts_a_new_output() {
+    assert_eq!(
+        deliver_all(&[("stdout", "a\n"), ("stderr", "w\n"), ("stdout", "b\n")]),
+        r#"stdout:"a\n", stderr:"w\n", stdout:"b\n""#
+    );
+}
+
+#[test]
+fn carriage_return_in_stderr_leaves_stdout_alone() {
+    assert_eq!(
+        deliver_all(&[("stdout", "a\n"), ("stderr", "x\ry")]),
+        r#"stdout:"a\n", stderr:"y""#
+    );
+}
+
+#[test]
+fn alternating_names_give_one_output_per_switch() {
+    let messages: Vec<(&str, &str)> = (0..100)
+        .map(|at| (if at % 2 == 0 { "stdout" } else { "stderr" }, "x\n"))
+        .collect();
+    let result = deliver_all(&messages);
+    assert_eq!(result.split(", ").count(), 100);
+    assert!(result.starts_with("stdout:"));
+    assert!(result.contains(r#"stdout:"x\n", stderr:"x\n", stdout:"#));
+}
+
+#[test]
+fn custom_stream_names_merge_like_any_other() {
+    assert_eq!(
+        deliver_all(&[("custom", "a"), ("custom", "b")]),
+        r#"custom:"ab""#
+    );
+}
+
+#[test]
+fn stream_after_a_non_stream_output_starts_a_new_output() {
+    let text = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"code","id":"c1","metadata":{},"source":"","outputs":[{"output_type":"display_data","data":{},"metadata":{}}],"execution_count":null}]}"#;
+    let mut book = europa_core::parse(text.as_bytes()).expect("loads");
+    let mut exec = running("c1", "m1");
+    let _ = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", "a"));
+    assert_eq!(outputs(&book, "c1"), r#"<display_data>, stdout:"a""#);
+}

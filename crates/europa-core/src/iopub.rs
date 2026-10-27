@@ -85,10 +85,12 @@ pub fn apply_iopub(
 /// Fold a stream chunk into the last output, or start a new stream output.
 fn append_output(outputs: &mut Vec<Output>, name: &str, text: &str) {
     if let Some(Output::Stream(last)) = outputs.last_mut() {
-        if last.name == name
-            && last.origin == OutputOrigin::New
-            && last.text.edit_tail(|body| append_stream(body, text))
-        {
+        if last.name == name {
+            let edited = last.origin == OutputOrigin::New
+                && last.text.edit_tail(|body| append_stream(body, text));
+            if !edited {
+                last.rebuild_text(|body| append_stream(body, text));
+            }
             return;
         }
     }
