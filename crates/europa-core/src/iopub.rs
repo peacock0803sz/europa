@@ -9,8 +9,9 @@
 //! - A deferred `clear_output(wait=true)` is keyed by the parent message id
 //!   and stored in [`ExecState`], so it is dropped together with the
 //!   correlation entry and never leaks into a later run of the same cell.
-//! - A run that ends while a clear is still pending keeps its outputs; the
-//!   clear only fires when the next output arrives.
+//! - A clear fires only when the next output of the same run arrives. A run
+//!   that ends while a clear is still pending keeps its outputs: the clear is
+//!   dropped with the correlation entry and never fires.
 //! - `\r` rebuilds only the last line. A trailing `\r` stays in the text until
 //!   the next chunk shows whether it ends the line or overwrites it, which
 //!   keeps the result independent of how the text is chunked.
@@ -42,7 +43,7 @@ pub enum IopubMsg {
     ClearOutput {
         /// Parent message id of the originating `execute_request`.
         parent: MsgId,
-        /// Defer clearing until the next output arrives.
+        /// Defer clearing until the next output of the same run arrives.
         wait: bool,
     },
 }
@@ -60,14 +61,15 @@ pub enum IopubMsg {
 /// 4. A `stream` with empty text changes nothing.
 /// 5. A `stream` with text first empties the outputs if the parent is pending,
 ///    then appends to the last output when it is a stream of the same name,
-///    or pushes a new stream output.
+///    or pushes a new stream output. Appending to a loaded output rebuilds it
+///    as a new one.
 /// 6. Only the non-empty stream of step 5 and a `clear_output(wait=false)` that
 ///    removed at least one output mark the notebook as changed.
 /// 7. Return the cell id for every message that passed step 1.
 ///
-/// Has no IO and returns the same result for the same input. Returns the id
-/// of the cell that was updated, or `None` when the parent id is unknown or
-/// no matching code cell exists.
+/// Returns the id of the cell the message belongs to, even when its outputs
+/// did not change, or `None` when the parent id is unknown or no matching
+/// code cell exists.
 pub fn apply_iopub(
     exec: &mut ExecState,
     notebook: &mut Notebook,

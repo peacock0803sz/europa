@@ -201,7 +201,8 @@ impl StreamOutput {
 ///
 /// Build outputs for a code cell with the `Output::new_*` constructors, so
 /// that saving splits their text into lines the way nbformat does; see
-/// [`Output::is_new`].
+/// [`Output::is_new`]. A loaded stream output that [`crate::apply_iopub`]
+/// appended to is split the same way.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Output {
     /// Stream output.
@@ -219,7 +220,8 @@ pub enum Output {
 /// Where an output came from.
 ///
 /// [`crate::parse`] and serde `Deserialize` make every output `Loaded` and
-/// `Output::new_*` makes `New` ones. [`crate::serialize`] leaves the model
+/// `Output::new_*` makes `New` ones. A loaded stream output becomes `New` once
+/// [`crate::apply_iopub`] appends to it. [`crate::serialize`] leaves the model
 /// unchanged, so a saved notebook keeps its `New` outputs until it is parsed
 /// again, which turns all of them into `Loaded`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -228,21 +230,23 @@ pub(crate) enum OutputOrigin {
     /// strings and arrays of strings back as they were; number literals
     /// survive only [`crate::parse`], see [`JsonValue`].
     Loaded,
-    /// Built by an `Output::new_*` constructor; saving splits its text into
-    /// lines and writes every other value, numbers included, as given.
+    /// Built by an `Output::new_*` constructor or rebuilt by appending to a
+    /// loaded stream; saving splits its text into lines and writes every
+    /// other value, numbers included, as given.
     New,
 }
 
 impl Output {
     /// Whether this output was built with an `Output::new_*` constructor.
     ///
-    /// Only such outputs have their text split into lines on save; see
-    /// [`crate::serialize`]. Outputs from [`crate::parse`] or from serde
-    /// `Deserialize`, such as a kernel message read with `serde_json`, report
-    /// false. Saving splits nothing in them and writes their strings and
-    /// arrays of strings back as they were. Number literals survive only
-    /// [`crate::parse`], because serde rebuilds numbers from `f64`; see
-    /// [`JsonValue`]. Always false for [`Output::Unknown`].
+    /// A loaded stream output that [`crate::apply_iopub`] appended to also
+    /// reports true. Only such outputs have their text split into lines on
+    /// save; see [`crate::serialize`]. Other outputs from [`crate::parse`] or
+    /// from serde `Deserialize`, such as a kernel message read with
+    /// `serde_json`, report false. Saving splits nothing in them and writes
+    /// their strings and arrays of strings back as they were. Number literals
+    /// survive only [`crate::parse`], because serde rebuilds numbers from
+    /// `f64`; see [`JsonValue`]. Always false for [`Output::Unknown`].
     ///
     /// Saving does not change the flag, and parsing the saved text gives
     /// outputs that report false. The flag takes part in `==`, so a new output

@@ -111,7 +111,8 @@ enum MultilineRepr {
 ///
 /// Holds whether the input was a string or an array of strings and
 /// writes back the same form. The exception is the text of a stream output
-/// built with [`Output::new_stream`](crate::Output::new_stream), which saving
+/// built with [`Output::new_stream`](crate::Output::new_stream) or of a loaded
+/// one that [`apply_iopub`](crate::apply_iopub) appended to, which saving
 /// splits into lines; the output writer does that, not this type. Reading
 /// uses the normalized text with CRLF resolved to LF; lone carriage returns
 /// are kept.
@@ -151,10 +152,9 @@ impl MultilineText {
     /// Rewrite the text held as a single string in place.
     ///
     /// Returns `false` and leaves the text alone when it is held as an array
-    /// of strings. `f` must not change anything before the last `\n` and must
-    /// not write `\r\n` into the range it rewrites, so only that last line of
-    /// the reading text needs refreshing; replacing the whole text would scan
-    /// it on every call.
+    /// of strings. `f` must keep everything up to and including the last `\n`
+    /// present before the call; only the text after it is renormalized, since
+    /// renormalizing the whole text would scan it on every call.
     pub(crate) fn edit_tail(&mut self, f: impl FnOnce(&mut String)) -> bool {
         let MultilineRepr::Single(text) = &mut self.raw else {
             return false;

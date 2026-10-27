@@ -280,17 +280,15 @@ pub enum ExecEvent {
     /// Clears the terminal results of queued and running cells, empties the
     /// queue and running slot, and drops all correlation entries and pending
     /// clears, so later replies and outputs for earlier message ids are
-    /// ignored. Results of
-    /// other cells and the dirty flag are unchanged.
+    /// ignored. Results of other cells and the dirty flag are unchanged.
     Reset,
     /// A cell was deleted.
     ///
     /// Removes the cell from the queue, its terminal result, and every
     /// correlation entry pointing to it, along with the pending clears of those
-    /// entries. If the cell was running, the slot is
-    /// released immediately and the next queued cell is promoted without
-    /// waiting for the kernel; the removed run's later reply and outputs are
-    /// ignored.
+    /// entries. If the cell was running, the slot is released immediately and
+    /// the next queued cell is promoted without waiting for the kernel; the
+    /// removed run's later reply and outputs are ignored.
     RemoveCell {
         /// Deleted cell id.
         cell_id: String,
@@ -509,6 +507,9 @@ impl ExecState {
 
     /// Whether the run with this parent id received `clear_output(wait=true)`
     /// and has not cleared its outputs yet.
+    ///
+    /// The pending state also ends, without clearing, when the run's
+    /// correlation entry is dropped.
     #[must_use]
     pub fn is_clear_pending(&self, parent: &MsgId) -> bool {
         self.pending_clear.contains(parent)
