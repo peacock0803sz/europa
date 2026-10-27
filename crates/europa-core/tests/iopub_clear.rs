@@ -168,3 +168,43 @@ fn a_rerun_is_not_cleared_by_the_previous_runs_pending_clear() {
     let _ = apply_iopub(&mut exec, &mut book, &stream("m2", "stdout", "z"));
     assert_eq!(outputs(&book, "c1"), r#"stdout:"a\nz""#);
 }
+
+/// `c1` (`m1`) replied but is not idle yet while `c2` (`m2`) runs, and both
+/// hold a waiting clear.
+fn two_pending() -> (ExecState, Notebook) {
+    let mut exec = running("c1", "m1");
+    let mut book = notebook(&["c1", "c2"]);
+    let _ = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", "a\n"));
+    let _ = apply_iopub(&mut exec, &mut book, &clear("m1", true));
+    let _ = exec.apply(reply_ok());
+    let _ = exec.apply(ExecEvent::Enqueue {
+        cell_id: "c2".to_owned(),
+    });
+    let _ = exec.apply(ExecEvent::Sent {
+        cell_id: "c2".to_owned(),
+        msg_id: MsgId::new("m2"),
+    });
+    let _ = apply_iopub(&mut exec, &mut book, &stream("m2", "stdout", "b\n"));
+    let _ = apply_iopub(&mut exec, &mut book, &clear("m2", true));
+    assert!(exec.is_clear_pending(&m1()));
+    assert!(exec.is_clear_pending(&MsgId::new("m2")));
+    (exec, book)
+}
+
+#[test]
+fn removing_one_cell_keeps_the_other_runs_pending_clear() {
+    let (mut exec, _book) = two_pending();
+    let _ = exec.apply(ExecEvent::RemoveCell {
+        cell_id: "c1".to_owned(),
+    });
+    assert!(!exec.is_clear_pending(&m1()));
+    assert!(exec.is_clear_pending(&MsgId::new("m2")));
+}
+
+#[test]
+fn ending_one_run_keeps_the_other_runs_pending_clear() {
+    let (mut exec, _book) = two_pending();
+    let _ = exec.apply(idle());
+    assert!(!exec.is_clear_pending(&m1()));
+    assert!(exec.is_clear_pending(&MsgId::new("m2")));
+}
