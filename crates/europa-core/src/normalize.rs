@@ -148,6 +148,30 @@ impl MultilineText {
         MultilineText { raw, normalized }
     }
 
+    /// Rewrite the text held as a single string in place.
+    ///
+    /// Returns `false` and leaves the text alone when it is held as an array
+    /// of strings. `f` must not change anything before the last `\n` and must
+    /// not write `\r\n` into the range it rewrites, so only that last line of
+    /// the reading text needs refreshing; replacing the whole text would scan
+    /// it on every call.
+    pub(crate) fn edit_tail(&mut self, f: impl FnOnce(&mut String)) -> bool {
+        let MultilineRepr::Single(text) = &mut self.raw else {
+            return false;
+        };
+        let raw_cut = text.rfind('\n').map_or(0, |at| at + 1);
+        let normalized_cut = self.normalized.rfind('\n').map_or(0, |at| at + 1);
+        f(text);
+        debug_assert!(
+            text.len() >= raw_cut && (raw_cut == 0 || text.as_bytes()[raw_cut - 1] == b'\n'),
+            "edit_tail must keep everything up to the last newline"
+        );
+        self.normalized.truncate(normalized_cut);
+        self.normalized
+            .push_str(&text[raw_cut..].replace("\r\n", "\n"));
+        true
+    }
+
     /// Keep `text` as one string.
     pub(crate) fn single(text: String) -> MultilineText {
         Self::from_repr(MultilineRepr::Single(text))

@@ -4,8 +4,8 @@
 //! cell's outputs. It has no IO, so the same input always yields the same
 //! result.
 
-use crate::exec::{ExecState, MsgId};
-use crate::notebook::Notebook;
+use crate::exec::{ExecEvent, ExecState, MsgId};
+use crate::notebook::{Cell, Notebook, Output, OutputOrigin};
 
 /// An iopub message that changes cell outputs.
 ///
@@ -61,8 +61,40 @@ pub fn apply_iopub(
     notebook: &mut Notebook,
     msg: &IopubMsg,
 ) -> Option<String> {
-    let _ = (exec, notebook, msg);
-    todo!()
+    let (IopubMsg::Stream { parent, .. } | IopubMsg::ClearOutput { parent, .. }) = msg;
+    let cell_id = exec.cell_for(parent)?.to_owned();
+    let code = notebook.cells.iter_mut().find_map(|cell| match cell {
+        Cell::Code(code) if code.mem_id == cell_id => Some(code),
+        _ => None,
+    })?;
+    match msg {
+        IopubMsg::Stream { name, text, .. } => {
+            if text.is_empty() {
+                return Some(cell_id);
+            }
+            append_output(&mut code.outputs, name, text);
+            let _ = exec.apply(ExecEvent::Output {
+                parent: parent.clone(),
+            });
+        }
+        IopubMsg::ClearOutput { .. } => todo!(),
+    }
+    Some(cell_id)
+}
+
+/// Fold a stream chunk into the last output, or start a new stream output.
+fn append_output(outputs: &mut Vec<Output>, name: &str, text: &str) {
+    if let Some(Output::Stream(last)) = outputs.last_mut() {
+        if last.name == name
+            && last.origin == OutputOrigin::New
+            && last.text.edit_tail(|body| append_stream(body, text))
+        {
+            return;
+        }
+    }
+    let mut body = String::new();
+    append_stream(&mut body, text);
+    outputs.push(Output::new_stream(name, body));
 }
 
 /// Append a stream chunk to the text of the last output, resolving `\r`.
@@ -73,7 +105,6 @@ pub fn apply_iopub(
 /// trailing `\r` is kept until the next chunk shows whether it ends the line
 /// or overwrites it, which makes the result independent of how the text is
 /// split into chunks.
-#[allow(dead_code)]
 pub(crate) fn append_stream(existing: &mut String, chunk: &str) {
     let cut = existing.rfind('\n').map_or(0, |at| at + 1);
     let mut tail = existing.split_off(cut);
