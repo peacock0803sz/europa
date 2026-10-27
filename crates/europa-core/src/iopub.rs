@@ -72,12 +72,26 @@ pub fn apply_iopub(
             if text.is_empty() {
                 return Some(cell_id);
             }
+            if exec.pending_clear.remove(parent) {
+                code.outputs.clear();
+            }
             append_output(&mut code.outputs, name, text);
             let _ = exec.apply(ExecEvent::Output {
                 parent: parent.clone(),
             });
         }
-        IopubMsg::ClearOutput { .. } => todo!(),
+        IopubMsg::ClearOutput { wait: true, .. } => {
+            exec.pending_clear.insert(parent.clone());
+        }
+        IopubMsg::ClearOutput { wait: false, .. } => {
+            exec.pending_clear.remove(parent);
+            if !code.outputs.is_empty() {
+                code.outputs.clear();
+                let _ = exec.apply(ExecEvent::Output {
+                    parent: parent.clone(),
+                });
+            }
+        }
     }
     Some(cell_id)
 }

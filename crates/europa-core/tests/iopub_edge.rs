@@ -131,3 +131,30 @@ fn appending_to_a_new_stream_held_as_an_array_rebuilds_it_as_a_string() {
         .expect("serializes")
         .is_string());
 }
+
+const WITH_OUTPUT: &str = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"code","id":"c1","metadata":{},"source":"","outputs":[{"output_type":"stream","name":"stdout","text":"old\n"}],"execution_count":null}]}"#;
+
+#[test]
+fn waiting_clear_keeps_the_notebook_clean() {
+    let mut book = europa_core::parse(WITH_OUTPUT.as_bytes()).expect("loads");
+    let mut exec = running("c1", "m1");
+    let _ = apply_iopub(&mut exec, &mut book, &clear("m1", true));
+    assert!(!exec.is_dirty());
+}
+
+#[test]
+fn immediate_clear_of_empty_cell_keeps_the_notebook_clean() {
+    let mut book = notebook(&["c1"]);
+    let mut exec = running("c1", "m1");
+    let _ = apply_iopub(&mut exec, &mut book, &clear("m1", false));
+    assert!(!exec.is_dirty());
+}
+
+#[test]
+fn immediate_clear_of_existing_output_marks_dirty() {
+    let mut book = europa_core::parse(WITH_OUTPUT.as_bytes()).expect("loads");
+    let mut exec = running("c1", "m1");
+    let _ = apply_iopub(&mut exec, &mut book, &clear("m1", false));
+    assert_eq!(outputs(&book, "c1"), "");
+    assert!(exec.is_dirty());
+}
