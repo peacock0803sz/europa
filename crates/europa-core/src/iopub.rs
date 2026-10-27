@@ -66,8 +66,93 @@ pub fn apply_iopub(
 }
 
 /// Append a stream chunk to the text of the last output, resolving `\r`.
+///
+/// Only the last line of `existing` is rebuilt, so the cost of one call does
+/// not grow with the length of the whole text. A `\r` run before `\n` belongs
+/// to the newline; elsewhere `\r` discards what the line held before it. A
+/// trailing `\r` is kept until the next chunk shows whether it ends the line
+/// or overwrites it, which makes the result independent of how the text is
+/// split into chunks.
 #[allow(dead_code)]
 pub(crate) fn append_stream(existing: &mut String, chunk: &str) {
-    let _ = (existing, chunk);
-    todo!()
+    let cut = existing.rfind('\n').map_or(0, |at| at + 1);
+    let mut tail = existing.split_off(cut);
+    tail.push_str(chunk);
+
+    let mut lines = tail.split('\n').peekable();
+    while let Some(line) = lines.next() {
+        let line = line.trim_end_matches('\r');
+        if lines.peek().is_some() {
+            existing.push_str(after_last_cr(line));
+            existing.push('\n');
+        }
+    }
+    let last = tail.rsplit('\n').next().unwrap_or_default();
+    let body = last.trim_end_matches('\r');
+    existing.push_str(after_last_cr(body));
+    if body.len() < last.len() {
+        existing.push('\r');
+    }
+}
+
+/// The part of a line that survives carriage-return overwrites.
+fn after_last_cr(line: &str) -> &str {
+    line.rsplit('\r').next().unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::append_stream;
+
+    fn append(existing: &str, chunk: &str) -> String {
+        let mut text = existing.to_owned();
+        append_stream(&mut text, chunk);
+        text
+    }
+
+    #[test]
+    fn appends_plain_text() {
+        assert_eq!(append("", "10%"), "10%");
+    }
+
+    #[test]
+    fn carriage_return_overwrites_the_line() {
+        assert_eq!(append("10%", "\r20%"), "20%");
+    }
+
+    #[test]
+    fn carriage_return_replaces_the_whole_line() {
+        assert_eq!(append("abcdef", "\rXY"), "XY");
+    }
+
+    #[test]
+    fn newline_after_overwrite_ends_the_line() {
+        assert_eq!(append("30%", "\r100%\n"), "100%\n");
+    }
+
+    #[test]
+    fn trailing_carriage_return_becomes_newline_when_lf_follows() {
+        assert_eq!(append("abc\r", "\ndef"), "abc\ndef");
+    }
+
+    #[test]
+    fn trailing_carriage_return_is_overwritten_by_text() {
+        assert_eq!(append("abc\r", "d"), "d");
+    }
+
+    #[test]
+    fn earlier_lines_stay_untouched() {
+        assert_eq!(append("a\nb", "\rc"), "a\nc");
+        assert_eq!(append("a\nb\nc", "\rX"), "a\nb\nX");
+    }
+
+    #[test]
+    fn repeated_trailing_carriage_returns_collapse_to_one() {
+        assert_eq!(append("", "abc\rde\r\r"), "de\r");
+    }
+
+    #[test]
+    fn carriage_return_runs_before_newline_are_part_of_the_newline() {
+        assert_eq!(append("", "a\r\r\nb"), "a\nb");
+    }
 }
