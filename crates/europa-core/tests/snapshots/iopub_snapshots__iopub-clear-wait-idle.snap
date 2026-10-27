@@ -1,0 +1,10 @@
+---
+source: crates/europa-core/tests/iopub_snapshots.rs
+expression: "trace(concat! (\"clear-wait-idle\", \".jsonl\"))"
+---
+{"event":"enqueue","cell_id":"c1"} => {"effect":{"effect":"execute","cell_id":"c1"},"cell":null} | pending=[] | 
+{"event":"sent","cell_id":"c1","msg_id":"m1"} => {"effect":null,"cell":null} | pending=[] | 
+{"msg":"stream","parent":"m1","name":"stdout","text":"kept\n"} => "c1" | pending=[] | stdout:"kept\n"
+{"msg":"clear_output","parent":"m1","wait":true} => "c1" | pending=["m1"] | stdout:"kept\n"
+{"event":"reply","parent":"m1","status":"Ok"} => {"effect":null,"cell":"c1"} | pending=["m1"] | stdout:"kept\n"
+{"event":"idle","parent":"m1"} => {"effect":null,"cell":null} | pending=[] | stdout:"kept\n"

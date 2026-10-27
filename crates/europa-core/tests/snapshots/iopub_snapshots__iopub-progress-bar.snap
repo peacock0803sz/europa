@@ -1,0 +1,19 @@
+---
+source: crates/europa-core/tests/iopub_snapshots.rs
+expression: "trace(concat! (\"progress-bar\", \".jsonl\"))"
+---
+{"event":"enqueue","cell_id":"c1"} => {"effect":{"effect":"execute","cell_id":"c1"},"cell":null} | pending=[] | 
+{"event":"sent","cell_id":"c1","msg_id":"m1"} => {"effect":null,"cell":null} | pending=[] | 
+{"msg":"stream","parent":"m1","name":"stderr","text":"  0%|          | 0/10"} => "c1" | pending=[] | stderr:"  0%|          | 0/10"
+{"msg":"stream","parent":"m1","name":"stderr","text":"\r 10%|#         | 1/10"} => "c1" | pending=[] | stderr:" 10%|#         | 1/10"
+{"msg":"stream","parent":"m1","name":"stderr","text":"\r 20%|##        | 2/10"} => "c1" | pending=[] | stderr:" 20%|##        | 2/10"
+{"msg":"stream","parent":"m1","name":"stderr","text":"\r 30%|###       | 3/10"} => "c1" | pending=[] | stderr:" 30%|###       | 3/10"
+{"msg":"stream","parent":"m1","name":"stderr","text":"\r 40%|####      | 4/10"} => "c1" | pending=[] | stderr:" 40%|####      | 4/10"
+{"msg":"stream","parent":"m1","name":"stderr","text":"\r 50%|#####     | 5/10"} => "c1" | pending=[] | stderr:" 50%|#####     | 5/10"
+{"msg":"stream","parent":"m1","name":"stderr","text":"\r 60%|######    | 6/10"} => "c1" | pending=[] | stderr:" 60%|######    | 6/10"
+{"msg":"stream","parent":"m1","name":"stderr","text":"\r 70%|#######   | 7/10"} => "c1" | pending=[] | stderr:" 70%|#######   | 7/10"
+{"msg":"stream","parent":"m1","name":"stderr","text":"\r 80%|########  | 8/10"} => "c1" | pending=[] | stderr:" 80%|########  | 8/10"
+{"msg":"stream","parent":"m1","name":"stderr","text":"\r 90%|######### | 9/10"} => "c1" | pending=[] | stderr:" 90%|######### | 9/10"
+{"msg":"stream","parent":"m1","name":"stderr","text":"\r100%|##########| 10/10\n"} => "c1" | pending=[] | stderr:"100%|##########| 10/10\n"
+{"event":"reply","parent":"m1","status":"Ok"} => {"effect":null,"cell":"c1"} | pending=[] | stderr:"100%|##########| 10/10\n"
+{"event":"idle","parent":"m1"} => {"effect":null,"cell":null} | pending=[] | stderr:"100%|##########| 10/10\n"

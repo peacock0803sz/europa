@@ -1,0 +1,13 @@
+---
+source: crates/europa-core/tests/iopub_snapshots.rs
+expression: "trace(concat! (\"split-cr\", \".jsonl\"))"
+---
+{"event":"enqueue","cell_id":"c1"} => {"effect":{"effect":"execute","cell_id":"c1"},"cell":null} | pending=[] | 
+{"event":"sent","cell_id":"c1","msg_id":"m1"} => {"effect":null,"cell":null} | pending=[] | 
+{"msg":"stream","parent":"m1","name":"stdout","text":"abc\r"} => "c1" | pending=[] | stdout:"abc\r"
+{"msg":"stream","parent":"m1","name":"stdout","text":"\ndef"} => "c1" | pending=[] | stdout:"abc\ndef"
+{"msg":"stream","parent":"m1","name":"stdout","text":"\ngh\r"} => "c1" | pending=[] | stdout:"abc\ndef\ngh\r"
+{"msg":"stream","parent":"m1","name":"stdout","text":"ij"} => "c1" | pending=[] | stdout:"abc\ndef\nij"
+{"msg":"stream","parent":"m1","name":"stdout","text":"\r"} => "c1" | pending=[] | stdout:"abc\ndef\nij\r"
+{"msg":"stream","parent":"m1","name":"stdout","text":"\r\n"} => "c1" | pending=[] | stdout:"abc\ndef\nij\n"
+{"msg":"stream","parent":"m1","name":"stdout","text":"kl\r"} => "c1" | pending=[] | stdout:"abc\ndef\nij\nkl\r"

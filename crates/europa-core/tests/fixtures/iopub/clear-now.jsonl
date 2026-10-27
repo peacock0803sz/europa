@@ -1,0 +1,6 @@
+{"event":"enqueue","cell_id":"c1"}
+{"event":"sent","cell_id":"c1","msg_id":"m1"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"first\n"}
+{"msg":"clear_output","parent":"m1","wait":false}
+{"msg":"clear_output","parent":"m1","wait":false}
+{"msg":"stream","parent":"m1","name":"stdout","text":"second\n"}

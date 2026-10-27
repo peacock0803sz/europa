@@ -1,0 +1,10 @@
+{"event":"enqueue","cell_id":"c1"}
+{"event":"sent","cell_id":"c1","msg_id":"m1"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"start\n"}
+{"msg":"stream","parent":"m1","name":"stderr","text":"warn 1\n"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"step 1\n"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"step 2\n"}
+{"msg":"stream","parent":"m1","name":"stderr","text":"  0%"}
+{"msg":"stream","parent":"m1","name":"stderr","text":"\r50%"}
+{"msg":"stream","parent":"m1","name":"stderr","text":"\r100%\n"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"done\n"}

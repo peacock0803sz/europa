@@ -1,0 +1,9 @@
+{"event":"enqueue","cell_id":"c1"}
+{"event":"sent","cell_id":"c1","msg_id":"m1"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"abc\r"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"\ndef"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"\ngh\r"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"ij"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"\r"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"\r\n"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"kl\r"}
