@@ -5,12 +5,22 @@ use europa_core::{apply_iopub, ExecState, Notebook};
 
 /// Deliver `chunks` as stdout of `m1` to a fresh notebook and return the outputs.
 fn deliver(chunks: &[&str]) -> String {
+    outputs(&deliver_to_notebook(chunks), "c1")
+}
+
+/// Like [`deliver`], but also return the saved notebook.
+fn deliver_and_save(chunks: &[&str]) -> (String, String) {
+    let book = deliver_to_notebook(chunks);
+    (outputs(&book, "c1"), europa_core::serialize(&book))
+}
+
+fn deliver_to_notebook(chunks: &[&str]) -> Notebook {
     let (mut exec, mut book) = fresh();
     for chunk in chunks {
         let applied = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", chunk));
         assert_eq!(applied.as_deref(), Some("c1"));
     }
-    outputs(&book, "c1")
+    book
 }
 
 fn fresh() -> (ExecState, Notebook) {
@@ -58,7 +68,7 @@ fn any_split_gives_the_same_result_as_one_chunk() {
             let text: String = (0..len)
                 .map(|at| ALPHABET[code / 4_usize.pow(at) % 4])
                 .collect();
-            let whole = deliver(&[&text]);
+            let whole = deliver_and_save(&[&text]);
             let chars: Vec<char> = text.chars().collect();
             for mask in 1..(1_u32 << (len - 1)) {
                 let mut chunks = Vec::new();
@@ -72,7 +82,7 @@ fn any_split_gives_the_same_result_as_one_chunk() {
                 chunks.push(chars[start..].iter().collect::<String>());
                 let parts: Vec<&str> = chunks.iter().map(String::as_str).collect();
                 assert_eq!(
-                    deliver(&parts),
+                    deliver_and_save(&parts),
                     whole,
                     "text {text:?} split as {parts:?} differs from one chunk"
                 );
