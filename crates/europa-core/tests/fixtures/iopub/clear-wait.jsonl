@@ -1,0 +1,8 @@
+{"event":"enqueue","cell_id":"c1"}
+{"event":"sent","cell_id":"c1","msg_id":"m1"}
+{"msg":"stream","parent":"m1","name":"stdout","text":"frame 1\n"}
+{"msg":"clear_output","parent":"m1","wait":true}
+{"msg":"clear_output","parent":"m1","wait":true}
+{"msg":"stream","parent":"m1","name":"stdout","text":"frame 2\n"}
+{"msg":"clear_output","parent":"m1","wait":true}
+{"msg":"stream","parent":"m1","name":"stdout","text":"frame 3\n"}
