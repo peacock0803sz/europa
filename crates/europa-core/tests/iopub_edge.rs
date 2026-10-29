@@ -201,6 +201,9 @@ fn non_empty_stream_lists_its_cell_as_changed() {
     let mut book = notebook(&["c1"]);
     let outcome = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", "a"));
     assert_eq!(outcome, applied("c1", &["c1"]));
+    let appended = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", "b"));
+    assert_eq!(appended, applied("c1", &["c1"]));
+    assert_eq!(outputs(&book, "c1"), r#"stdout:"ab""#);
 }
 
 #[test]
