@@ -9,16 +9,26 @@ enum Step {
     Iopub(IopubMsg),
 }
 
+/// Code cells `c1` and `c2`, each after a markdown cell.
+const NOTEBOOK: &str = r#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[
+{"cell_type":"markdown","id":"md1","metadata":{},"source":""},
+{"cell_type":"code","id":"c1","metadata":{},"source":"","outputs":[],"execution_count":null},
+{"cell_type":"markdown","id":"md2","metadata":{},"source":""},
+{"cell_type":"code","id":"c2","metadata":{},"source":"","outputs":[],"execution_count":null}
+]}"#;
+
 /// Replay a recorded message sequence, one line per step.
 ///
-/// Two cells are needed because a display can be replaced from another cell.
+/// Two code cells are needed because a display can be replaced from another
+/// cell. A markdown cell sits before each of them, so a position counted among
+/// code cells only would point at the wrong cell.
 fn trace(path: &str) -> String {
     let text = std::fs::read_to_string(format!(
         "{}/tests/fixtures/iopub/{path}",
         env!("CARGO_MANIFEST_DIR")
     ))
     .expect("fixture is readable");
-    let mut notebook = common::notebook(&["c1", "c2"]);
+    let mut notebook = europa_core::parse(NOTEBOOK.as_bytes()).expect("notebook loads");
     let mut exec = ExecState::default();
     let mut lines = Vec::new();
     for line in text.lines() {
