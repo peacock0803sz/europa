@@ -179,24 +179,25 @@ pub struct IopubApplied {
 ///
 /// Steps:
 ///
-/// 1. Look the cell up by the parent id; return `None` and change nothing when
-///    the id is unknown or the notebook has no code cell with that id.
+/// 1. Look the cell up by the parent id; return `None` and change nothing, not
+///    even outputs in other cells, when the parent id has no correlation entry
+///    or the notebook has no code cell with the id it maps to.
 /// 2. `clear_output(wait=true)` records the parent as pending and leaves the
 ///    outputs alone. `clear_output(wait=false)` drops any pending record and
-///    empties the outputs. A `stream` with empty text changes nothing; one
-///    with text appends to the last output when it is a stream of the same
-///    name, or pushes a new stream output. Appending to a loaded output
-///    rebuilds it as a new one.
+///    empties the outputs. A `stream` with empty text changes nothing.
 /// 3. A `stream` with text, `display_data`, `execute_result` and `error` first
 ///    empty the outputs of the cell if the parent is pending, which ends the
 ///    pending state.
 /// 4. A `display_data` with a non-empty display id replaces the data and
 ///    metadata of every output bound to that id, in any code cell. Outputs
 ///    bound before the last [`ExecEvent::Reset`] are left alone.
-/// 5. `display_data`, `execute_result` and `error` push a new output onto the
-///    cell. A `display_data` with a non-empty display id binds it to that id.
-/// 6. `update_display_data` only does the replacement of step 4. It adds
-///    nothing and leaves a pending clear alone.
+/// 5. A `stream` with text appends to the last output when it is a stream of
+///    the same name, or pushes a new stream output; appending to a loaded
+///    output rebuilds it as a new one. `display_data`, `execute_result` and
+///    `error` push a new output onto the cell. A `display_data` with a
+///    non-empty display id binds it to that id.
+/// 6. `update_display_data` only does the replacement of step 4. It adds no
+///    output, so, as in JupyterLab, it neither fires nor ends a pending clear.
 /// 7. `execute_input` replaces the execution count of the cell, but only when
 ///    the value differs.
 /// 8. The cells that gained, extended, lost or had replaced an output, or took
@@ -205,7 +206,7 @@ pub struct IopubApplied {
 /// 9. Return the cell and the changed cells.
 ///
 /// Returns `Some` with the cell the message belongs to and the cells that
-/// changed, which are none when nothing changed, or `None` when the parent id
+/// changed, which is empty when nothing changed, or `None` when the parent id
 /// is unknown or no matching code cell exists.
 #[must_use]
 pub fn apply_iopub(
