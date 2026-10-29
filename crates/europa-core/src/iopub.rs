@@ -22,7 +22,7 @@
 
 use crate::exec::{ExecEvent, ExecState, MsgId};
 use crate::json::JsonMap;
-use crate::notebook::{Cell, Notebook, Output, OutputOrigin};
+use crate::notebook::{Cell, CodeCell, DisplayBinding, Notebook, Output, OutputOrigin};
 
 /// An iopub message that changes cell outputs or the execution count.
 ///
@@ -184,19 +184,22 @@ pub fn apply_iopub(
 ) -> Option<IopubApplied> {
     let parent = msg.parent();
     let cell_id = exec.cell_for(parent)?.to_owned();
-    let code = notebook.cells.iter_mut().find_map(|cell| match cell {
-        Cell::Code(code) if code.mem_id == cell_id => Some(code),
-        _ => None,
-    })?;
-    let mut touched = false;
+    let at = notebook
+        .cells
+        .iter()
+        .position(|cell| matches!(cell, Cell::Code(code) if code.mem_id == cell_id))?;
+    // Positions rather than borrows, because a replacement also reaches cells
+    // other than this one.
+    let mut touched = Vec::new();
     match msg {
         IopubMsg::Stream { name, text, .. } => {
             if !text.is_empty() {
+                let code = code_at(notebook, at);
                 if exec.pending_clear.remove(parent) {
                     code.outputs.clear();
                 }
                 append_output(&mut code.outputs, name, text);
-                touched = true;
+                touched.push(at);
             }
         }
         IopubMsg::ClearOutput { wait: true, .. } => {
@@ -204,29 +207,119 @@ pub fn apply_iopub(
         }
         IopubMsg::ClearOutput { wait: false, .. } => {
             exec.pending_clear.remove(parent);
+            let code = code_at(notebook, at);
             if !code.outputs.is_empty() {
                 code.outputs.clear();
-                touched = true;
+                touched.push(at);
             }
         }
-        IopubMsg::DisplayData { .. }
-        | IopubMsg::UpdateDisplayData { .. }
-        | IopubMsg::ExecuteResult { .. }
-        | IopubMsg::Error { .. }
-        | IopubMsg::ExecuteInput { .. } => todo!(),
+        IopubMsg::DisplayData {
+            data,
+            metadata,
+            display_id,
+            ..
+        } => {
+            if exec.pending_clear.remove(parent) {
+                code_at(notebook, at).outputs.clear();
+            }
+            let binding = binding_for(exec, display_id.as_deref());
+            if let Some(binding) = &binding {
+                touched.extend(replace_bound(notebook, binding, data, metadata));
+            }
+            let output = display_output(data, metadata, binding);
+            code_at(notebook, at).outputs.push(output);
+            touched.push(at);
+        }
+        IopubMsg::UpdateDisplayData {
+            data,
+            metadata,
+            display_id,
+            ..
+        } => {
+            if let Some(binding) = binding_for(exec, Some(display_id)) {
+                touched.extend(replace_bound(notebook, &binding, data, metadata));
+            }
+        }
+        IopubMsg::ExecuteResult { .. } | IopubMsg::Error { .. } | IopubMsg::ExecuteInput { .. } => {
+            todo!()
+        }
     }
-    let changed = if touched {
+    touched.sort_unstable();
+    touched.dedup();
+    let changed: Vec<String> = touched
+        .iter()
+        .map(|&at| notebook.cells[at].id().to_owned())
+        .collect();
+    if !changed.is_empty() {
         let _ = exec.apply(ExecEvent::Output {
             parent: parent.clone(),
         });
-        vec![cell_id.clone()]
-    } else {
-        Vec::new()
-    };
+    }
     Some(IopubApplied {
         cell: cell_id,
         changed,
     })
+}
+
+fn code_at(notebook: &mut Notebook, at: usize) -> &mut CodeCell {
+    match &mut notebook.cells[at] {
+        Cell::Code(code) => code,
+        _ => unreachable!("the position was found by matching a code cell"),
+    }
+}
+
+/// The binding a display id gets in the current generation.
+///
+/// An empty id counts as none, as the frontends treat it, so a kernel layer
+/// that forgets to drop it cannot change the outcome.
+fn binding_for(exec: &ExecState, display_id: Option<&str>) -> Option<DisplayBinding> {
+    display_id
+        .filter(|id| !id.is_empty())
+        .map(|id| DisplayBinding {
+            id: id.to_owned(),
+            generation: exec.display_generation,
+        })
+}
+
+/// Replace the content of every display output bound to `binding`.
+///
+/// Returns the positions of the cells that held one, in ascending order. The
+/// unknown fields and the origin of an output stay as they were.
+fn replace_bound(
+    notebook: &mut Notebook,
+    binding: &DisplayBinding,
+    data: &JsonMap,
+    metadata: &JsonMap,
+) -> Vec<usize> {
+    let mut replaced = Vec::new();
+    for (at, cell) in notebook.cells.iter_mut().enumerate() {
+        let Cell::Code(code) = cell else {
+            continue;
+        };
+        let mut found = false;
+        for output in &mut code.outputs {
+            let Output::DisplayData(display) = output else {
+                continue;
+            };
+            if display.binding.as_ref() == Some(binding) {
+                display.data = data.clone();
+                display.metadata = metadata.clone();
+                found = true;
+            }
+        }
+        if found {
+            replaced.push(at);
+        }
+    }
+    replaced
+}
+
+fn display_output(data: &JsonMap, metadata: &JsonMap, binding: Option<DisplayBinding>) -> Output {
+    let mut output = Output::new_display_data(data.clone(), metadata.clone());
+    if let Output::DisplayData(display) = &mut output {
+        display.binding = binding;
+    }
+    output
 }
 
 /// Fold a stream chunk into the last output, or start a new stream output.

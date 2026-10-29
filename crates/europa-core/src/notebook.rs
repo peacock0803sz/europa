@@ -143,6 +143,21 @@ pub struct DisplayDataOutput {
     pub extra: JsonMap,
     /// Whether the output counts as new; see [`Output::is_new`].
     pub(crate) origin: OutputOrigin,
+    /// The display id the output was shown with, if any. Never saved.
+    pub(crate) binding: Option<DisplayBinding>,
+}
+
+/// A display id together with the generation of the execution state it was
+/// shown in.
+///
+/// The id is a transient hint of the kernel, so it is neither public nor saved.
+/// It sits on the output rather than in the execution state because it has to
+/// vanish with the output however that is removed, even by a caller that
+/// empties `outputs` directly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DisplayBinding {
+    pub(crate) id: String,
+    pub(crate) generation: u64,
 }
 
 /// Execute result output with a MIME bundle.
@@ -318,6 +333,7 @@ impl Output {
             metadata,
             extra: JsonMap::new(),
             origin: OutputOrigin::New,
+            binding: None,
         })
     }
 
@@ -834,6 +850,7 @@ impl JsonMapConvert for DisplayDataOutput {
             metadata,
             extra: map,
             origin: OutputOrigin::Loaded,
+            binding: None,
         })
     }
 

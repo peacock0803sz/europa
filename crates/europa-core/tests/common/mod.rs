@@ -2,7 +2,8 @@
 
 use europa_core::notebook::CodeCell;
 use europa_core::{
-    Cell, ExecEvent, ExecState, IopubMsg, JsonMap, MsgId, Notebook, Output, ReplyStatus,
+    Cell, ExecEvent, ExecState, IopubApplied, IopubMsg, JsonMap, MsgId, Notebook, Output,
+    ReplyStatus,
 };
 
 /// Notebook holding only empty code cells with the given ids.
@@ -183,6 +184,16 @@ pub fn describe(output: &Output) -> String {
     }
 }
 
+/// The outputs of one code cell, described and joined by `, `.
+pub fn shown(notebook: &Notebook, cell: &str) -> String {
+    code(notebook, cell)
+        .outputs
+        .iter()
+        .map(describe)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Every code cell as `id[count]: outputs`, joined by ` | `.
 pub fn cells(notebook: &Notebook) -> String {
     notebook
@@ -193,16 +204,20 @@ pub fn cells(notebook: &Notebook) -> String {
                 "{}[{}]: {}",
                 cell.id(),
                 count(code.execution_count),
-                code.outputs
-                    .iter()
-                    .map(describe)
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                shown(notebook, cell.id())
             )),
             _ => None,
         })
         .collect::<Vec<_>>()
         .join(" | ")
+}
+
+/// What `apply_iopub` returns for a message of `cell` that changed `changed`.
+pub fn applied(cell: &str, changed: &[&str]) -> Option<IopubApplied> {
+    Some(IopubApplied {
+        cell: cell.to_owned(),
+        changed: changed.iter().map(|id| (*id).to_owned()).collect(),
+    })
 }
 
 /// The code cell with this id, or a panic when there is none.
