@@ -210,6 +210,29 @@ fn an_update_replaces_the_whole_bundle_and_the_metadata() {
 }
 
 #[test]
+fn a_display_keeps_its_metadata_and_an_update_with_none_clears_it() {
+    let (mut exec, mut book) = fresh();
+    let metadata = JsonMap::from([("isolated".to_owned(), JsonValue::from(true))]);
+    let shown_with = IopubMsg::DisplayData {
+        parent: m1(),
+        data: plain("0%"),
+        metadata: metadata.clone(),
+        display_id: Some("p".to_owned()),
+    };
+    deliver(&mut exec, &mut book, &[shown_with]);
+    let Output::DisplayData(output) = &code(&book, "c1").outputs[0] else {
+        panic!("display output");
+    };
+    assert_eq!(output.metadata, metadata);
+
+    deliver(&mut exec, &mut book, &[update("m1", "p", "1%")]);
+    let Output::DisplayData(output) = &code(&book, "c1").outputs[0] else {
+        panic!("display output");
+    };
+    assert_eq!(output.metadata, JsonMap::new());
+}
+
+#[test]
 fn a_display_with_a_shown_id_replaces_it_in_other_cells_and_adds_its_own() {
     let (mut exec, mut book) = fresh();
     deliver(&mut exec, &mut book, &[display("m1", Some("p"), "0%")]);
