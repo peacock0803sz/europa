@@ -276,10 +276,11 @@ pub enum ExecEvent {
     /// Sets the dirty flag. Ignored when `parent` has no correlation entry;
     /// [`Applied::cell`] is then `None`, so callers can log the unknown id.
     ///
-    /// [`crate::apply_iopub`] applies it itself whenever a message changed
-    /// something, so do not send it for messages handed to `apply_iopub`.
-    /// Otherwise messages that change nothing, such as an update with no bound
-    /// output or a repeated execution count, would set the dirty flag.
+    /// [`crate::apply_iopub`] applies it itself whenever it lists a cell in
+    /// [`crate::IopubApplied::changed`], so do not send it for messages handed
+    /// to `apply_iopub`. Otherwise messages that change nothing, such as an
+    /// update with no bound output or a repeated execution count, would set
+    /// the dirty flag.
     Output {
         /// Parent message id of the output.
         parent: MsgId,
