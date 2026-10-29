@@ -29,18 +29,20 @@
 //! - A `display_data` whose display id is already bound replaces the earlier
 //!   outputs, in any cell, before it adds its own, as IPython does.
 //! - A message whose parent has no correlation entry, which includes a run
-//!   that has ended, replaces nothing. Outputs bound before an
-//!   [`ExecEvent::Reset`] are not replaced afterwards, because a fixed id such
-//!   as `"progress"` may be reused for something else once the kernel is gone.
-//!   Both differ from Jupyter on purpose.
+//!   that has ended, replaces nothing. This differs from Jupyter on purpose.
+//! - Outputs bound to a display id before an [`ExecEvent::Reset`] are not
+//!   replaced afterwards, unlike in Jupyter. That holds after an interrupt
+//!   too, although the kernel and its display handles survive it, because the
+//!   same event stands for a restart, after which a fixed id such as
+//!   `"progress"` may be reused for something else.
 //! - An `execute_result` carries no display id, because kernels do not send one
 //!   and frontends treat it differently.
 //! - The execution count of a cell changes on `execute_input` only. The count
 //!   on an `execute_result` stays on its output and may differ.
-//! - Restart a kernel by sending [`ExecEvent::Reset`] and do not build a new
-//!   [`ExecState`]. A new state starts the generation over, and outputs that
-//!   the notebook still holds from before the restart would match their
-//!   display ids again.
+//! - When the kernel restarts, send [`ExecEvent::Reset`] rather than building
+//!   a new [`ExecState`]. A new state starts the generation over, so outputs
+//!   that the notebook still holds from before can match their display ids
+//!   again.
 
 use crate::exec::{ExecEvent, ExecState, MsgId};
 use crate::json::JsonMap;

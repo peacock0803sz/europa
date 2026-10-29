@@ -112,7 +112,7 @@ pub(crate) struct Running {
 ///
 /// The state counts resets to tell the display ids bound before one from those
 /// bound after it. A state rebuilt with `Default` starts the count over, so
-/// outputs that the notebook still holds from before would match their display
+/// outputs that the notebook still holds from before can match their display
 /// ids again. Send [`ExecEvent::Reset`] when the kernel restarts instead.
 ///
 /// # Invariants
@@ -298,8 +298,10 @@ pub enum ExecEvent {
     /// ignored. Results of other cells and the dirty flag are unchanged.
     ///
     /// Outputs bound to a display id before the reset are not replaced
-    /// afterwards. The kernel that showed them is gone, and a fixed id such as
-    /// `"progress"` may be reused for something else.
+    /// afterwards. That holds after an interrupt too, although the kernel and
+    /// its display handles survive it, because the same event stands for a
+    /// restart, after which a fixed id such as `"progress"` may be reused for
+    /// something else.
     Reset,
     /// A cell was deleted.
     ///
