@@ -27,7 +27,8 @@
 //!   removed, even when a caller empties `outputs` directly. It is never
 //!   saved, so a notebook read from a file has nothing to replace.
 //! - A `display_data` whose display id is already bound replaces the earlier
-//!   outputs, in any cell, before it adds its own, as nbclient does.
+//!   outputs, in any cell, before it adds its own, as JupyterLab and nbclient
+//!   do.
 //! - A message whose parent has no correlation entry changes nothing, not even
 //!   outputs in other cells, because without the entry nothing ties it to a
 //!   run of this notebook. A run whose reply and idle status have both arrived
