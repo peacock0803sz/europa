@@ -1,0 +1,7 @@
+{"event":"enqueue","cell_id":"c1"}
+{"event":"sent","cell_id":"c1","msg_id":"m1"}
+{"msg":"display_data","parent":"m1","data":{"text/plain":"0%"},"display_id":"p"}
+{"msg":"display_data","parent":"m1","data":{"text/plain":"1%"},"display_id":"p"}
+{"msg":"update_display_data","parent":"m1","data":{"text/plain":"2%"},"display_id":"p"}
+{"event":"reply","parent":"m1","status":"Ok"}
+{"event":"idle","parent":"m1"}

@@ -1,0 +1,17 @@
+---
+source: crates/europa-core/tests/iopub_display_snapshots.rs
+expression: "trace(concat! (\"execute-input\", \".jsonl\"))"
+---
+{"event":"enqueue","cell_id":"c1"} => {"effect":{"effect":"execute","cell_id":"c1"},"cell":null} | pending=[] | dirty=false | c1[null]:  | c2[null]: 
+{"event":"sent","cell_id":"c1","msg_id":"m1"} => {"effect":null,"cell":null} | pending=[] | dirty=false | c1[null]:  | c2[null]: 
+{"msg":"execute_input","parent":"m1","execution_count":1} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[1]:  | c2[null]: 
+{"event":"saved"} => {"effect":null,"cell":null} | pending=[] | dirty=false | c1[1]:  | c2[null]: 
+{"msg":"execute_input","parent":"m1","execution_count":1} => {"cell":"c1","changed":[]} | pending=[] | dirty=false | c1[1]:  | c2[null]: 
+{"event":"reply","parent":"m1","status":"Ok"} => {"effect":null,"cell":"c1"} | pending=[] | dirty=false | c1[1]:  | c2[null]: 
+{"event":"idle","parent":"m1"} => {"effect":null,"cell":null} | pending=[] | dirty=false | c1[1]:  | c2[null]: 
+{"event":"enqueue","cell_id":"c2"} => {"effect":{"effect":"execute","cell_id":"c2"},"cell":null} | pending=[] | dirty=false | c1[1]:  | c2[null]: 
+{"event":"sent","cell_id":"c2","msg_id":"m2"} => {"effect":null,"cell":null} | pending=[] | dirty=false | c1[1]:  | c2[null]: 
+{"msg":"execute_input","parent":"m2","execution_count":2} => {"cell":"c2","changed":["c2"]} | pending=[] | dirty=true | c1[1]:  | c2[2]: 
+{"msg":"execute_result","parent":"m2","data":{"text/plain":"x"},"execution_count":5} => {"cell":"c2","changed":["c2"]} | pending=[] | dirty=true | c1[1]:  | c2[2]: result[5]:{"text/plain":"x"}
+{"event":"reply","parent":"m2","status":"Ok"} => {"effect":null,"cell":"c2"} | pending=[] | dirty=true | c1[1]:  | c2[2]: result[5]:{"text/plain":"x"}
+{"event":"idle","parent":"m2"} => {"effect":null,"cell":null} | pending=[] | dirty=true | c1[1]:  | c2[2]: result[5]:{"text/plain":"x"}

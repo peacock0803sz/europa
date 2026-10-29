@@ -1,0 +1,16 @@
+---
+source: crates/europa-core/tests/iopub_display_snapshots.rs
+expression: "trace(concat! (\"mixed-outputs\", \".jsonl\"))"
+---
+{"event":"enqueue","cell_id":"c1"} => {"effect":{"effect":"execute","cell_id":"c1"},"cell":null} | pending=[] | dirty=false | c1[null]:  | c2[null]: 
+{"event":"sent","cell_id":"c1","msg_id":"m1"} => {"effect":null,"cell":null} | pending=[] | dirty=false | c1[null]:  | c2[null]: 
+{"msg":"execute_input","parent":"m1","execution_count":1} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[1]:  | c2[null]: 
+{"msg":"stream","parent":"m1","name":"stdout","text":"a\n"} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[1]: stdout:"a\n" | c2[null]: 
+{"msg":"display_data","parent":"m1","data":{"text/plain":"plot"}} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[1]: stdout:"a\n", display:{"text/plain":"plot"} | c2[null]: 
+{"msg":"stream","parent":"m1","name":"stdout","text":"b\n"} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[1]: stdout:"a\n", display:{"text/plain":"plot"}, stdout:"b\n" | c2[null]: 
+{"msg":"stream","parent":"m1","name":"stderr","text":"warn\n"} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[1]: stdout:"a\n", display:{"text/plain":"plot"}, stdout:"b\n", stderr:"warn\n" | c2[null]: 
+{"msg":"execute_result","parent":"m1","data":{"text/plain":"42"},"execution_count":1} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[1]: stdout:"a\n", display:{"text/plain":"plot"}, stdout:"b\n", stderr:"warn\n", result[1]:{"text/plain":"42"} | c2[null]: 
+{"msg":"stream","parent":"m1","name":"stdout","text":"c\n"} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[1]: stdout:"a\n", display:{"text/plain":"plot"}, stdout:"b\n", stderr:"warn\n", result[1]:{"text/plain":"42"}, stdout:"c\n" | c2[null]: 
+{"msg":"error","parent":"m1","ename":"ZeroDivisionError","evalue":"division by zero","traceback":["\u001b[0;31mZeroDivisionError\u001b[0m: division by zero"]} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[1]: stdout:"a\n", display:{"text/plain":"plot"}, stdout:"b\n", stderr:"warn\n", result[1]:{"text/plain":"42"}, stdout:"c\n", error:ZeroDivisionError:"division by zero":["\u{1b}[0;31mZeroDivisionError\u{1b}[0m: division by zero"] | c2[null]: 
+{"event":"reply","parent":"m1","status":"Error"} => {"effect":null,"cell":"c1"} | pending=[] | dirty=true | c1[1]: stdout:"a\n", display:{"text/plain":"plot"}, stdout:"b\n", stderr:"warn\n", result[1]:{"text/plain":"42"}, stdout:"c\n", error:ZeroDivisionError:"division by zero":["\u{1b}[0;31mZeroDivisionError\u{1b}[0m: division by zero"] | c2[null]: 
+{"event":"idle","parent":"m1"} => {"effect":null,"cell":null} | pending=[] | dirty=true | c1[1]: stdout:"a\n", display:{"text/plain":"plot"}, stdout:"b\n", stderr:"warn\n", result[1]:{"text/plain":"42"}, stdout:"c\n", error:ZeroDivisionError:"division by zero":["\u{1b}[0;31mZeroDivisionError\u{1b}[0m: division by zero"] | c2[null]:

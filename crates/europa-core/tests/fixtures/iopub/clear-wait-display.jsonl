@@ -1,0 +1,12 @@
+{"event":"enqueue","cell_id":"c1"}
+{"event":"sent","cell_id":"c1","msg_id":"m1"}
+{"msg":"display_data","parent":"m1","data":{"text/plain":"0%"},"display_id":"p"}
+{"msg":"clear_output","parent":"m1","wait":true}
+{"msg":"update_display_data","parent":"m1","data":{"text/plain":"50%"},"display_id":"p"}
+{"msg":"display_data","parent":"m1","data":{"text/plain":"100%"},"display_id":"p"}
+{"msg":"clear_output","parent":"m1","wait":true}
+{"msg":"execute_result","parent":"m1","data":{"text/plain":"done"},"execution_count":3}
+{"msg":"clear_output","parent":"m1","wait":true}
+{"msg":"error","parent":"m1","ename":"KeyboardInterrupt","evalue":"","traceback":["KeyboardInterrupt"]}
+{"event":"reply","parent":"m1","status":"Error"}
+{"event":"idle","parent":"m1"}

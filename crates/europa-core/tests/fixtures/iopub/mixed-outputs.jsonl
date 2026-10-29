@@ -1,0 +1,12 @@
+{"event":"enqueue","cell_id":"c1"}
+{"event":"sent","cell_id":"c1","msg_id":"m1"}
+{"msg":"execute_input","parent":"m1","execution_count":1}
+{"msg":"stream","parent":"m1","name":"stdout","text":"a\n"}
+{"msg":"display_data","parent":"m1","data":{"text/plain":"plot"}}
+{"msg":"stream","parent":"m1","name":"stdout","text":"b\n"}
+{"msg":"stream","parent":"m1","name":"stderr","text":"warn\n"}
+{"msg":"execute_result","parent":"m1","data":{"text/plain":"42"},"execution_count":1}
+{"msg":"stream","parent":"m1","name":"stdout","text":"c\n"}
+{"msg":"error","parent":"m1","ename":"ZeroDivisionError","evalue":"division by zero","traceback":["\u001b[0;31mZeroDivisionError\u001b[0m: division by zero"]}
+{"event":"reply","parent":"m1","status":"Error"}
+{"event":"idle","parent":"m1"}

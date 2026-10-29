@@ -1,0 +1,15 @@
+---
+source: crates/europa-core/tests/iopub_display_snapshots.rs
+expression: "trace(concat! (\"display-reset\", \".jsonl\"))"
+---
+{"event":"enqueue","cell_id":"c1"} => {"effect":{"effect":"execute","cell_id":"c1"},"cell":null} | pending=[] | dirty=false | c1[null]:  | c2[null]: 
+{"event":"sent","cell_id":"c1","msg_id":"m1"} => {"effect":null,"cell":null} | pending=[] | dirty=false | c1[null]:  | c2[null]: 
+{"msg":"display_data","parent":"m1","data":{"text/plain":"old"},"display_id":"p"} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[null]: display:{"text/plain":"old"} | c2[null]: 
+{"event":"reset"} => {"effect":null,"cell":null} | pending=[] | dirty=true | c1[null]: display:{"text/plain":"old"} | c2[null]: 
+{"event":"enqueue","cell_id":"c2"} => {"effect":{"effect":"execute","cell_id":"c2"},"cell":null} | pending=[] | dirty=true | c1[null]: display:{"text/plain":"old"} | c2[null]: 
+{"event":"sent","cell_id":"c2","msg_id":"m2"} => {"effect":null,"cell":null} | pending=[] | dirty=true | c1[null]: display:{"text/plain":"old"} | c2[null]: 
+{"msg":"update_display_data","parent":"m2","data":{"text/plain":"x"},"display_id":"p"} => {"cell":"c2","changed":[]} | pending=[] | dirty=true | c1[null]: display:{"text/plain":"old"} | c2[null]: 
+{"msg":"display_data","parent":"m2","data":{"text/plain":"new"},"display_id":"p"} => {"cell":"c2","changed":["c2"]} | pending=[] | dirty=true | c1[null]: display:{"text/plain":"old"} | c2[null]: display:{"text/plain":"new"}
+{"msg":"update_display_data","parent":"m2","data":{"text/plain":"newer"},"display_id":"p"} => {"cell":"c2","changed":["c2"]} | pending=[] | dirty=true | c1[null]: display:{"text/plain":"old"} | c2[null]: display:{"text/plain":"newer"}
+{"event":"reply","parent":"m2","status":"Ok"} => {"effect":null,"cell":"c2"} | pending=[] | dirty=true | c1[null]: display:{"text/plain":"old"} | c2[null]: display:{"text/plain":"newer"}
+{"event":"idle","parent":"m2"} => {"effect":null,"cell":null} | pending=[] | dirty=true | c1[null]: display:{"text/plain":"old"} | c2[null]: display:{"text/plain":"newer"}
