@@ -51,7 +51,7 @@ fn display_data_with_an_empty_bundle_still_adds_an_output() {
 }
 
 #[test]
-fn an_empty_display_id_binds_nothing() {
+fn an_update_with_an_empty_id_changes_nothing() {
     let (mut exec, mut book) = fresh();
     let msgs = [display("m1", Some(""), "x"), update("m1", "", "y")];
     deliver(&mut exec, &mut book, &msgs);
