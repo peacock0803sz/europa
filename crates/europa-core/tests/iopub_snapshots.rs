@@ -23,7 +23,9 @@ fn trace(path: &str) -> String {
         let step: Step = serde_json::from_str(line).expect("fixture line parses");
         let result = match step {
             Step::Exec(event) => serde_json::to_string(&exec.apply(event)),
-            Step::Iopub(msg) => serde_json::to_string(&apply_iopub(&mut exec, &mut notebook, &msg)),
+            Step::Iopub(msg) => serde_json::to_string(
+                &apply_iopub(&mut exec, &mut notebook, &msg).map(|applied| applied.cell),
+            ),
         }
         .expect("serializes");
         let state = serde_json::to_value(&exec).expect("serializes");

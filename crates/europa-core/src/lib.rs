@@ -62,7 +62,8 @@
 //!         name: "stdout".to_owned(),
 //!         text: text.to_owned(),
 //!     };
-//!     assert_eq!(apply_iopub(&mut state, &mut notebook, &msg).as_deref(), Some("c1"));
+//!     let applied = apply_iopub(&mut state, &mut notebook, &msg);
+//!     assert_eq!(applied.map(|applied| applied.cell), Some("c1".to_owned()));
 //! }
 //! assert!(europa_core::serialize(&notebook).contains(r#""20%""#));
 //! assert!(!europa_core::serialize(&notebook).contains("10%"));
@@ -82,7 +83,7 @@ pub mod pos;
 pub use error::ParseError;
 pub use exec::{Applied, CellExecState, ExecEffect, ExecEvent, ExecState, MsgId, ReplyStatus};
 pub use io::{parse, serialize};
-pub use iopub::{apply_iopub, IopubMsg};
+pub use iopub::{apply_iopub, IopubApplied, IopubMsg};
 pub use json::{JsonMap, JsonNumber, JsonValue};
 pub use normalize::MultilineText;
 pub use notebook::{Cell, Notebook, Output};

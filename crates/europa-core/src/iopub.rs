@@ -48,6 +48,20 @@ pub enum IopubMsg {
     },
 }
 
+/// The cells an iopub message belongs to and changed.
+///
+/// Returned by [`apply_iopub`] so that a caller redraws only the cells that
+/// need it, which are not limited to the cell the message belongs to.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[must_use]
+pub struct IopubApplied {
+    /// The cell the parent message id maps to.
+    pub cell: String,
+    /// The cells that gained or lost outputs, had outputs replaced, or took a
+    /// different execution count, in notebook order and without duplicates.
+    pub changed: Vec<String>,
+}
+
 /// Apply one iopub message to the outputs of the cell it belongs to.
 ///
 /// Steps:
@@ -64,35 +78,36 @@ pub enum IopubMsg {
 ///    or pushes a new stream output. Appending to a loaded output rebuilds it
 ///    as a new one.
 /// 6. Only the non-empty stream of step 5 and a `clear_output(wait=false)` that
-///    removed at least one output mark the notebook as changed.
-/// 7. Return the cell id for every message that passed step 1.
+///    removed at least one output mark the notebook as changed and list the
+///    cell in [`IopubApplied::changed`].
+/// 7. Return the cell id and the changed cells for every message that passed
+///    step 1.
 ///
-/// Returns the id of the cell the message belongs to, even when its outputs
-/// did not change, or `None` when the parent id is unknown or no matching
+/// Returns the cell the message belongs to with the cells that changed, even
+/// when nothing did, or `None` when the parent id is unknown or no matching
 /// code cell exists.
+#[must_use]
 pub fn apply_iopub(
     exec: &mut ExecState,
     notebook: &mut Notebook,
     msg: &IopubMsg,
-) -> Option<String> {
+) -> Option<IopubApplied> {
     let (IopubMsg::Stream { parent, .. } | IopubMsg::ClearOutput { parent, .. }) = msg;
     let cell_id = exec.cell_for(parent)?.to_owned();
     let code = notebook.cells.iter_mut().find_map(|cell| match cell {
         Cell::Code(code) if code.mem_id == cell_id => Some(code),
         _ => None,
     })?;
+    let mut touched = false;
     match msg {
         IopubMsg::Stream { name, text, .. } => {
-            if text.is_empty() {
-                return Some(cell_id);
+            if !text.is_empty() {
+                if exec.pending_clear.remove(parent) {
+                    code.outputs.clear();
+                }
+                append_output(&mut code.outputs, name, text);
+                touched = true;
             }
-            if exec.pending_clear.remove(parent) {
-                code.outputs.clear();
-            }
-            append_output(&mut code.outputs, name, text);
-            let _ = exec.apply(ExecEvent::Output {
-                parent: parent.clone(),
-            });
         }
         IopubMsg::ClearOutput { wait: true, .. } => {
             exec.pending_clear.insert(parent.clone());
@@ -101,13 +116,22 @@ pub fn apply_iopub(
             exec.pending_clear.remove(parent);
             if !code.outputs.is_empty() {
                 code.outputs.clear();
-                let _ = exec.apply(ExecEvent::Output {
-                    parent: parent.clone(),
-                });
+                touched = true;
             }
         }
     }
-    Some(cell_id)
+    let changed = if touched {
+        let _ = exec.apply(ExecEvent::Output {
+            parent: parent.clone(),
+        });
+        vec![cell_id.clone()]
+    } else {
+        Vec::new()
+    };
+    Some(IopubApplied {
+        cell: cell_id,
+        changed,
+    })
 }
 
 /// Fold a stream chunk into the last output, or start a new stream output.

@@ -1,7 +1,7 @@
 mod common;
 
 use common::{clear, notebook, outputs, running, stream};
-use europa_core::{apply_iopub, Cell, MsgId, Output};
+use europa_core::{apply_iopub, Cell, IopubApplied, MsgId, Output};
 
 #[test]
 fn unknown_parent_changes_nothing() {
@@ -40,7 +40,7 @@ fn missing_code_cell_changes_nothing() {
 fn non_empty_stream_marks_dirty() {
     let mut exec = running("c1", "m1");
     let mut book = notebook(&["c1"]);
-    apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", "x"));
+    let _ = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", "x"));
     assert!(exec.is_dirty());
 }
 
@@ -49,7 +49,7 @@ fn empty_stream_adds_nothing_and_stays_clean() {
     let mut exec = running("c1", "m1");
     let mut book = notebook(&["c1"]);
     let applied = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", ""));
-    assert_eq!(applied.as_deref(), Some("c1"));
+    assert_eq!(applied.map(|applied| applied.cell), Some("c1".to_owned()));
     assert_eq!(outputs(&book, "c1"), "");
     assert!(!exec.is_dirty());
 }
@@ -93,7 +93,7 @@ fn appending_to_a_loaded_stream_rebuilds_it_as_new() {
     let mut book = europa_core::parse(LOADED.as_bytes()).expect("loads");
     let mut exec = running("c1", "m1");
     let applied = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", "\r60%"));
-    assert_eq!(applied.as_deref(), Some("c1"));
+    assert_eq!(applied.map(|applied| applied.cell), Some("c1".to_owned()));
     assert_eq!(outputs(&book, "c1"), r#"stdout:"p\rq\n60%""#);
 
     let Cell::Code(code) = &book.cells[0] else {
@@ -190,4 +190,40 @@ fn immediate_clear_of_existing_output_marks_dirty() {
     let _ = apply_iopub(&mut exec, &mut book, &clear("m1", false));
     assert_eq!(outputs(&book, "c1"), "");
     assert!(exec.is_dirty());
+}
+
+/// What `apply_iopub` returns for a message of `cell` that changed `changed`.
+fn applied(cell: &str, changed: &[&str]) -> Option<IopubApplied> {
+    Some(IopubApplied {
+        cell: cell.to_owned(),
+        changed: changed.iter().map(|id| (*id).to_owned()).collect(),
+    })
+}
+
+#[test]
+fn non_empty_stream_lists_its_cell_as_changed() {
+    let mut exec = running("c1", "m1");
+    let mut book = notebook(&["c1"]);
+    let result = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", "a"));
+    assert_eq!(result, applied("c1", &["c1"]));
+}
+
+#[test]
+fn empty_stream_and_waiting_clear_change_no_cell() {
+    let mut exec = running("c1", "m1");
+    let mut book = notebook(&["c1"]);
+    let empty = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", ""));
+    assert_eq!(empty, applied("c1", &[]));
+    let waiting = apply_iopub(&mut exec, &mut book, &clear("m1", true));
+    assert_eq!(waiting, applied("c1", &[]));
+}
+
+#[test]
+fn immediate_clear_lists_its_cell_only_when_it_removed_an_output() {
+    let mut book = europa_core::parse(WITH_OUTPUT.as_bytes()).expect("loads");
+    let mut exec = running("c1", "m1");
+    let removed = apply_iopub(&mut exec, &mut book, &clear("m1", false));
+    assert_eq!(removed, applied("c1", &["c1"]));
+    let nothing_left = apply_iopub(&mut exec, &mut book, &clear("m1", false));
+    assert_eq!(nothing_left, applied("c1", &[]));
 }
