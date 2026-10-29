@@ -133,6 +133,13 @@ pub struct StreamOutput {
 }
 
 /// Display data output with a MIME bundle.
+///
+/// An output that [`crate::apply_iopub`] added for a message with a display id
+/// also remembers that id, so that later messages can replace its content. The
+/// id is never written, so saving and reading back, or a serde round trip,
+/// drops it. It takes part in `==` and `Debug`, so such an output never equals
+/// one built by [`Output::new_display_data`] with the same content; tests
+/// should compare `data` and `metadata` instead.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplayDataOutput {
     /// MIME bundle mapping type to value.
@@ -143,7 +150,8 @@ pub struct DisplayDataOutput {
     pub extra: JsonMap,
     /// Whether the output counts as new; see [`Output::is_new`].
     pub(crate) origin: OutputOrigin,
-    /// The display id the output was shown with, if any. Never saved.
+    /// The display id the output was shown with, if any. Never saved, but it
+    /// takes part in `==`.
     pub(crate) binding: Option<DisplayBinding>,
 }
 
@@ -154,6 +162,11 @@ pub struct DisplayDataOutput {
 /// It sits on the output rather than in the execution state because it has to
 /// vanish with the output however that is removed, even by a caller that
 /// empties `outputs` directly.
+///
+/// The generation counts the resets the execution state had seen when the
+/// output was shown. A reset gets no notebook and cannot reach the bindings on
+/// the outputs, so it advances the count instead, which retires every older
+/// binding at once.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DisplayBinding {
     pub(crate) id: String,
