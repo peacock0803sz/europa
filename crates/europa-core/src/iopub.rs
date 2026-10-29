@@ -27,7 +27,7 @@
 //!   removed, even when a caller empties `outputs` directly. It is never
 //!   saved, so a notebook read from a file has nothing to replace.
 //! - A `display_data` whose display id is already bound replaces the earlier
-//!   outputs, in any cell, before it adds its own, as IPython does.
+//!   outputs, in any cell, before it adds its own, as nbclient does.
 //! - A message whose parent has no correlation entry changes nothing, not even
 //!   outputs in other cells, because without the entry nothing ties it to a
 //!   run of this notebook. A run whose reply and idle status have both arrived
@@ -38,8 +38,9 @@
 //!   too, although the kernel and its display handles survive it, because the
 //!   same event stands for a restart, after which a fixed id such as
 //!   `"progress"` may be reused for something else.
-//! - An `execute_result` carries no display id, because kernels do not send one
-//!   and frontends treat it differently.
+//! - An `execute_result` carries no display id. The protocol allows one, but
+//!   ipykernel never sends it and JupyterLab and nbclient disagree on how to
+//!   treat it, so the kernel layer drops it.
 //! - The execution count of a cell changes on `execute_input` only. The count
 //!   on an `execute_result` stays on its output and may differ.
 //! - When the kernel restarts, send [`ExecEvent::Reset`] rather than building
