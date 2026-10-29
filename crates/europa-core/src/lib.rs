@@ -68,6 +68,65 @@
 //! assert!(europa_core::serialize(&notebook).contains(r#""20%""#));
 //! assert!(!europa_core::serialize(&notebook).contains("10%"));
 //! ```
+//!
+//! A `display_data` message with a display id can be updated in place, even
+//! from another cell: the matching output is replaced where it was shown, and
+//! [`IopubApplied::changed`] lists the cells that need a redraw.
+//!
+//! ```
+//! use europa_core::{
+//!     apply_iopub, ExecEvent, ExecState, IopubMsg, JsonMap, MsgId, ReplyStatus,
+//! };
+//!
+//! let bytes = br#"{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"code","id":"c1","metadata":{},"source":"","outputs":[],"execution_count":null},{"cell_type":"code","id":"c2","metadata":{},"source":"","outputs":[],"execution_count":null}]}"#;
+//! let mut notebook = europa_core::parse(bytes).expect("loads");
+//! let mut state = ExecState::default();
+//! let bundle = |text: &str| JsonMap::from([("text/plain".to_owned(), text.into())]);
+//!
+//! let _ = state.apply(ExecEvent::Enqueue {
+//!     cell_id: "c1".to_owned(),
+//! });
+//! let _ = state.apply(ExecEvent::Sent {
+//!     cell_id: "c1".to_owned(),
+//!     msg_id: MsgId::new("m1"),
+//! });
+//! let shown = IopubMsg::DisplayData {
+//!     parent: MsgId::new("m1"),
+//!     data: bundle("50%"),
+//!     metadata: JsonMap::new(),
+//!     display_id: Some("p".to_owned()),
+//! };
+//! let _ = apply_iopub(&mut state, &mut notebook, &shown);
+//!
+//! // The run of c1 ends and c2 runs next.
+//! let _ = state.apply(ExecEvent::Reply {
+//!     parent: MsgId::new("m1"),
+//!     status: ReplyStatus::Ok,
+//! });
+//! let _ = state.apply(ExecEvent::Idle {
+//!     parent: MsgId::new("m1"),
+//! });
+//! let _ = state.apply(ExecEvent::Enqueue {
+//!     cell_id: "c2".to_owned(),
+//! });
+//! let _ = state.apply(ExecEvent::Sent {
+//!     cell_id: "c2".to_owned(),
+//!     msg_id: MsgId::new("m2"),
+//! });
+//!
+//! let update = IopubMsg::UpdateDisplayData {
+//!     parent: MsgId::new("m2"),
+//!     data: bundle("100%"),
+//!     metadata: JsonMap::new(),
+//!     display_id: "p".to_owned(),
+//! };
+//! let applied = apply_iopub(&mut state, &mut notebook, &update).expect("known run");
+//! assert_eq!(applied.cell, "c2");
+//! assert_eq!(applied.changed, ["c1"]);
+//! let saved = europa_core::serialize(&notebook);
+//! assert!(saved.contains("100%"));
+//! assert!(!saved.contains("50%"));
+//! ```
 #![deny(missing_docs)]
 
 mod canonical;

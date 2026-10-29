@@ -19,6 +19,27 @@
 //! - The notebook is marked as changed, and the cell is listed in
 //!   [`IopubApplied::changed`], only when an output is added or removed, a
 //!   bound output is replaced, or the execution count takes a different value.
+//! - [`apply_iopub`] returns the cells that changed, because a message can
+//!   change cells other than the one its parent id maps to.
+//! - A display id is bound to the output it was shown with and not kept in
+//!   [`ExecState`], so the binding disappears with the output however that is
+//!   removed, even when a caller empties `outputs` directly. It is never
+//!   saved, so a notebook read from a file has nothing to replace.
+//! - A `display_data` whose display id is already bound replaces the earlier
+//!   outputs, in any cell, before it adds its own, as IPython does.
+//! - A message whose parent has no correlation entry, which includes a run
+//!   that has ended, replaces nothing. Outputs bound before an
+//!   [`ExecEvent::Reset`] are not replaced afterwards, because a fixed id such
+//!   as `"progress"` may be reused for something else once the kernel is gone.
+//!   Both differ from Jupyter on purpose.
+//! - An `execute_result` carries no display id, because kernels do not send one
+//!   and frontends treat it differently.
+//! - The execution count of a cell changes on `execute_input` only. The count
+//!   on an `execute_result` stays on its output and may differ.
+//! - Restart a kernel by sending [`ExecEvent::Reset`] and do not build a new
+//!   [`ExecState`]. A new state starts the generation over, and outputs that
+//!   the notebook still holds from before the restart would match their
+//!   display ids again.
 
 use crate::exec::{ExecEvent, ExecState, MsgId};
 use crate::json::JsonMap;
