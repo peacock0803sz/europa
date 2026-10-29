@@ -28,8 +28,11 @@
 //!   saved, so a notebook read from a file has nothing to replace.
 //! - A `display_data` whose display id is already bound replaces the earlier
 //!   outputs, in any cell, before it adds its own, as IPython does.
-//! - A message whose parent has no correlation entry, which includes a run
-//!   that has ended, replaces nothing. This differs from Jupyter on purpose.
+//! - A message whose parent has no correlation entry changes nothing, not even
+//!   outputs in other cells, because without the entry nothing ties it to a
+//!   run of this notebook. A run whose reply and idle status have both arrived
+//!   has no entry either, so, unlike in Jupyter, updates that a background
+//!   thread sends after that are dropped.
 //! - Outputs bound to a display id before an [`ExecEvent::Reset`] are not
 //!   replaced afterwards, unlike in Jupyter. That holds after an interrupt
 //!   too, although the kernel and its display handles survive it, because the
@@ -97,7 +100,9 @@ pub enum IopubMsg {
     },
     /// An `update_display_data` message.
     UpdateDisplayData {
-        /// Parent message id of the originating `execute_request`.
+        /// Parent message id of the originating `execute_request`. It must
+        /// still have a correlation entry, although the outputs it replaces
+        /// may sit in other cells.
         parent: MsgId,
         /// MIME bundle that replaces the content of the matching outputs.
         data: JsonMap,
