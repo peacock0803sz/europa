@@ -1,9 +1,12 @@
 mod common;
 
 use common::{
-    clear, code, display, error, notebook, plain, result, running, shown, shows, stream, update,
+    applied, clear, code, display, error, input, notebook, plain, result, running, shown, shows,
+    stream, update,
 };
-use europa_core::{apply_iopub, ExecState, IopubMsg, JsonMap, JsonValue, MsgId, Notebook, Output};
+use europa_core::{
+    apply_iopub, ExecEvent, ExecState, IopubMsg, JsonMap, JsonValue, MsgId, Notebook, Output,
+};
 
 /// Two empty cells with `c1` running as `m1`.
 fn fresh() -> (ExecState, Notebook) {
@@ -206,4 +209,89 @@ fn a_result_or_an_error_fires_a_pending_clear() {
         assert_eq!(kinds(&book, "c1"), [expected]);
         assert!(!exec.is_clear_pending(&m1()));
     }
+}
+
+/// A notebook whose `c1` has this source and execution count.
+fn counted(source: &str, count: &str) -> Notebook {
+    let text = format!(
+        r#"{{"nbformat":4,"nbformat_minor":5,"metadata":{{}},"cells":[{{"cell_type":"code","id":"c1","metadata":{{}},"source":{source:?},"outputs":[],"execution_count":{count}}}]}}"#
+    );
+    europa_core::parse(text.as_bytes()).expect("fixture notebook loads")
+}
+
+#[test]
+fn execute_input_replaces_the_execution_count() {
+    let mut book = counted("", "3");
+    let mut exec = running("c1", "m1");
+
+    let outcome = apply_iopub(&mut exec, &mut book, &input("m1", 7));
+
+    assert_eq!(code(&book, "c1").execution_count, Some(7));
+    assert_eq!(outcome, applied("c1", &["c1"]));
+    assert!(exec.is_dirty());
+}
+
+#[test]
+fn execute_input_fills_an_empty_execution_count() {
+    let mut book = counted("", "null");
+    let mut exec = running("c1", "m1");
+
+    deliver(&mut exec, &mut book, &[input("m1", 1)]);
+
+    assert_eq!(code(&book, "c1").execution_count, Some(1));
+}
+
+#[test]
+fn execute_input_with_the_same_count_changes_nothing() {
+    let mut book = counted("", "null");
+    let mut exec = running("c1", "m1");
+    deliver(&mut exec, &mut book, &[input("m1", 1)]);
+    let _ = exec.apply(ExecEvent::Saved);
+    let (exec_before, book_before) = (exec.clone(), book.clone());
+
+    let outcome = apply_iopub(&mut exec, &mut book, &input("m1", 1));
+
+    assert_eq!(outcome, applied("c1", &[]));
+    assert!(!exec.is_dirty());
+    assert_eq!(exec, exec_before);
+    assert_eq!(book, book_before);
+}
+
+#[test]
+fn a_result_count_that_differs_does_not_move_the_cell_count() {
+    let (mut exec, mut book) = fresh();
+    deliver(
+        &mut exec,
+        &mut book,
+        &[input("m1", 2), result("m1", Some(5), "x")],
+    );
+
+    assert_eq!(code(&book, "c1").execution_count, Some(2));
+    assert_eq!(shown(&book, "c1"), r#"result[5]:{"text/plain":"x"}"#);
+}
+
+#[test]
+fn a_saved_execution_count_survives_a_reload_and_the_source_stays() {
+    let mut book = counted("print(1)\n", "null");
+    let mut exec = running("c1", "m1");
+    deliver(&mut exec, &mut book, &[input("m1", 9)]);
+
+    let reread = europa_core::parse(europa_core::serialize(&book).as_bytes()).expect("loads");
+
+    assert_eq!(code(&reread, "c1").execution_count, Some(9));
+    assert_eq!(code(&reread, "c1").source.text(), "print(1)\n");
+}
+
+// Only an output makes a waiting clear fire, and a count is not one.
+#[test]
+fn execute_input_neither_fires_nor_ends_a_pending_clear() {
+    let (mut exec, mut book) = fresh();
+    let msgs = [stream("m1", "stdout", "a\n"), clear("m1", true)];
+    deliver(&mut exec, &mut book, &msgs);
+
+    deliver(&mut exec, &mut book, &[input("m1", 3)]);
+
+    assert_eq!(shown(&book, "c1"), r#"stdout:"a\n""#);
+    assert!(exec.is_clear_pending(&m1()));
+    assert_eq!(code(&book, "c1").execution_count, Some(3));
 }

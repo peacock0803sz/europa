@@ -266,7 +266,15 @@ pub fn apply_iopub(
             ));
             touched.push(at);
         }
-        IopubMsg::ExecuteInput { .. } => todo!(),
+        IopubMsg::ExecuteInput {
+            execution_count, ..
+        } => {
+            let code = code_at(notebook, at);
+            if code.execution_count != Some(*execution_count) {
+                code.execution_count = Some(*execution_count);
+                touched.push(at);
+            }
+        }
     }
     touched.sort_unstable();
     touched.dedup();

@@ -1,8 +1,8 @@
 mod common;
 
 use common::{
-    applied, clear, code, display, error, finish, notebook, outputs, result, running, shown, start,
-    stream, update,
+    applied, clear, code, display, error, finish, input, notebook, outputs, result, running, shown,
+    start, stream, update,
 };
 use europa_core::{apply_iopub, Cell, ExecEvent, MsgId, Output};
 
@@ -406,6 +406,26 @@ fn missing_code_cell_leaves_results_and_errors_alone() {
     for msg in [result("m1", Some(1), "x"), error("m1", "E", "v", &["t"])] {
         assert_eq!(apply_iopub(&mut exec, &mut book, &msg), None);
     }
+    assert_eq!(exec, exec_before);
+    assert_eq!(book, book_before);
+}
+
+#[test]
+fn unknown_parent_leaves_the_execution_count_alone() {
+    let mut exec = running("c1", "m1");
+    let mut book = notebook(&["c1"]);
+    let (exec_before, book_before) = (exec.clone(), book.clone());
+    assert_eq!(apply_iopub(&mut exec, &mut book, &input("other", 3)), None);
+    assert_eq!(exec, exec_before);
+    assert_eq!(book, book_before);
+}
+
+#[test]
+fn missing_code_cell_leaves_the_execution_count_alone() {
+    let mut exec = running("c1", "m1");
+    let mut book = notebook(&["c2"]);
+    let (exec_before, book_before) = (exec.clone(), book.clone());
+    assert_eq!(apply_iopub(&mut exec, &mut book, &input("m1", 3)), None);
     assert_eq!(exec, exec_before);
     assert_eq!(book, book_before);
 }
