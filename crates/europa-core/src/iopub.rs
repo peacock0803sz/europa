@@ -19,7 +19,7 @@
 //! - The notebook is marked as changed, and the cell is listed in
 //!   [`IopubApplied::changed`], only when an output is added, extended with
 //!   stream text, removed or replaced, or the execution count takes a
-//!   different value. Content is never compared.
+//!   different value. The content of an output is never compared.
 //! - [`apply_iopub`] returns the cells that changed, because a message can
 //!   change cells other than the one its parent id maps to.
 //! - A display id is bound to the output it was shown with and not kept in
@@ -108,7 +108,7 @@ pub enum IopubMsg {
         /// still map to a code cell through a correlation entry, although the
         /// outputs it replaces may sit in other cells.
         parent: MsgId,
-        /// MIME bundle that replaces the content of the matching outputs.
+        /// MIME bundle that replaces the `data` of the matching outputs.
         data: JsonMap,
         /// Per-MIME metadata that replaces the metadata of the matching outputs.
         #[serde(default)]
