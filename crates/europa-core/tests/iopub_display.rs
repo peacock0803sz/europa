@@ -66,8 +66,8 @@ fn an_update_for_an_id_nothing_was_shown_with_changes_nothing() {
     assert_eq!(shown(&book, "c1"), shows("x"));
 }
 
-// An update with an empty id passes whether or not the empty string is bound,
-// so only a second display with that id can tell the two apart.
+// An update with an empty id matches nothing either way, so only a second
+// display with that id shows whether the first one was bound.
 #[test]
 fn displays_with_an_empty_id_do_not_replace_each_other() {
     let (mut exec, mut book) = fresh();
@@ -348,10 +348,11 @@ fn an_update_neither_fires_nor_ends_a_pending_clear() {
     assert!(exec.is_clear_pending(&m1()));
 }
 
-// The pending clear empties the cell the message belongs to first, so the
-// replacement that follows can only reach the other cells.
+// One display both clears its own cell and replaces the output shown in the
+// other one. The order of the two cannot be observed, so only the combined
+// result is pinned.
 #[test]
-fn a_display_clears_its_own_cell_before_replacing_the_others() {
+fn a_display_clears_its_own_cell_and_replaces_the_others() {
     let mut exec = running("c2", "m2");
     let mut book = notebook(&["c1", "c2"]);
     deliver(&mut exec, &mut book, &[display("m2", Some("p"), "0%")]);

@@ -304,8 +304,8 @@ fn an_update_without_a_bound_output_keeps_the_notebook_clean() {
     assert!(!exec.is_dirty());
 }
 
-// Comparing old and new content would cost a walk over every bundle, and a
-// bound output that was rewritten with the same content is no loss.
+// Content is never compared, the same rule as for stream text, so an
+// identical rewrite still marks the notebook dirty.
 #[test]
 fn an_update_with_the_same_content_still_marks_the_notebook_dirty() {
     let mut exec = running("c1", "m1");

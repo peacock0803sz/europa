@@ -502,7 +502,8 @@ mod tests {
                 display_id: None,
             }
         );
-        // A recorded line and the line written back would otherwise differ.
+        // Written back, a message without an id leaves the key out, as
+        // recorded lines do.
         let written = serde_json::to_string(&msg).expect("writes");
         assert!(!written.contains("display_id"), "{written}");
 
