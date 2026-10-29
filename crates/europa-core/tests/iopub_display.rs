@@ -2,7 +2,7 @@ mod common;
 
 use common::{
     applied, clear, code, code_mut, describe, display, finish, notebook, plain, running, shown,
-    start, stream, update,
+    shows, start, stream, update,
 };
 use europa_core::{
     apply_iopub, ExecEvent, ExecState, IopubMsg, JsonMap, JsonValue, MsgId, Notebook, Output,
@@ -18,11 +18,6 @@ fn deliver(exec: &mut ExecState, book: &mut Notebook, msgs: &[IopubMsg]) {
     for msg in msgs {
         let _ = apply_iopub(exec, book, msg);
     }
-}
-
-/// A plain-text display output as `shown` prints it.
-fn shows(text: &str) -> String {
-    format!(r#"display:{{"text/plain":"{text}"}}"#)
 }
 
 fn m1() -> MsgId {

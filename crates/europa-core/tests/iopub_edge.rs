@@ -1,7 +1,8 @@
 mod common;
 
 use common::{
-    applied, clear, code, display, finish, notebook, outputs, running, shown, start, stream, update,
+    applied, clear, code, display, error, finish, notebook, outputs, result, running, shown, start,
+    stream, update,
 };
 use europa_core::{apply_iopub, Cell, ExecEvent, MsgId, Output};
 
@@ -198,8 +199,8 @@ fn immediate_clear_of_existing_output_marks_dirty() {
 fn non_empty_stream_lists_its_cell_as_changed() {
     let mut exec = running("c1", "m1");
     let mut book = notebook(&["c1"]);
-    let result = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", "a"));
-    assert_eq!(result, applied("c1", &["c1"]));
+    let outcome = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", "a"));
+    assert_eq!(outcome, applied("c1", &["c1"]));
 }
 
 #[test]
@@ -376,8 +377,76 @@ fn outputs_read_back_from_a_saved_notebook_are_not_replaced() {
     let mut reread = europa_core::parse(europa_core::serialize(&book).as_bytes()).expect("loads");
     let before = reread.clone();
 
-    let result = apply_iopub(&mut exec, &mut reread, &update("m1", "p", "1%"));
+    let outcome = apply_iopub(&mut exec, &mut reread, &update("m1", "p", "1%"));
 
-    assert_eq!(result, applied("c1", &[]));
+    assert_eq!(outcome, applied("c1", &[]));
     assert_eq!(reread, before);
+}
+
+#[test]
+fn unknown_parent_leaves_results_and_errors_alone() {
+    let mut exec = running("c1", "m1");
+    let mut book = notebook(&["c1"]);
+    let (exec_before, book_before) = (exec.clone(), book.clone());
+    for msg in [
+        result("other", Some(1), "x"),
+        error("other", "E", "v", &["t"]),
+    ] {
+        assert_eq!(apply_iopub(&mut exec, &mut book, &msg), None);
+    }
+    assert_eq!(exec, exec_before);
+    assert_eq!(book, book_before);
+}
+
+#[test]
+fn missing_code_cell_leaves_results_and_errors_alone() {
+    let mut exec = running("c1", "m1");
+    let mut book = notebook(&["c2"]);
+    let (exec_before, book_before) = (exec.clone(), book.clone());
+    for msg in [result("m1", Some(1), "x"), error("m1", "E", "v", &["t"])] {
+        assert_eq!(apply_iopub(&mut exec, &mut book, &msg), None);
+    }
+    assert_eq!(exec, exec_before);
+    assert_eq!(book, book_before);
+}
+
+#[test]
+fn a_result_and_an_error_are_saved_as_new_outputs() {
+    let mut exec = running("c1", "m1");
+    let mut book = notebook(&["c1"]);
+    let _ = apply_iopub(&mut exec, &mut book, &result("m1", Some(1), "x\ny"));
+    let _ = apply_iopub(&mut exec, &mut book, &error("m1", "E", "v", &["t1", "t2"]));
+
+    let saved = europa_core::serialize(&book);
+    assert!(saved.contains(r#""x\n","#), "{saved}");
+    assert!(saved.contains(r#""y""#), "{saved}");
+    assert!(saved.contains(r#""t1""#), "{saved}");
+    assert!(saved.contains(r#""t2""#), "{saved}");
+    let outputs = &code(&book, "c1").outputs;
+    assert_eq!(outputs.len(), 2);
+    assert!(outputs.iter().all(Output::is_new));
+}
+
+#[test]
+fn a_result_marks_the_notebook_dirty() {
+    let mut exec = running("c1", "m1");
+    let mut book = notebook(&["c1"]);
+    assert!(!exec.is_dirty());
+
+    let outcome = apply_iopub(&mut exec, &mut book, &result("m1", Some(1), "x"));
+
+    assert!(exec.is_dirty());
+    assert_eq!(outcome, applied("c1", &["c1"]));
+}
+
+#[test]
+fn an_error_marks_the_notebook_dirty() {
+    let mut exec = running("c1", "m1");
+    let mut book = notebook(&["c1"]);
+    assert!(!exec.is_dirty());
+
+    let outcome = apply_iopub(&mut exec, &mut book, &error("m1", "E", "v", &[]));
+
+    assert!(exec.is_dirty());
+    assert_eq!(outcome, applied("c1", &["c1"]));
 }

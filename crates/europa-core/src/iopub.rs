@@ -195,9 +195,7 @@ pub fn apply_iopub(
         IopubMsg::Stream { name, text, .. } => {
             if !text.is_empty() {
                 let code = code_at(notebook, at);
-                if exec.pending_clear.remove(parent) {
-                    code.outputs.clear();
-                }
+                fire_pending_clear(exec, parent, code);
                 append_output(&mut code.outputs, name, text);
                 touched.push(at);
             }
@@ -219,9 +217,7 @@ pub fn apply_iopub(
             display_id,
             ..
         } => {
-            if exec.pending_clear.remove(parent) {
-                code_at(notebook, at).outputs.clear();
-            }
+            fire_pending_clear(exec, parent, code_at(notebook, at));
             let binding = binding_for(exec, display_id.as_deref());
             if let Some(binding) = &binding {
                 touched.extend(replace_bound(notebook, binding, data, metadata));
@@ -240,9 +236,37 @@ pub fn apply_iopub(
                 touched.extend(replace_bound(notebook, &binding, data, metadata));
             }
         }
-        IopubMsg::ExecuteResult { .. } | IopubMsg::Error { .. } | IopubMsg::ExecuteInput { .. } => {
-            todo!()
+        IopubMsg::ExecuteResult {
+            data,
+            metadata,
+            execution_count,
+            ..
+        } => {
+            let code = code_at(notebook, at);
+            fire_pending_clear(exec, parent, code);
+            code.outputs.push(Output::new_execute_result(
+                data.clone(),
+                metadata.clone(),
+                *execution_count,
+            ));
+            touched.push(at);
         }
+        IopubMsg::Error {
+            ename,
+            evalue,
+            traceback,
+            ..
+        } => {
+            let code = code_at(notebook, at);
+            fire_pending_clear(exec, parent, code);
+            code.outputs.push(Output::new_error(
+                ename.clone(),
+                evalue.clone(),
+                traceback.clone(),
+            ));
+            touched.push(at);
+        }
+        IopubMsg::ExecuteInput { .. } => todo!(),
     }
     touched.sort_unstable();
     touched.dedup();
@@ -265,6 +289,16 @@ fn code_at(notebook: &mut Notebook, at: usize) -> &mut CodeCell {
     match &mut notebook.cells[at] {
         Cell::Code(code) => code,
         _ => unreachable!("the position was found by matching a code cell"),
+    }
+}
+
+/// Empty the outputs of a cell whose run asked for `clear_output(wait=true)`.
+///
+/// This happens when the next output arrives and not earlier, so that output
+/// redrawn in place does not flicker.
+fn fire_pending_clear(exec: &mut ExecState, parent: &MsgId, code: &mut CodeCell) {
+    if exec.pending_clear.remove(parent) {
+        code.outputs.clear();
     }
 }
 

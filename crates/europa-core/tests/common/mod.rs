@@ -184,6 +184,11 @@ pub fn describe(output: &Output) -> String {
     }
 }
 
+/// A display output holding only `text/plain`, as `describe` prints it.
+pub fn shows(text: &str) -> String {
+    format!(r#"display:{{"text/plain":"{text}"}}"#)
+}
+
 /// The outputs of one code cell, described and joined by `, `.
 pub fn shown(notebook: &Notebook, cell: &str) -> String {
     code(notebook, cell)
