@@ -1,6 +1,9 @@
 #![allow(dead_code)]
 
-use europa_core::{Cell, ExecEvent, ExecState, IopubMsg, MsgId, Notebook, Output};
+use europa_core::notebook::CodeCell;
+use europa_core::{
+    Cell, ExecEvent, ExecState, IopubMsg, JsonMap, MsgId, Notebook, Output, ReplyStatus,
+};
 
 /// Notebook holding only empty code cells with the given ids.
 pub fn notebook(cells: &[&str]) -> Notebook {
@@ -67,4 +70,162 @@ pub fn outputs(notebook: &Notebook, cell: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+/// MIME bundle holding only `text/plain`.
+pub fn plain(text: &str) -> JsonMap {
+    JsonMap::from([("text/plain".to_owned(), text.into())])
+}
+
+pub fn display(msg: &str, id: Option<&str>, text: &str) -> IopubMsg {
+    IopubMsg::DisplayData {
+        parent: MsgId::new(msg),
+        data: plain(text),
+        metadata: JsonMap::new(),
+        display_id: id.map(str::to_owned),
+    }
+}
+
+pub fn update(msg: &str, id: &str, text: &str) -> IopubMsg {
+    IopubMsg::UpdateDisplayData {
+        parent: MsgId::new(msg),
+        data: plain(text),
+        metadata: JsonMap::new(),
+        display_id: id.to_owned(),
+    }
+}
+
+pub fn result(msg: &str, count: Option<i64>, text: &str) -> IopubMsg {
+    IopubMsg::ExecuteResult {
+        parent: MsgId::new(msg),
+        data: plain(text),
+        metadata: JsonMap::new(),
+        execution_count: count,
+    }
+}
+
+pub fn error(msg: &str, ename: &str, evalue: &str, traceback: &[&str]) -> IopubMsg {
+    IopubMsg::Error {
+        parent: MsgId::new(msg),
+        ename: ename.to_owned(),
+        evalue: evalue.to_owned(),
+        traceback: traceback.iter().map(|line| (*line).to_owned()).collect(),
+    }
+}
+
+pub fn input(msg: &str, count: i64) -> IopubMsg {
+    IopubMsg::ExecuteInput {
+        parent: MsgId::new(msg),
+        execution_count: count,
+    }
+}
+
+/// Run `cell` as `msg` on a state that may already know other runs.
+pub fn start(exec: &mut ExecState, cell: &str, msg: &str) {
+    let _ = exec.apply(ExecEvent::Enqueue {
+        cell_id: cell.to_owned(),
+    });
+    let _ = exec.apply(ExecEvent::Sent {
+        cell_id: cell.to_owned(),
+        msg_id: MsgId::new(msg),
+    });
+}
+
+/// End the run of `msg` the way a kernel does, which drops its correlation.
+pub fn finish(exec: &mut ExecState, msg: &str) {
+    let _ = exec.apply(ExecEvent::Reply {
+        parent: MsgId::new(msg),
+        status: ReplyStatus::Ok,
+    });
+    let _ = exec.apply(ExecEvent::Idle {
+        parent: MsgId::new(msg),
+    });
+}
+
+fn json(map: &JsonMap) -> String {
+    serde_json::to_string(map).expect("serializes")
+}
+
+fn meta(metadata: &JsonMap) -> String {
+    if metadata.is_empty() {
+        String::new()
+    } else {
+        format!(" meta:{}", json(metadata))
+    }
+}
+
+fn count(count: Option<i64>) -> String {
+    count.map_or_else(|| "null".to_owned(), |count| count.to_string())
+}
+
+/// One output as text, so that expectations read as a line.
+///
+/// A stream is `name:"text"`, a display is `display:{data}` and a result is
+/// `result[count]:{data}`, both followed by ` meta:{metadata}` unless the
+/// metadata is empty. An error is `error:ename:"evalue":["traceback"]`.
+pub fn describe(output: &Output) -> String {
+    match output {
+        Output::Stream(stream) => format!("{}:{:?}", stream.name, stream.text.text()),
+        Output::DisplayData(display) => {
+            format!("display:{}{}", json(&display.data), meta(&display.metadata))
+        }
+        Output::ExecuteResult(result) => format!(
+            "result[{}]:{}{}",
+            count(result.execution_count),
+            json(&result.data),
+            meta(&result.metadata)
+        ),
+        Output::Error(error) => format!(
+            "error:{}:{:?}:{:?}",
+            error.ename, error.evalue, error.traceback
+        ),
+        Output::Unknown(_) => "<unknown>".to_owned(),
+    }
+}
+
+/// Every code cell as `id[count]: outputs`, joined by ` | `.
+pub fn cells(notebook: &Notebook) -> String {
+    notebook
+        .cells
+        .iter()
+        .filter_map(|cell| match cell {
+            Cell::Code(code) => Some(format!(
+                "{}[{}]: {}",
+                cell.id(),
+                count(code.execution_count),
+                code.outputs
+                    .iter()
+                    .map(describe)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// The code cell with this id, or a panic when there is none.
+pub fn code<'a>(notebook: &'a Notebook, cell: &str) -> &'a CodeCell {
+    notebook
+        .cells
+        .iter()
+        .find_map(|candidate| match candidate {
+            Cell::Code(code) if candidate.id() == cell => Some(code),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no code cell {cell}"))
+}
+
+/// Like [`code`], for editing the cell.
+pub fn code_mut<'a>(notebook: &'a mut Notebook, cell: &str) -> &'a mut CodeCell {
+    for candidate in &mut notebook.cells {
+        if candidate.id() != cell {
+            continue;
+        }
+        if let Cell::Code(code) = candidate {
+            return code;
+        }
+    }
+    panic!("no code cell {cell}");
 }
