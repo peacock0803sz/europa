@@ -110,6 +110,11 @@ pub(crate) struct Running {
 /// `Deserialize` impl validates the invariants below and returns `Err` on
 /// violation.
 ///
+/// The state counts resets to tell the display ids bound before one from those
+/// bound after it. A state rebuilt with `Default` starts the count over, so
+/// outputs that the notebook still holds from before would match their display
+/// ids again. Send [`ExecEvent::Reset`] when the kernel restarts instead.
+///
 /// # Invariants
 ///
 /// These hold after every [`ExecState::apply`]:
@@ -149,6 +154,13 @@ pub struct ExecState {
     // Skipped when empty so states without a pending clear serialize as before.
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub(crate) pending_clear: BTreeSet<MsgId>,
+    // Skipped when zero so states that never saw a reset serialize as before.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub(crate) display_generation: u64,
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 impl<'de> serde::Deserialize<'de> for ExecState {
@@ -165,6 +177,8 @@ impl<'de> serde::Deserialize<'de> for ExecState {
             dirty: bool,
             #[serde(default)]
             pending_clear: BTreeSet<MsgId>,
+            #[serde(default)]
+            display_generation: u64,
         }
         let fields = Fields::deserialize(deserializer)?;
         let mut seen = std::collections::BTreeSet::new();
@@ -212,6 +226,7 @@ impl<'de> serde::Deserialize<'de> for ExecState {
             correlation: fields.correlation,
             dirty: fields.dirty,
             pending_clear: fields.pending_clear,
+            display_generation: fields.display_generation,
         })
     }
 }
@@ -281,6 +296,10 @@ pub enum ExecEvent {
     /// queue and running slot, and drops all correlation entries and pending
     /// clears, so later replies and outputs for earlier message ids are
     /// ignored. Results of other cells and the dirty flag are unchanged.
+    ///
+    /// Outputs bound to a display id before the reset are not replaced
+    /// afterwards. The kernel that showed them is gone, and a fixed id such as
+    /// `"progress"` may be reused for something else.
     Reset,
     /// A cell was deleted.
     ///
@@ -441,6 +460,9 @@ impl ExecState {
                 self.running = None;
                 self.correlation.clear();
                 self.pending_clear.clear();
+                // A counter that panics on overflow would be worse than one that
+                // wraps, and 2^64 resets never happen in practice.
+                self.display_generation = self.display_generation.wrapping_add(1);
                 Applied::default()
             }
             ExecEvent::Saved => {
@@ -546,6 +568,7 @@ mod tests {
                 .collect(),
             dirty,
             pending_clear: BTreeSet::new(),
+            display_generation: 0,
         }
     }
 
@@ -703,5 +726,43 @@ mod tests {
     fn omits_empty_pending_clear_from_json() {
         let text = serde_json::to_string(&ExecState::default()).expect("serializes");
         assert!(!text.contains("pending_clear"), "{text}");
+    }
+
+    #[test]
+    fn round_trips_a_display_generation() {
+        let state = ExecState {
+            display_generation: 3,
+            ..ExecState::default()
+        };
+        let text = serde_json::to_string(&state).expect("serializes");
+        assert!(text.contains(r#""display_generation":3"#), "{text}");
+        assert_eq!(
+            serde_json::from_str::<ExecState>(&text).expect("loads"),
+            state
+        );
+    }
+
+    #[test]
+    fn omits_a_zero_display_generation_from_json() {
+        let text = serde_json::to_string(&ExecState::default()).expect("serializes");
+        assert!(!text.contains("display_generation"), "{text}");
+    }
+
+    #[test]
+    fn reset_advances_the_display_generation() {
+        let mut state = ExecState::default();
+        let _ = state.apply(ExecEvent::Reset);
+        let _ = state.apply(ExecEvent::Reset);
+        assert_eq!(state.display_generation, 2);
+    }
+
+    #[test]
+    fn reset_wraps_the_display_generation_instead_of_panicking() {
+        let mut state = ExecState {
+            display_generation: u64::MAX,
+            ..ExecState::default()
+        };
+        let _ = state.apply(ExecEvent::Reset);
+        assert_eq!(state.display_generation, 0);
     }
 }
