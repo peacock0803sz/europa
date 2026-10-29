@@ -81,8 +81,12 @@ pub enum IopubMsg {
         metadata: JsonMap,
         /// The `transient.display_id` of the message.
         ///
-        /// An empty string counts as no display id. Later messages with the
-        /// same display id replace the content of the output this message adds.
+        /// An empty string counts as no display id. With an id, the message
+        /// first replaces the content of every output already bound to the id,
+        /// in any cell, and then binds the output it adds. Later messages with
+        /// the id replace that content while the output exists, as long as no
+        /// [`ExecEvent::Reset`] came in between and their own parent is still
+        /// known; see [`apply_iopub`].
         #[serde(default, skip_serializing_if = "Option::is_none")]
         display_id: Option<String>,
     },
