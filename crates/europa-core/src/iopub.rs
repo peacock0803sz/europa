@@ -17,8 +17,9 @@
 //!   the next chunk shows whether it ends the line or overwrites it, which
 //!   keeps the result independent of how the text is chunked.
 //! - The notebook is marked as changed, and the cell is listed in
-//!   [`IopubApplied::changed`], only when an output is added or removed, a
-//!   bound output is replaced, or the execution count takes a different value.
+//!   [`IopubApplied::changed`], only when an output is added, extended with
+//!   stream text, removed or replaced, or the execution count takes a
+//!   different value. Content is never compared.
 //! - [`apply_iopub`] returns the cells that changed, because a message can
 //!   change cells other than the one its parent id maps to.
 //! - A display id is bound to the output it was shown with and not kept in
@@ -151,17 +152,22 @@ impl IopubMsg {
     }
 }
 
-/// The cells an iopub message belongs to and changed.
+/// The cell an iopub message belongs to and the cells it changed.
 ///
-/// Returned by [`apply_iopub`] so that a caller redraws only the cells that
-/// need it, which are not limited to the cell the message belongs to.
+/// Returned by [`apply_iopub`]. A caller should redraw the cells in `changed`,
+/// which may leave out `cell` and include other cells.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[must_use]
 pub struct IopubApplied {
-    /// The cell the parent message id maps to.
+    /// The cell the parent message id maps to. It is listed in `changed` only
+    /// if it changed.
     pub cell: String,
-    /// The cells that gained or lost outputs, had outputs replaced, or took a
+    /// The cells whose outputs changed because an output was added, extended
+    /// with stream text, removed or replaced, and the cells that took a
     /// different execution count, in notebook order and without duplicates.
+    ///
+    /// Content is never compared, so rewriting an output with the same content
+    /// still lists its cell.
     pub changed: Vec<String>,
 }
 
@@ -189,9 +195,9 @@ pub struct IopubApplied {
 ///    nothing and leaves a pending clear alone.
 /// 7. `execute_input` replaces the execution count of the cell, but only when
 ///    the value differs.
-/// 8. The cells that gained or lost an output, had one replaced, or took a
-///    different execution count are listed in [`IopubApplied::changed`]. If
-///    there is any, the notebook is marked as changed.
+/// 8. The cells that gained, extended, lost or had replaced an output, or took
+///    a different execution count, are listed in [`IopubApplied::changed`]. If
+///    any is listed, the notebook is marked as changed.
 /// 9. Return the cell and the changed cells.
 ///
 /// Returns `Some` with the cell the message belongs to and the cells that
