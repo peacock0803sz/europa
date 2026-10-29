@@ -93,19 +93,20 @@ pub enum IopubMsg {
         /// The `transient.display_id` of the message.
         ///
         /// An empty string counts as no display id. With an id, the message
-        /// first replaces the content of every output already bound to the id,
-        /// in any cell, and then binds the output it adds. Later messages with
-        /// the id replace that content while the output exists, as long as no
-        /// [`ExecEvent::Reset`] came in between and their own parent is still
-        /// known; see [`apply_iopub`].
+        /// first replaces the content of every output bound to the id since
+        /// the last [`ExecEvent::Reset`], in any cell, and then binds the
+        /// output it adds. Later messages with the id replace that content
+        /// while the output exists, as long as no [`ExecEvent::Reset`] came in
+        /// between and their own parent still maps to a code cell; see
+        /// [`apply_iopub`].
         #[serde(default, skip_serializing_if = "Option::is_none")]
         display_id: Option<String>,
     },
     /// An `update_display_data` message.
     UpdateDisplayData {
         /// Parent message id of the originating `execute_request`. It must
-        /// still have a correlation entry, although the outputs it replaces
-        /// may sit in other cells.
+        /// still map to a code cell through a correlation entry, although the
+        /// outputs it replaces may sit in other cells.
         parent: MsgId,
         /// MIME bundle that replaces the content of the matching outputs.
         data: JsonMap,
