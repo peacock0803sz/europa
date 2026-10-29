@@ -10,9 +10,9 @@
 //! - A deferred `clear_output(wait=true)` is keyed by the parent message id
 //!   and stored in [`ExecState`], so it is dropped together with the
 //!   correlation entry and never leaks into a later run of the same cell.
-//! - A clear fires only when the next output of the same run arrives. A run
-//!   that ends while a clear is still pending keeps its outputs: the clear is
-//!   dropped with the correlation entry and never fires.
+//! - A clear fires only when the same run next adds an output. A run that ends
+//!   while a clear is still pending keeps its outputs: the clear is dropped
+//!   with the correlation entry and never fires.
 //! - `\r` rebuilds only the last line. A trailing `\r` stays in the text until
 //!   the next chunk shows whether it ends the line or overwrites it, which
 //!   keeps the result independent of how the text is chunked.
@@ -67,7 +67,10 @@ pub enum IopubMsg {
     ClearOutput {
         /// Parent message id of the originating `execute_request`.
         parent: MsgId,
-        /// Defer clearing until the next output of the same run arrives.
+        /// Defer clearing until the same run next adds an output: a `stream`
+        /// with text, `display_data`, `execute_result` or `error`.
+        /// `update_display_data` and `execute_input` add none and leave the
+        /// clear pending.
         wait: bool,
     },
     /// A `display_data` message.
@@ -334,7 +337,7 @@ fn code_at(notebook: &mut Notebook, at: usize) -> &mut CodeCell {
 
 /// Empty the outputs of a cell whose run asked for `clear_output(wait=true)`.
 ///
-/// This happens when the next output arrives and not earlier, so that output
+/// Call it right before adding an output and not earlier, so that output
 /// redrawn in place does not flicker.
 fn fire_pending_clear(exec: &mut ExecState, parent: &MsgId, code: &mut CodeCell) {
     if exec.pending_clear.remove(parent) {
