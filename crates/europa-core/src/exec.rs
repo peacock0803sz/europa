@@ -1,10 +1,11 @@
 //! Execution state for one notebook.
 //!
-//! Tracks queue, running cell, terminal results, message correlation, and the
-//! dirty flag as a pure state machine. Advance it with [`ExecState::apply`];
-//! the caller performs the returned [`ExecEffect`] and feeds observed message
-//! ids back as [`ExecEvent::Sent`]. This keeps id generation and IO outside
-//! the transition, so the same event sequence always yields the same state.
+//! Tracks queue, running cell, terminal results, message correlation, pending
+//! clears, a count of resets that retires display ids, and the dirty flag as a
+//! pure state machine. Advance it with [`ExecState::apply`]; the caller
+//! performs the returned [`ExecEffect`] and feeds observed message ids back as
+//! [`ExecEvent::Sent`]. This keeps id generation and IO outside the
+//! transition, so the same event sequence always yields the same state.
 //!
 //! Cell status is derived from queue, running slot, and results rather than
 //! stored per cell. A correlation entry is kept until both `execute_reply` and
