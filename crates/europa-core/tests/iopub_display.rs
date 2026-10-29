@@ -114,12 +114,15 @@ fn an_update_from_another_cell_replaces_the_output_where_it_was_shown() {
     deliver(&mut exec, &mut book, &[display("m1", Some("p"), "0%")]);
     finish(&mut exec, "m1");
     start(&mut exec, "c2", "m2");
+    let _ = exec.apply(ExecEvent::Saved);
+    assert!(!exec.is_dirty());
 
     let result = apply_iopub(&mut exec, &mut book, &update("m2", "p", "50%"));
 
     assert_eq!(shown(&book, "c1"), shows("50%"));
     assert_eq!(shown(&book, "c2"), "");
     assert_eq!(result, applied("c2", &["c1"]));
+    assert!(exec.is_dirty());
 }
 
 #[test]
