@@ -1,8 +1,9 @@
 //! Applying iopub messages to notebook outputs.
 //!
-//! [`apply_iopub`] folds `stream` and `clear_output` messages into a code
-//! cell's outputs. It has no IO, so the same input always yields the same
-//! result.
+//! [`apply_iopub`] folds `stream`, `clear_output`, `display_data`,
+//! `update_display_data`, `execute_result`, `error` and `execute_input`
+//! messages into the outputs and execution counts of code cells. It has no IO,
+//! so the same input always yields the same result.
 //!
 //! Design decisions:
 //!
@@ -15,18 +16,19 @@
 //! - `\r` rebuilds only the last line. A trailing `\r` stays in the text until
 //!   the next chunk shows whether it ends the line or overwrites it, which
 //!   keeps the result independent of how the text is chunked.
-//! - The notebook is marked as changed only when the list of outputs changes.
+//! - The notebook is marked as changed, and the cell is listed in
+//!   [`IopubApplied::changed`], only when an output is added or removed, a
+//!   bound output is replaced, or the execution count takes a different value.
 
 use crate::exec::{ExecEvent, ExecState, MsgId};
+use crate::json::JsonMap;
 use crate::notebook::{Cell, Notebook, Output, OutputOrigin};
 
-/// An iopub message that changes cell outputs.
+/// An iopub message that changes cell outputs or the execution count.
 ///
 /// The kernel layer converts wire messages into this type before handing them
 /// to [`apply_iopub`]; this crate never sees the wire format. The `name` of a
-/// stream is not restricted to `stdout` and `stderr`. Messages such as
-/// `display_data` are not covered yet; the specs that handle them add the
-/// variants.
+/// stream is not restricted to `stdout` and `stderr`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "msg", rename_all = "snake_case")]
 pub enum IopubMsg {
@@ -46,6 +48,86 @@ pub enum IopubMsg {
         /// Defer clearing until the next output of the same run arrives.
         wait: bool,
     },
+    /// A `display_data` message.
+    DisplayData {
+        /// Parent message id of the originating `execute_request`.
+        parent: MsgId,
+        /// MIME bundle to show. It may be empty.
+        data: JsonMap,
+        /// Per-MIME metadata.
+        #[serde(default)]
+        metadata: JsonMap,
+        /// The `transient.display_id` of the message.
+        ///
+        /// An empty string counts as no display id. Later messages with the
+        /// same display id replace the content of the output this message adds.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        display_id: Option<String>,
+    },
+    /// An `update_display_data` message.
+    UpdateDisplayData {
+        /// Parent message id of the originating `execute_request`.
+        parent: MsgId,
+        /// MIME bundle that replaces the content of the matching outputs.
+        data: JsonMap,
+        /// Per-MIME metadata that replaces the metadata of the matching outputs.
+        #[serde(default)]
+        metadata: JsonMap,
+        /// The `transient.display_id` of the message. An empty string matches
+        /// no output.
+        display_id: String,
+    },
+    /// An `execute_result` message.
+    ///
+    /// It carries no display id, so it is only appended and never replaced by
+    /// a later `update_display_data`.
+    ExecuteResult {
+        /// Parent message id of the originating `execute_request`.
+        parent: MsgId,
+        /// MIME bundle of the result.
+        data: JsonMap,
+        /// Per-MIME metadata.
+        #[serde(default)]
+        metadata: JsonMap,
+        /// Execution count the kernel reports with the result. It is kept as
+        /// sent and does not change the count of the cell.
+        execution_count: Option<i64>,
+    },
+    /// An `error` message.
+    Error {
+        /// Parent message id of the originating `execute_request`.
+        parent: MsgId,
+        /// Exception name.
+        ename: String,
+        /// Exception value.
+        evalue: String,
+        /// Traceback lines, escape sequences included.
+        traceback: Vec<String>,
+    },
+    /// An `execute_input` message.
+    ///
+    /// It has no `code` field, because it never changes the `source` of the
+    /// cell; it only sets the execution count.
+    ExecuteInput {
+        /// Parent message id of the originating `execute_request`.
+        parent: MsgId,
+        /// Execution count the kernel assigned to the run.
+        execution_count: i64,
+    },
+}
+
+impl IopubMsg {
+    fn parent(&self) -> &MsgId {
+        match self {
+            Self::Stream { parent, .. }
+            | Self::ClearOutput { parent, .. }
+            | Self::DisplayData { parent, .. }
+            | Self::UpdateDisplayData { parent, .. }
+            | Self::ExecuteResult { parent, .. }
+            | Self::Error { parent, .. }
+            | Self::ExecuteInput { parent, .. } => parent,
+        }
+    }
 }
 
 /// The cells an iopub message belongs to and changed.
@@ -62,37 +144,45 @@ pub struct IopubApplied {
     pub changed: Vec<String>,
 }
 
-/// Apply one iopub message to the outputs of the cell it belongs to.
+/// Apply one iopub message to the notebook.
 ///
 /// Steps:
 ///
 /// 1. Look the cell up by the parent id; return `None` and change nothing when
 ///    the id is unknown or the notebook has no code cell with that id.
 /// 2. `clear_output(wait=true)` records the parent as pending and leaves the
-///    outputs alone.
-/// 3. `clear_output(wait=false)` drops any pending record and empties the
-///    outputs.
-/// 4. A `stream` with empty text changes nothing.
-/// 5. A `stream` with text first empties the outputs if the parent is pending,
-///    then appends to the last output when it is a stream of the same name,
-///    or pushes a new stream output. Appending to a loaded output rebuilds it
-///    as a new one.
-/// 6. Only the non-empty stream of step 5 and a `clear_output(wait=false)` that
-///    removed at least one output mark the notebook as changed and list the
-///    cell in [`IopubApplied::changed`].
-/// 7. Return the cell id and the changed cells for every message that passed
-///    step 1.
+///    outputs alone. `clear_output(wait=false)` drops any pending record and
+///    empties the outputs. A `stream` with empty text changes nothing; one
+///    with text appends to the last output when it is a stream of the same
+///    name, or pushes a new stream output. Appending to a loaded output
+///    rebuilds it as a new one.
+/// 3. A `stream` with text, `display_data`, `execute_result` and `error` first
+///    empty the outputs of the cell if the parent is pending, which ends the
+///    pending state.
+/// 4. A `display_data` with a non-empty display id replaces the data and
+///    metadata of every output bound to that id, in any code cell. Outputs
+///    bound before the last [`ExecEvent::Reset`] are left alone.
+/// 5. `display_data`, `execute_result` and `error` push a new output onto the
+///    cell. A `display_data` with a non-empty display id binds it to that id.
+/// 6. `update_display_data` only does the replacement of step 4. It adds
+///    nothing and leaves a pending clear alone.
+/// 7. `execute_input` replaces the execution count of the cell, but only when
+///    the value differs.
+/// 8. The cells that gained or lost an output, had one replaced, or took a
+///    different execution count are listed in [`IopubApplied::changed`]. If
+///    there is any, the notebook is marked as changed.
+/// 9. Return the cell and the changed cells.
 ///
-/// Returns the cell the message belongs to with the cells that changed, even
-/// when nothing did, or `None` when the parent id is unknown or no matching
-/// code cell exists.
+/// Returns `Some` with the cell the message belongs to and the cells that
+/// changed, which are none when nothing changed, or `None` when the parent id
+/// is unknown or no matching code cell exists.
 #[must_use]
 pub fn apply_iopub(
     exec: &mut ExecState,
     notebook: &mut Notebook,
     msg: &IopubMsg,
 ) -> Option<IopubApplied> {
-    let (IopubMsg::Stream { parent, .. } | IopubMsg::ClearOutput { parent, .. }) = msg;
+    let parent = msg.parent();
     let cell_id = exec.cell_for(parent)?.to_owned();
     let code = notebook.cells.iter_mut().find_map(|cell| match cell {
         Cell::Code(code) if code.mem_id == cell_id => Some(code),
@@ -119,6 +209,11 @@ pub fn apply_iopub(
                 touched = true;
             }
         }
+        IopubMsg::DisplayData { .. }
+        | IopubMsg::UpdateDisplayData { .. }
+        | IopubMsg::ExecuteResult { .. }
+        | IopubMsg::Error { .. }
+        | IopubMsg::ExecuteInput { .. } => todo!(),
     }
     let changed = if touched {
         let _ = exec.apply(ExecEvent::Output {
@@ -208,7 +303,43 @@ fn after_last_cr(line: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::append_stream;
+    use super::{append_stream, IopubMsg};
+    use crate::exec::MsgId;
+    use crate::json::{JsonMap, JsonValue};
+
+    fn plain(text: &str) -> JsonMap {
+        JsonMap::from([("text/plain".to_owned(), JsonValue::from(text))])
+    }
+
+    #[test]
+    fn recorded_messages_may_leave_out_metadata_and_the_display_id() {
+        let display = r#"{"msg":"display_data","parent":"m1","data":{"text/plain":"x"}}"#;
+        let msg: IopubMsg = serde_json::from_str(display).expect("reads");
+        assert_eq!(
+            msg,
+            IopubMsg::DisplayData {
+                parent: MsgId::new("m1"),
+                data: plain("x"),
+                metadata: JsonMap::new(),
+                display_id: None,
+            }
+        );
+        // A recorded line and the line written back would otherwise differ.
+        let written = serde_json::to_string(&msg).expect("writes");
+        assert!(!written.contains("display_id"), "{written}");
+
+        let result = r#"{"msg":"execute_result","parent":"m1","data":{"text/plain":"42"},"execution_count":1}"#;
+        let msg: IopubMsg = serde_json::from_str(result).expect("reads");
+        assert_eq!(
+            msg,
+            IopubMsg::ExecuteResult {
+                parent: MsgId::new("m1"),
+                data: plain("42"),
+                metadata: JsonMap::new(),
+                execution_count: Some(1),
+            }
+        );
+    }
 
     fn append(existing: &str, chunk: &str) -> String {
         let mut text = existing.to_owned();
