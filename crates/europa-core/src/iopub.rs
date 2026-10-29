@@ -35,10 +35,11 @@
 //!   has no entry either, so, unlike in Jupyter, updates that a background
 //!   thread sends after that are dropped.
 //! - Outputs bound to a display id before an [`ExecEvent::Reset`] are not
-//!   replaced afterwards, unlike in Jupyter. That holds after an interrupt
-//!   too, although the kernel and its display handles survive it, because the
-//!   same event stands for a restart, after which a fixed id such as
-//!   `"progress"` may be reused for something else.
+//!   replaced afterwards. JupyterLab also forgets display ids on a restart,
+//!   but keeps them across an interrupt, since the kernel and its display
+//!   handles survive it. Here an interrupt retires them too, because the same
+//!   event stands for a restart, after which a fixed id such as `"progress"`
+//!   may be reused for something else.
 //! - An `execute_result` carries no display id. The protocol allows one, but
 //!   ipykernel never sends it and JupyterLab and nbclient disagree on how to
 //!   treat it, so the kernel layer drops it.
