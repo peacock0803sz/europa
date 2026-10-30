@@ -6,6 +6,7 @@
 #![deny(missing_docs)]
 
 mod ansi;
+mod wrap;
 
 use europa_core::{
     Background, Color, JsonMap, JsonValue, Output, RenderOptions, RenderedCell, StyledLine,
@@ -59,10 +60,12 @@ pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCe
     let mut lines = Vec::new();
     for unit in units(outputs) {
         for runs in ansi::parse(&unit.text) {
-            lines.push(StyledLine {
-                spans: runs,
-                fill: unit.fill.then_some(fill),
-            });
+            for spans in wrap::wrap(&runs, options.width) {
+                lines.push(StyledLine {
+                    spans,
+                    fill: unit.fill.then_some(fill),
+                });
+            }
         }
     }
     RenderedCell {

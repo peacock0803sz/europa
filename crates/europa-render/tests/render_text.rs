@@ -88,6 +88,13 @@ fn empty_stderr_lines_are_filled_too() {
 }
 
 #[test]
+fn the_lines_a_stderr_line_wraps_into_are_all_filled() {
+    let cell = render_outputs(&[stderr("abcdefghijklmnopqrstuvwxyz0123")], &opts(20));
+    assert_eq!(texts(&cell), ["abcdefghijklmnopqrst", "uvwxyz0123"]);
+    assert!(cell.lines.iter().all(|line| line.fill == Some(DARK_FILL)));
+}
+
+#[test]
 fn a_light_background_changes_only_the_fill() {
     let outputs = [stdout("o\n"), stderr("\u{1b}[1me\u{1b}[0m\n")];
     let mut dark = render_outputs(&outputs, &opts(80));
