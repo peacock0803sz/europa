@@ -184,8 +184,8 @@ pub struct IopubApplied {
     /// with stream text, removed or replaced, and the cells that took a
     /// different execution count, in notebook order and without duplicates.
     ///
-    /// Content is never compared, so rewriting an output with the same content
-    /// still lists its cell.
+    /// The content of an output is never compared, so rewriting an output with
+    /// the same content still lists its cell.
     pub changed: Vec<String>,
 }
 
