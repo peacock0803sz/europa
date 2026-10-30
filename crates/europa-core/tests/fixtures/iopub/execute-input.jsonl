@@ -1,0 +1,13 @@
+{"event":"enqueue","cell_id":"c1"}
+{"event":"sent","cell_id":"c1","msg_id":"m1"}
+{"msg":"execute_input","parent":"m1","execution_count":1}
+{"event":"saved"}
+{"msg":"execute_input","parent":"m1","execution_count":1}
+{"event":"reply","parent":"m1","status":"Ok"}
+{"event":"idle","parent":"m1"}
+{"event":"enqueue","cell_id":"c2"}
+{"event":"sent","cell_id":"c2","msg_id":"m2"}
+{"msg":"execute_input","parent":"m2","execution_count":2}
+{"msg":"execute_result","parent":"m2","data":{"text/plain":"x"},"execution_count":5}
+{"event":"reply","parent":"m2","status":"Ok"}
+{"event":"idle","parent":"m2"}

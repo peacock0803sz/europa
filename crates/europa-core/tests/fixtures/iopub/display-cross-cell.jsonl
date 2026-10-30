@@ -1,0 +1,12 @@
+{"event":"enqueue","cell_id":"c1"}
+{"event":"sent","cell_id":"c1","msg_id":"m1"}
+{"msg":"display_data","parent":"m1","data":{"text/plain":"0%"},"display_id":"p"}
+{"event":"reply","parent":"m1","status":"Ok"}
+{"event":"idle","parent":"m1"}
+{"event":"enqueue","cell_id":"c2"}
+{"event":"sent","cell_id":"c2","msg_id":"m2"}
+{"msg":"update_display_data","parent":"m2","data":{"text/plain":"50%"},"display_id":"p"}
+{"msg":"display_data","parent":"m2","data":{"text/plain":"75%"},"display_id":"p"}
+{"msg":"update_display_data","parent":"m2","data":{"text/plain":"100%"},"display_id":"p"}
+{"event":"reply","parent":"m2","status":"Ok"}
+{"event":"idle","parent":"m2"}

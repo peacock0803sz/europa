@@ -1,0 +1,16 @@
+---
+source: crates/europa-core/tests/iopub_display_snapshots.rs
+expression: "trace(concat! (\"clear-wait-display\", \".jsonl\"))"
+---
+{"event":"enqueue","cell_id":"c1"} => {"effect":{"effect":"execute","cell_id":"c1"},"cell":null} | pending=[] | dirty=false | c1[null]:  | c2[null]: 
+{"event":"sent","cell_id":"c1","msg_id":"m1"} => {"effect":null,"cell":null} | pending=[] | dirty=false | c1[null]:  | c2[null]: 
+{"msg":"display_data","parent":"m1","data":{"text/plain":"0%"},"display_id":"p"} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[null]: display:{"text/plain":"0%"} | c2[null]: 
+{"msg":"clear_output","parent":"m1","wait":true} => {"cell":"c1","changed":[]} | pending=["m1"] | dirty=true | c1[null]: display:{"text/plain":"0%"} | c2[null]: 
+{"msg":"update_display_data","parent":"m1","data":{"text/plain":"50%"},"display_id":"p"} => {"cell":"c1","changed":["c1"]} | pending=["m1"] | dirty=true | c1[null]: display:{"text/plain":"50%"} | c2[null]: 
+{"msg":"display_data","parent":"m1","data":{"text/plain":"100%"},"display_id":"p"} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[null]: display:{"text/plain":"100%"} | c2[null]: 
+{"msg":"clear_output","parent":"m1","wait":true} => {"cell":"c1","changed":[]} | pending=["m1"] | dirty=true | c1[null]: display:{"text/plain":"100%"} | c2[null]: 
+{"msg":"execute_result","parent":"m1","data":{"text/plain":"done"},"execution_count":3} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[null]: result[3]:{"text/plain":"done"} | c2[null]: 
+{"msg":"clear_output","parent":"m1","wait":true} => {"cell":"c1","changed":[]} | pending=["m1"] | dirty=true | c1[null]: result[3]:{"text/plain":"done"} | c2[null]: 
+{"msg":"error","parent":"m1","ename":"KeyboardInterrupt","evalue":"","traceback":["KeyboardInterrupt"]} => {"cell":"c1","changed":["c1"]} | pending=[] | dirty=true | c1[null]: error:KeyboardInterrupt:"":["KeyboardInterrupt"] | c2[null]: 
+{"event":"reply","parent":"m1","status":"Error"} => {"effect":null,"cell":"c1"} | pending=[] | dirty=true | c1[null]: error:KeyboardInterrupt:"":["KeyboardInterrupt"] | c2[null]: 
+{"event":"idle","parent":"m1"} => {"effect":null,"cell":null} | pending=[] | dirty=true | c1[null]: error:KeyboardInterrupt:"":["KeyboardInterrupt"] | c2[null]:

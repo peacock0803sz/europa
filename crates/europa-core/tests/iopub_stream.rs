@@ -18,7 +18,7 @@ fn deliver_to_notebook(chunks: &[&str]) -> Notebook {
     let (mut exec, mut book) = fresh();
     for chunk in chunks {
         let applied = apply_iopub(&mut exec, &mut book, &stream("m1", "stdout", chunk));
-        assert_eq!(applied.as_deref(), Some("c1"));
+        assert_eq!(applied.map(|applied| applied.cell), Some("c1".to_owned()));
     }
     book
 }

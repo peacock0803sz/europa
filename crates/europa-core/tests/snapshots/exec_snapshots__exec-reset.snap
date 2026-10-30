@@ -10,5 +10,5 @@ expression: trace(&events)
 {"event":"sent","cell_id":"c2","msg_id":"m2"} => {"effect":null,"cell":null} | {"queue":[],"running":{"cell_id":"c2","msg_id":"m2","idle_seen":false},"results":{"c1":"Done"},"correlation":{"m1":"c1","m2":"c2"},"dirty":true}
 {"event":"enqueue","cell_id":"c3"} => {"effect":null,"cell":null} | {"queue":["c3"],"running":{"cell_id":"c2","msg_id":"m2","idle_seen":false},"results":{"c1":"Done"},"correlation":{"m1":"c1","m2":"c2"},"dirty":true}
 {"event":"output","parent":"m2"} => {"effect":null,"cell":"c2"} | {"queue":["c3"],"running":{"cell_id":"c2","msg_id":"m2","idle_seen":false},"results":{"c1":"Done"},"correlation":{"m1":"c1","m2":"c2"},"dirty":true}
-{"event":"reset"} => {"effect":null,"cell":null} | {"queue":[],"running":null,"results":{"c1":"Done"},"correlation":{},"dirty":true}
-{"event":"output","parent":"m2"} => {"effect":null,"cell":null} | {"queue":[],"running":null,"results":{"c1":"Done"},"correlation":{},"dirty":true}
+{"event":"reset"} => {"effect":null,"cell":null} | {"queue":[],"running":null,"results":{"c1":"Done"},"correlation":{},"dirty":true,"display_generation":1}
+{"event":"output","parent":"m2"} => {"effect":null,"cell":null} | {"queue":[],"running":null,"results":{"c1":"Done"},"correlation":{},"dirty":true,"display_generation":1}

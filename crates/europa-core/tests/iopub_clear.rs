@@ -19,7 +19,7 @@ fn m1() -> MsgId {
 fn immediate_clear_empties_outputs() {
     let (mut exec, mut book) = printed();
     let applied = apply_iopub(&mut exec, &mut book, &clear("m1", false));
-    assert_eq!(applied.as_deref(), Some("c1"));
+    assert_eq!(applied.map(|applied| applied.cell), Some("c1".to_owned()));
     assert_eq!(outputs(&book, "c1"), "");
 }
 
