@@ -3,7 +3,8 @@
 use std::num::{NonZeroU16, NonZeroUsize};
 
 use europa_core::{
-    Background, Cell, JsonMap, Notebook, Output, RenderOptions, RenderedCell, Style, StyledLine,
+    Background, Cell, Color, JsonMap, Notebook, Output, RenderOptions, RenderedCell, Style,
+    StyledLine,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -100,4 +101,95 @@ pub fn cell_outputs(notebook: &Notebook) -> &[Output] {
         panic!("no code cell c1");
     };
     &code.outputs
+}
+
+/// What a fixture file holds.
+#[derive(serde::Deserialize)]
+struct Fixture {
+    options: RenderOptions,
+    outputs: Vec<Output>,
+}
+
+/// The rendering conditions and the outputs of the file `tests/fixtures/{name}`.
+pub fn fixture(name: &str) -> (RenderOptions, Vec<Output>) {
+    let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{path}: {error}"));
+    let fixture: Fixture =
+        serde_json::from_str(&text).unwrap_or_else(|error| panic!("{path}: {error}"));
+    (fixture.options, fixture.outputs)
+}
+
+/// Draw the cell on a test screen and describe the screen.
+///
+/// The screen is as wide as the render width and as high as the cell. The
+/// description is the options on one line, then the buffer with the styles
+/// that changed along it, so a color or a fill that stops short shows in a
+/// snapshot.
+pub fn draw(cell: &RenderedCell, options: &RenderOptions) -> String {
+    let width = options.width.get();
+    let height = u16::try_from(cell.lines.len().max(1)).expect("the cell fits a screen");
+    let backend = ratatui::backend::TestBackend::new(width, height);
+    let mut terminal = ratatui::Terminal::new(backend).expect("terminal opens");
+    terminal
+        .draw(|frame| {
+            for (row, line) in (0..).zip(&cell.lines) {
+                let area = ratatui::layout::Rect::new(0, row, width, 1);
+                // A line widget with no text paints nothing, not even its own
+                // style, so the fill goes on the buffer before the text.
+                if let Some(fill) = line.fill {
+                    let style = ratatui::style::Style::new().bg(ratatui_color(fill));
+                    frame.buffer_mut().set_style(area, style);
+                }
+                frame.render_widget(ratatui_line(line), area);
+            }
+        })
+        .expect("draws");
+    format!(
+        "{}\n{:?}",
+        serde_json::to_string(options).expect("serializes"),
+        terminal.backend().buffer()
+    )
+}
+
+/// The text of the line as ratatui draws it.
+fn ratatui_line(line: &StyledLine) -> ratatui::text::Line<'static> {
+    let spans: Vec<_> = line
+        .spans
+        .iter()
+        .map(|span| ratatui::text::Span::styled(span.text.clone(), ratatui_style(span.style)))
+        .collect();
+    ratatui::text::Line::from(spans)
+}
+
+fn ratatui_style(style: Style) -> ratatui::style::Style {
+    use ratatui::style::Modifier;
+
+    let mut drawn = ratatui::style::Style::new();
+    if let Some(fg) = style.fg {
+        drawn = drawn.fg(ratatui_color(fg));
+    }
+    if let Some(bg) = style.bg {
+        drawn = drawn.bg(ratatui_color(bg));
+    }
+    let modifiers = [
+        (style.bold, Modifier::BOLD),
+        (style.dim, Modifier::DIM),
+        (style.italic, Modifier::ITALIC),
+        (style.underline, Modifier::UNDERLINED),
+        (style.reverse, Modifier::REVERSED),
+        (style.strikethrough, Modifier::CROSSED_OUT),
+    ];
+    for (on, modifier) in modifiers {
+        if on {
+            drawn = drawn.add_modifier(modifier);
+        }
+    }
+    drawn
+}
+
+fn ratatui_color(color: Color) -> ratatui::style::Color {
+    match color {
+        Color::Indexed(index) => ratatui::style::Color::Indexed(index),
+        Color::Rgb(red, green, blue) => ratatui::style::Color::Rgb(red, green, blue),
+    }
 }

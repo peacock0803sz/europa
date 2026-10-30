@@ -1,0 +1,58 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common :: draw(& cell, & options)"
+---
+{"width":40,"max_output_lines":200,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 40, height: 9 },
+    content: [
+        "red green bright yellow                 ",
+        "red bg bright blue bg                   ",
+        "256 fg 256 bg                           ",
+        "rgb fg rgb bg                           ",
+        "bold dim italic underline               ",
+        "reverse strike                          ",
+        "bold red bold only plain                ",
+        "blue carried                            ",
+        "across lines                            ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Indexed(1), bg: Reset, modifier: NONE,
+        x: 3, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 4, y: 0, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 9, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 10, y: 0, fg: Indexed(11), bg: Reset, modifier: NONE,
+        x: 23, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 1, fg: Reset, bg: Indexed(1), modifier: NONE,
+        x: 6, y: 1, fg: Reset, bg: Reset, modifier: NONE,
+        x: 7, y: 1, fg: Reset, bg: Indexed(12), modifier: NONE,
+        x: 21, y: 1, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 2, fg: Indexed(208), bg: Reset, modifier: NONE,
+        x: 6, y: 2, fg: Reset, bg: Reset, modifier: NONE,
+        x: 7, y: 2, fg: Reset, bg: Indexed(22), modifier: NONE,
+        x: 13, y: 2, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 3, fg: Rgb(255, 128, 0), bg: Reset, modifier: NONE,
+        x: 6, y: 3, fg: Reset, bg: Reset, modifier: NONE,
+        x: 7, y: 3, fg: Reset, bg: Rgb(0, 64, 128), modifier: NONE,
+        x: 13, y: 3, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 4, fg: Reset, bg: Reset, modifier: BOLD,
+        x: 4, y: 4, fg: Reset, bg: Reset, modifier: NONE,
+        x: 5, y: 4, fg: Reset, bg: Reset, modifier: DIM,
+        x: 8, y: 4, fg: Reset, bg: Reset, modifier: NONE,
+        x: 9, y: 4, fg: Reset, bg: Reset, modifier: ITALIC,
+        x: 15, y: 4, fg: Reset, bg: Reset, modifier: NONE,
+        x: 16, y: 4, fg: Reset, bg: Reset, modifier: UNDERLINED,
+        x: 25, y: 4, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 5, fg: Reset, bg: Reset, modifier: REVERSED,
+        x: 7, y: 5, fg: Reset, bg: Reset, modifier: NONE,
+        x: 8, y: 5, fg: Reset, bg: Reset, modifier: CROSSED_OUT,
+        x: 14, y: 5, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 6, fg: Indexed(1), bg: Reset, modifier: BOLD,
+        x: 8, y: 6, fg: Reset, bg: Reset, modifier: BOLD,
+        x: 18, y: 6, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 7, fg: Indexed(4), bg: Reset, modifier: NONE,
+        x: 12, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 8, fg: Indexed(4), bg: Reset, modifier: NONE,
+        x: 12, y: 8, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}

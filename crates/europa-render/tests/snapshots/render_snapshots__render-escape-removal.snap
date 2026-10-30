@@ -1,0 +1,21 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common :: draw(& cell, & options)"
+---
+{"width":40,"max_output_lines":200,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 40, height: 8 },
+    content: [
+        "abcd                                    ",
+        "title gone                              ",
+        "link text                               ",
+        "bell backspace                          ",
+        "charset save                            ",
+        "                                        ",
+        "next line                               ",
+        "truncated                               ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}

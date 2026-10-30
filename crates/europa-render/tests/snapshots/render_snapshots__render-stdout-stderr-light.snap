@@ -1,0 +1,27 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common :: draw(& cell, & options)"
+---
+{"width":30,"max_output_lines":200,"background":"light"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 30, height: 7 },
+    content: [
+        "out 1                         ",
+        "warn: bold                    ",
+        "                              ",
+        "after blank blue bg back      ",
+        "out 2                         ",
+        "a long warning line that wraps",
+        " past thirty columns          ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 1, fg: Reset, bg: Indexed(224), modifier: NONE,
+        x: 6, y: 1, fg: Reset, bg: Indexed(224), modifier: BOLD,
+        x: 10, y: 1, fg: Reset, bg: Indexed(224), modifier: NONE,
+        x: 12, y: 3, fg: Reset, bg: Indexed(4), modifier: NONE,
+        x: 19, y: 3, fg: Reset, bg: Indexed(224), modifier: NONE,
+        x: 0, y: 4, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 5, fg: Reset, bg: Indexed(224), modifier: NONE,
+    ]
+}

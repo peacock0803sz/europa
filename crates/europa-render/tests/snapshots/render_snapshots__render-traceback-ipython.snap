@@ -1,0 +1,31 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common :: draw(& cell, & options)"
+---
+{"width":80,"max_output_lines":200,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 80, height: 6 },
+    content: [
+        "---------------------------------------------------------------------------     ",
+        "NameError                                 Traceback (most recent call last)     ",
+        "<ipython-input-22-56e1109ae320> in <module>                                     ",
+        "----> 1 iAmNotDefined                                                           ",
+        "                                                                                ",
+        "NameError: name 'iAmNotDefined' is not defined                                  ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Indexed(1), bg: Indexed(52), modifier: NONE,
+        x: 75, y: 0, fg: Reset, bg: Indexed(52), modifier: NONE,
+        x: 0, y: 1, fg: Indexed(1), bg: Indexed(52), modifier: NONE,
+        x: 9, y: 1, fg: Reset, bg: Indexed(52), modifier: NONE,
+        x: 0, y: 2, fg: Indexed(2), bg: Indexed(52), modifier: NONE,
+        x: 31, y: 2, fg: Reset, bg: Indexed(52), modifier: NONE,
+        x: 35, y: 2, fg: Indexed(6), bg: Indexed(52), modifier: NONE,
+        x: 43, y: 2, fg: Reset, bg: Indexed(52), modifier: NONE,
+        x: 0, y: 3, fg: Indexed(2), bg: Indexed(52), modifier: NONE,
+        x: 7, y: 3, fg: Indexed(1), bg: Indexed(52), modifier: NONE,
+        x: 8, y: 3, fg: Reset, bg: Indexed(52), modifier: NONE,
+        x: 0, y: 5, fg: Indexed(1), bg: Indexed(52), modifier: NONE,
+        x: 9, y: 5, fg: Reset, bg: Indexed(52), modifier: NONE,
+    ]
+}
