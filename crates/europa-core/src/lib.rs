@@ -138,6 +138,7 @@ pub mod json;
 pub mod normalize;
 pub mod notebook;
 pub mod pos;
+pub mod render;
 
 pub use error::ParseError;
 pub use exec::{Applied, CellExecState, ExecEffect, ExecEvent, ExecState, MsgId, ReplyStatus};
@@ -147,3 +148,6 @@ pub use json::{JsonMap, JsonNumber, JsonValue};
 pub use normalize::MultilineText;
 pub use notebook::{Cell, Notebook, Output};
 pub use pos::{CellPos, ResolveError};
+pub use render::{
+    Background, Color, ImageSlot, RenderOptions, RenderedCell, Style, StyledLine, StyledSpan,
+};
