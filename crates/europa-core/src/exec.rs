@@ -6,6 +6,8 @@
 //! performs the returned [`ExecEffect`] and feeds observed message ids back as
 //! [`ExecEvent::Sent`]. This keeps id generation and IO outside the
 //! transition, so the same event sequence always yields the same state.
+//! Pending clears are the exception: [`crate::apply_iopub`] records and ends
+//! them, and events only drop them together with their correlation entries.
 //!
 //! Cell status is derived from queue, running slot, and results rather than
 //! stored per cell. A correlation entry is kept until both `execute_reply` and
