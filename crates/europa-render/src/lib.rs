@@ -5,7 +5,23 @@
 //! defined in [`europa_core::render`], where every crate shares them.
 #![deny(missing_docs)]
 
-use europa_core::{Output, RenderOptions, RenderedCell};
+mod ansi;
+
+use europa_core::{
+    Background, Color, JsonMap, JsonValue, Output, RenderOptions, RenderedCell, StyledLine,
+};
+
+// Palette entries rather than RGB, because some terminals cannot show 24-bit
+// colors and neither ratatui nor crossterm reduces them.
+const DARK_FILL: Color = Color::Indexed(52);
+const LIGHT_FILL: Color = Color::Indexed(224);
+
+/// Text that is rendered as a whole.
+struct Unit {
+    text: String,
+    /// Whether the lines get the fill that marks stderr.
+    fill: bool,
+}
 
 /// Render the outputs of a code cell as styled display lines.
 ///
@@ -36,6 +52,67 @@ use europa_core::{Output, RenderOptions, RenderedCell};
 /// for now.
 #[must_use]
 pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCell {
-    let _ = (outputs, options);
-    todo!()
+    let fill = match options.background {
+        Background::Dark => DARK_FILL,
+        Background::Light => LIGHT_FILL,
+    };
+    let mut lines = Vec::new();
+    for unit in units(outputs) {
+        for runs in ansi::parse(&unit.text) {
+            lines.push(StyledLine {
+                spans: runs,
+                fill: unit.fill.then_some(fill),
+            });
+        }
+    }
+    RenderedCell {
+        lines,
+        images: Vec::new(),
+    }
+}
+
+/// Group the outputs into the units that are rendered as a whole.
+fn units(outputs: &[Output]) -> Vec<Unit> {
+    let mut units: Vec<Unit> = Vec::new();
+    let mut stream: Option<&str> = None;
+    for output in outputs {
+        // The name of the stream that the last unit holds, if the last output
+        // was a stream.
+        let previous = stream.take();
+        match output {
+            Output::Stream(output) => {
+                let text = output.text.text();
+                match units.last_mut() {
+                    Some(last) if previous == Some(output.name.as_str()) => {
+                        last.text.push_str(text);
+                    }
+                    _ => units.push(Unit {
+                        text: text.to_owned(),
+                        fill: output.name == "stderr",
+                    }),
+                }
+                stream = Some(&output.name);
+            }
+            Output::DisplayData(display) => units.push(plain_unit(&display.data)),
+            Output::ExecuteResult(result) => units.push(plain_unit(&result.data)),
+            Output::Error(_) | Output::Unknown(_) => todo!(),
+        }
+    }
+    units
+}
+
+fn plain_unit(data: &JsonMap) -> Unit {
+    match plain_text(data) {
+        Some(text) => Unit { text, fill: false },
+        None => todo!(),
+    }
+}
+
+/// The `text/plain` of a MIME bundle, if it is a string or an array of strings.
+fn plain_text(data: &JsonMap) -> Option<String> {
+    match data.get("text/plain")? {
+        JsonValue::String(text) => Some(text.clone()),
+        JsonValue::Array(parts) => parts.iter().map(JsonValue::as_str).collect(),
+        _ => None,
+    }
 }
