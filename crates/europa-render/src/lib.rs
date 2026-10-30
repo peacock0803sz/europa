@@ -13,8 +13,8 @@ use std::num::NonZeroU16;
 
 use europa_core::notebook::ErrorOutput;
 use europa_core::{
-    Background, Color, JsonMap, JsonValue, Output, RenderOptions, RenderedCell, Style, StyledLine,
-    StyledSpan,
+    resolve_carriage_returns, Background, Color, JsonMap, JsonValue, Output, RenderOptions,
+    RenderedCell, Style, StyledLine, StyledSpan,
 };
 
 // Palette entries rather than RGB, because some terminals cannot show 24-bit
@@ -64,7 +64,10 @@ pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCe
     };
     let mut collector = Collector::new(options);
     for unit in units(outputs) {
-        for runs in ansi::parse(&unit.text) {
+        // The rule runs on the text before escape sequences are read, so a
+        // color set earlier on a line is overwritten with the line, the way
+        // it is when the text arrives live.
+        for runs in ansi::parse(&resolve_carriage_returns(&unit.text)) {
             for spans in wrap::wrap(&runs, options.width) {
                 collector.push(StyledLine {
                     spans,

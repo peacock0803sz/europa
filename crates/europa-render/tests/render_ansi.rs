@@ -1,7 +1,9 @@
 mod common;
 
-use common::{opts, plain, stderr, stdout, styled, texts};
-use europa_core::{Color, Output, RenderedCell, Style};
+use common::{cell_outputs, error, notebook, opts, plain, stderr, stdout, styled, texts};
+use europa_core::{
+    apply_iopub, Color, ExecEvent, ExecState, IopubMsg, MsgId, Output, RenderedCell, Style,
+};
 use europa_render::render_outputs;
 
 /// Render in an 80-column area, and check that nothing in the lines could
@@ -347,4 +349,83 @@ fn an_escape_before_a_character_beyond_ascii_drops_only_the_escape() {
 fn many_unfinished_sequences_in_a_row_are_not_a_problem() {
     assert_eq!(lines(&("\u{1b}]".repeat(100_000) + "\ntext")), ["", "text"]);
     assert_eq!(lines(&("\u{1b}[".repeat(100_000) + "\ntext")), ["", "text"]);
+}
+
+#[test]
+fn a_carriage_return_overwrites_the_line_before_it() {
+    assert_eq!(lines("10%\r20%\r30%\ndone\n"), ["30%", "done"]);
+}
+
+#[test]
+fn a_style_set_before_a_carriage_return_is_overwritten_with_the_line() {
+    assert_eq!(
+        spans("\u{1b}[31m10%\r20%\n"),
+        [("20%".to_owned(), Style::default())]
+    );
+}
+
+#[test]
+fn a_style_set_on_an_earlier_line_survives_a_carriage_return() {
+    let cell = render(&[stdout("\u{1b}[31mA\nB\rC")]);
+    assert_eq!(texts(&cell), ["A", "C"]);
+    assert_eq!(styled(&cell.lines[1]), [("C".to_owned(), fg(1))]);
+}
+
+#[test]
+fn a_carriage_return_that_ends_the_text_or_a_line_leaves_the_text_before_it() {
+    assert_eq!(lines("abc\r"), ["abc"]);
+    assert_eq!(lines("a\r\nb"), ["a", "b"]);
+    let display = render(&[plain("x\r\ny")]);
+    assert_eq!(texts(&display), ["x", "y"]);
+}
+
+#[test]
+fn a_carriage_return_in_a_traceback_overwrites_too() {
+    let cell = render(&[error("E", "v", &["a\rb"])]);
+    assert_eq!(texts(&cell), ["b"]);
+}
+
+#[test]
+fn streams_that_were_saved_apart_render_like_one_and_stay_as_they_are() {
+    let outputs = [stdout("10%\r"), stdout("20%\r"), stdout("30%\ndone\n")];
+    let before = outputs.clone();
+    assert_eq!(texts(&render(&outputs)), ["30%", "done"]);
+    assert_eq!(outputs, before);
+}
+
+#[test]
+fn text_received_in_two_messages_renders_like_the_text_loaded_whole() {
+    let body = "\u{1b}[32m 50%|#####     |\u{1b}[0m\r\u{1b}[32m100%|##########|\u{1b}[0m\ndone\n";
+    let loaded = render(&[stdout(body)]);
+    for at in (0..=body.len()).filter(|at| body.is_char_boundary(*at)) {
+        let mut book = notebook("[]");
+        let mut state = ExecState::default();
+        let _ = state.apply(ExecEvent::Enqueue {
+            cell_id: "c1".to_owned(),
+        });
+        let _ = state.apply(ExecEvent::Sent {
+            cell_id: "c1".to_owned(),
+            msg_id: MsgId::new("m1"),
+        });
+        let (first, second) = body.split_at(at);
+        for part in [first, second].into_iter().filter(|part| !part.is_empty()) {
+            let message = IopubMsg::Stream {
+                parent: MsgId::new("m1"),
+                name: "stdout".to_owned(),
+                text: part.to_owned(),
+            };
+            let _ = apply_iopub(&mut state, &mut book, &message);
+        }
+        assert_eq!(render(cell_outputs(&book)), loaded, "split at {at}");
+    }
+}
+
+#[test]
+fn rendering_leaves_a_carriage_return_in_the_saved_text() {
+    let book = notebook(r#"[{"output_type":"stream","name":"stdout","text":"10%\r20%\n"}]"#);
+    let before = europa_core::serialize(&book);
+    assert_eq!(texts(&render(cell_outputs(&book))), ["20%"]);
+    let after = europa_core::serialize(&book);
+    assert_eq!(after, before);
+    assert!(after.contains(r"10%\r20%"), "{after}");
 }
