@@ -3,6 +3,32 @@
 //! [`render_outputs`] turns the outputs of a code cell into styled display
 //! lines for a terminal. The types of the result, such as [`RenderedCell`], are
 //! defined in [`europa_core::render`], where every crate shares them.
+//!
+//! Lines from stderr and from errors carry a fill, which a terminal paints to
+//! the right edge of the line, so that they stand out from stdout.
+//!
+//! ```
+//! use std::num::NonZeroU16;
+//!
+//! use europa_core::{Output, RenderOptions};
+//! use europa_render::render_outputs;
+//!
+//! let outputs = [
+//!     Output::new_stream("stdout", "ok\n"),
+//!     Output::new_stream("stderr", "\u{1b}[1mwarning\u{1b}[0m\n"),
+//! ];
+//! let options = RenderOptions::new(NonZeroU16::new(20).expect("20 is not zero"));
+//! let cell = render_outputs(&outputs, &options);
+//!
+//! let lines: Vec<String> = cell
+//!     .lines
+//!     .iter()
+//!     .map(|line| line.spans.iter().map(|span| span.text.as_str()).collect())
+//!     .collect();
+//! assert_eq!(lines, ["ok", "warning"]);
+//! assert_eq!(cell.lines[0].fill, None);
+//! assert!(cell.lines[1].fill.is_some());
+//! ```
 #![deny(missing_docs)]
 
 mod ansi;
