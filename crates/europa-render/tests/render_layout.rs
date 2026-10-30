@@ -1,6 +1,6 @@
 mod common;
 
-use common::{line_width, opts, stderr, stdout, styled, texts};
+use common::{error, limited, line_width, opts, stderr, stdout, styled, texts};
 use europa_core::{Color, Output, Style, StyledLine};
 use europa_render::render_outputs;
 use unicode_segmentation::UnicodeSegmentation;
@@ -132,4 +132,151 @@ fn no_line_is_wider_than_the_area_and_no_character_is_lost_or_added() {
             assert_eq!(texts(&cell).concat(), whole, "{output:?} at {width}");
         }
     }
+}
+
+/// The text `line 1\n` to `line {count}\n`.
+fn numbered(count: usize) -> String {
+    (1..=count).map(|n| format!("line {n}\n")).collect()
+}
+
+fn dim() -> Style {
+    Style {
+        dim: true,
+        ..Style::default()
+    }
+}
+
+#[test]
+fn a_long_output_keeps_its_start_and_its_end_around_a_notice() {
+    let cell = render_outputs(&[stdout(&numbered(20))], &limited(80, 10));
+    assert_eq!(
+        texts(&cell),
+        [
+            "line 1",
+            "line 2",
+            "line 3",
+            "line 4",
+            "... 11 lines hidden ...",
+            "line 16",
+            "line 17",
+            "line 18",
+            "line 19",
+            "line 20",
+        ]
+    );
+    assert_eq!(
+        styled(&cell.lines[4]),
+        [("... 11 lines hidden ...".to_owned(), dim())]
+    );
+    assert_eq!(cell.lines[4].fill, None);
+}
+
+#[test]
+fn an_output_within_the_limit_has_no_notice() {
+    for count in [5, 10] {
+        let cell = render_outputs(&[stdout(&numbered(count))], &limited(80, 10));
+        assert_eq!(cell.lines.len(), count);
+        assert!(
+            texts(&cell).iter().all(|line| line.starts_with("line ")),
+            "{count} lines"
+        );
+    }
+}
+
+#[test]
+fn the_limit_counts_the_lines_of_all_outputs_together() {
+    let cell = render_outputs(
+        &[
+            stdout("o1\no2\no3\no4\no5\no6\n"),
+            error("ValueError", "bad", &["t1", "t2", "t3", "t4", "t5", "t6"]),
+        ],
+        &limited(80, 10),
+    );
+    assert_eq!(
+        texts(&cell),
+        [
+            "o1",
+            "o2",
+            "o3",
+            "o4",
+            "... 3 lines hidden ...",
+            "t2",
+            "t3",
+            "t4",
+            "t5",
+            "t6"
+        ]
+    );
+    let fills: Vec<_> = cell.lines.iter().map(|line| line.fill).collect();
+    let red = Some(Color::Indexed(52));
+    assert_eq!(
+        fills,
+        [None, None, None, None, None, red, red, red, red, red]
+    );
+}
+
+#[test]
+fn a_limit_of_one_or_two_leaves_the_notice_and_at_most_the_last_line() {
+    let body = stdout("l1\nl2\nl3\n");
+    let one = render_outputs(std::slice::from_ref(&body), &limited(80, 1));
+    assert_eq!(texts(&one), ["... 3 lines hidden ..."]);
+    let two = render_outputs(std::slice::from_ref(&body), &limited(80, 2));
+    assert_eq!(texts(&two), ["... 2 lines hidden ...", "l3"]);
+}
+
+#[test]
+fn wrapped_lines_count_against_the_limit() {
+    let cell = render_outputs(&[stdout(&"x".repeat(300))], &limited(20, 10));
+    assert_eq!(cell.lines.len(), 10);
+    // The notice is 22 columns wide and is cut to the 20 of the area.
+    assert_eq!(texts(&cell)[4], "... 6 lines hidden .");
+}
+
+#[test]
+fn a_notice_wider_than_the_area_is_cut_and_stays_one_line() {
+    let cell = render_outputs(&[stdout(&numbered(20))], &limited(10, 10));
+    assert_eq!(cell.lines.len(), 10);
+    assert_eq!(texts(&cell)[4], "... 11 lin");
+}
+
+#[test]
+fn the_end_of_a_cut_output_keeps_the_style_it_had() {
+    let body = format!("\u{1b}[31m{}", numbered(20));
+    let cell = render_outputs(&[stdout(&body)], &limited(80, 10));
+    for line in &cell.lines[5..] {
+        assert_eq!(line.spans[0].style.fg, Some(Color::Indexed(1)));
+    }
+}
+
+#[test]
+fn a_style_set_in_the_hidden_lines_reaches_the_end() {
+    let mut body = String::new();
+    for n in 1..=20 {
+        if n == 8 {
+            body.push_str("\u{1b}[32m");
+        }
+        body.push_str(&format!("line {n}\n"));
+    }
+    let cell = render_outputs(&[stdout(&body)], &limited(80, 10));
+    for line in &cell.lines[..4] {
+        assert_eq!(line.spans[0].style, Style::default());
+    }
+    for line in &cell.lines[5..] {
+        assert_eq!(line.spans[0].style.fg, Some(Color::Indexed(2)));
+    }
+}
+
+#[test]
+fn the_default_limit_is_two_hundred_lines() {
+    let cell = render_outputs(&[stdout(&numbered(250))], &opts(80));
+    assert_eq!(cell.lines.len(), 200);
+    assert_eq!(texts(&cell)[99], "... 51 lines hidden ...");
+}
+
+#[test]
+fn a_hundred_thousand_lines_still_fit_in_the_limit() {
+    let output = stdout(&"x\n".repeat(100_000));
+    let output = std::slice::from_ref(&output);
+    assert_eq!(render_outputs(output, &opts(80)).lines.len(), 200);
+    assert_eq!(render_outputs(output, &limited(80, 10)).lines.len(), 10);
 }

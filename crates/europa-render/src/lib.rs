@@ -8,9 +8,13 @@
 mod ansi;
 mod wrap;
 
+use std::collections::VecDeque;
+use std::num::NonZeroU16;
+
 use europa_core::notebook::ErrorOutput;
 use europa_core::{
-    Background, Color, JsonMap, JsonValue, Output, RenderOptions, RenderedCell, StyledLine,
+    Background, Color, JsonMap, JsonValue, Output, RenderOptions, RenderedCell, Style, StyledLine,
+    StyledSpan,
 };
 
 // Palette entries rather than RGB, because some terminals cannot show 24-bit
@@ -58,11 +62,11 @@ pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCe
         Background::Dark => DARK_FILL,
         Background::Light => LIGHT_FILL,
     };
-    let mut lines = Vec::new();
+    let mut collector = Collector::new(options);
     for unit in units(outputs) {
         for runs in ansi::parse(&unit.text) {
             for spans in wrap::wrap(&runs, options.width) {
-                lines.push(StyledLine {
+                collector.push(StyledLine {
                     spans,
                     fill: unit.fill.then_some(fill),
                 });
@@ -70,8 +74,79 @@ pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCe
         }
     }
     RenderedCell {
-        lines,
+        lines: collector.finish(),
         images: Vec::new(),
+    }
+}
+
+/// Collects the display lines of a cell, and drops the middle of a long output.
+///
+/// Lines are counted as they arrive instead of being all held, so the memory
+/// for display lines stays in proportion to the limit however long the output
+/// is.
+struct Collector {
+    max: usize,
+    width: NonZeroU16,
+    /// The first `max` lines, which are all of them when the output fits.
+    head: Vec<StyledLine>,
+    /// The last lines, as many as are shown after the notice.
+    tail: VecDeque<StyledLine>,
+    tail_len: usize,
+    total: usize,
+}
+
+impl Collector {
+    fn new(options: &RenderOptions) -> Self {
+        let max = options.max_output_lines.get();
+        Self {
+            max,
+            width: options.width,
+            head: Vec::new(),
+            tail: VecDeque::new(),
+            // The notice takes a line, and of the rest the start gets the
+            // smaller half, so the end gets the extra line when it is odd.
+            tail_len: max - 1 - (max - 1) / 2,
+            total: 0,
+        }
+    }
+
+    fn push(&mut self, line: StyledLine) {
+        self.total += 1;
+        if self.head.len() < self.max {
+            self.head.push(line.clone());
+        }
+        self.tail.push_back(line);
+        if self.tail.len() > self.tail_len {
+            self.tail.pop_front();
+        }
+    }
+
+    fn finish(self) -> Vec<StyledLine> {
+        if self.total <= self.max {
+            return self.head;
+        }
+        let mut lines = self.head;
+        lines.truncate((self.max - 1) / 2);
+        lines.push(notice(self.total - self.max + 1, self.width));
+        lines.extend(self.tail);
+        lines
+    }
+}
+
+/// The line that stands for the `hidden` lines left out of a long output.
+///
+/// It is cut to the width instead of wrapped, so that it is always one line
+/// and the cell stays within its limit.
+fn notice(hidden: usize, width: NonZeroU16) -> StyledLine {
+    StyledLine {
+        spans: vec![StyledSpan {
+            text: wrap::cut(&format!("... {hidden} lines hidden ..."), width),
+            style: Style {
+                dim: true,
+                ..Style::default()
+            },
+        }],
+        fill: None,
     }
 }
 

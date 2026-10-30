@@ -50,6 +50,21 @@ pub(crate) fn wrap(runs: &[StyledSpan], width: NonZeroU16) -> Vec<Vec<StyledSpan
     lines.finish()
 }
 
+/// The beginning of `text` that fits in `width` columns, cut between grapheme
+/// clusters.
+pub(crate) fn cut(text: &str, width: NonZeroU16) -> String {
+    let mut used = 0;
+    let mut kept = String::new();
+    for cluster in text.graphemes(true) {
+        used += UnicodeWidthStr::width(cluster);
+        if used > usize::from(width.get()) {
+            break;
+        }
+        kept.push_str(cluster);
+    }
+    kept
+}
+
 struct Lines {
     width: usize,
     done: Vec<Vec<StyledSpan>>,
