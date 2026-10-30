@@ -1,0 +1,6 @@
+{
+  "options": { "width": 8, "max_output_lines": 3 },
+  "outputs": [
+    { "output_type": "stream", "name": "stdout", "text": "1\n2\n3\n4\n5\n" }
+  ]
+}

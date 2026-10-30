@@ -1,0 +1,17 @@
+{
+  "options": { "width": 30 },
+  "outputs": [
+    { "output_type": "stream", "name": "stdout", "text": "out 1\n" },
+    {
+      "output_type": "stream",
+      "name": "stderr",
+      "text": "warn: \u001b[1mbold\u001b[0m\n\nafter blank \u001b[44mblue bg\u001b[0m back\n"
+    },
+    { "output_type": "stream", "name": "stdout", "text": "out 2\n" },
+    {
+      "output_type": "stream",
+      "name": "stderr",
+      "text": "a long warning line that wraps past thirty columns\n"
+    }
+  ]
+}

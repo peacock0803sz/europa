@@ -1,0 +1,19 @@
+{
+  "options": { "width": 40 },
+  "outputs": [
+    {
+      "output_type": "stream",
+      "name": "stdout",
+      "text": [
+        "a\u001b[2Ab\u001b[2Jc\u001b[?25ld\n",
+        "\u001b]0;title\u0007title gone\n",
+        "\u001b]8;;https://example.com\u001b\\link\u001b]8;;\u001b\\ text\n",
+        "bell\u0007 back\bspace\n",
+        "\u001b(Bcharset\u001b7 save\n",
+        "\u001b]0;never ends\n",
+        "next line\n",
+        "truncated \u001b[31"
+      ]
+    }
+  ]
+}
