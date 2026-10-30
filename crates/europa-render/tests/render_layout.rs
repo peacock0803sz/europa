@@ -1,7 +1,8 @@
 mod common;
 
-use common::{error, limited, line_width, opts, stderr, stdout, styled, texts};
-use europa_core::{Color, Output, Style, StyledLine};
+use common::{error, limited, line_width, opts, outputs, stderr, stdout, styled, texts};
+use europa_core::notebook::UnknownOutput;
+use europa_core::{Color, JsonMap, JsonValue, Output, Style, StyledLine};
 use europa_render::render_outputs;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -279,4 +280,114 @@ fn a_hundred_thousand_lines_still_fit_in_the_limit() {
     let output = std::slice::from_ref(&output);
     assert_eq!(render_outputs(output, &opts(80)).lines.len(), 200);
     assert_eq!(render_outputs(output, &limited(80, 10)).lines.len(), 10);
+}
+
+/// A display data output with `data`, a JSON object.
+fn display(data: &str) -> Vec<Output> {
+    outputs(&format!(
+        r#"[{{"output_type":"display_data","data":{data},"metadata":{{}}}}]"#
+    ))
+}
+
+/// Display lines of `outputs` in an 80-column area.
+fn shown(outputs: &[Output]) -> Vec<String> {
+    texts(&render_outputs(outputs, &opts(80)))
+}
+
+#[test]
+fn an_image_is_named_by_its_type_and_its_data_is_not_shown() {
+    let cell = render_outputs(&display(r#"{"image/png":"iVBORw0KGgo="}"#), &opts(80));
+    assert_eq!(texts(&cell), ["[image/png]"]);
+    assert!(!texts(&cell).concat().contains("iVBOR"));
+}
+
+#[test]
+fn all_the_types_a_result_has_are_named_in_order() {
+    let result = outputs(
+        r#"[{"output_type":"execute_result","data":{"text/html":"<b>x</b>","image/png":"iVBORw0KGgo="},"metadata":{},"execution_count":3}]"#,
+    );
+    assert_eq!(shown(&result), ["[image/png, text/html]"]);
+}
+
+#[test]
+fn a_bundle_without_types_is_named_as_empty() {
+    assert_eq!(shown(&display("{}")), ["[no data]"]);
+}
+
+#[test]
+fn plain_text_that_is_not_text_is_named_like_any_other_type() {
+    assert_eq!(
+        shown(&display(r#"{"image/png":"x","text/plain":42}"#)),
+        ["[image/png, text/plain]"]
+    );
+    assert_eq!(
+        shown(&display(r#"{"text/plain":["a",1]}"#)),
+        ["[text/plain]"]
+    );
+}
+
+#[test]
+fn an_unknown_output_is_named_by_its_kind_between_the_outputs_around_it() {
+    let mut list = vec![stdout("a\n")];
+    list.extend(outputs(r#"[{"output_type":"widget_state","state":{}}]"#));
+    list.push(stdout("b\n"));
+    assert_eq!(shown(&list), ["a", "[unknown output: widget_state]", "b"]);
+}
+
+#[test]
+fn an_unknown_output_without_a_text_kind_is_named_without_one() {
+    // A file never loads like this, but the type allows it.
+    let bare = Output::Unknown(UnknownOutput {
+        value: JsonMap::new(),
+    });
+    let odd = Output::Unknown(UnknownOutput {
+        value: JsonMap::from([("output_type".to_owned(), JsonValue::Bool(true))]),
+    });
+    assert_eq!(
+        shown(&[bare, odd]),
+        ["[unknown output]", "[unknown output]"]
+    );
+}
+
+#[test]
+fn a_type_name_cannot_carry_an_escape_sequence_to_the_terminal() {
+    let cell = render_outputs(&display(r#"{"image/\u001b[2Jpng":"x"}"#), &opts(80));
+    assert_eq!(texts(&cell), ["[image/png]"]);
+    assert!(cell
+        .lines
+        .iter()
+        .flat_map(|line| &line.spans)
+        .all(|span| !span.text.contains('\u{1b}')));
+}
+
+#[test]
+fn a_notice_is_dim_and_not_filled_even_between_stderr_outputs() {
+    let mut list = vec![stderr("e\n")];
+    list.extend(display(r#"{"image/png":"x"}"#));
+    list.push(stderr("f\n"));
+    let cell = render_outputs(&list, &opts(80));
+    assert_eq!(texts(&cell), ["e", "[image/png]", "f"]);
+    assert_eq!(
+        styled(&cell.lines[1]),
+        [(
+            "[image/png]".to_owned(),
+            Style {
+                dim: true,
+                ..Style::default()
+            }
+        )]
+    );
+    assert_eq!(cell.lines[1].fill, None);
+    assert!(cell.lines[0].fill.is_some() && cell.lines[2].fill.is_some());
+}
+
+#[test]
+fn a_notice_wider_than_the_area_wraps_and_counts_against_the_limit() {
+    let result = outputs(
+        r#"[{"output_type":"execute_result","data":{"image/png":"x","text/html":"y"},"metadata":{},"execution_count":1}]"#,
+    );
+    let wrapped = render_outputs(&result, &opts(10));
+    assert_eq!(texts(&wrapped), ["[image/png", ", text/htm", "l]"]);
+    let cut = render_outputs(&result, &limited(10, 2));
+    assert_eq!(texts(&cut), ["... 2 line", "l]"]);
 }

@@ -11,7 +11,7 @@ mod wrap;
 use std::collections::VecDeque;
 use std::num::NonZeroU16;
 
-use europa_core::notebook::ErrorOutput;
+use europa_core::notebook::{ErrorOutput, UnknownOutput};
 use europa_core::{
     resolve_carriage_returns, Background, Color, JsonMap, JsonValue, Output, RenderOptions,
     RenderedCell, Style, StyledLine, StyledSpan,
@@ -23,10 +23,15 @@ const DARK_FILL: Color = Color::Indexed(52);
 const LIGHT_FILL: Color = Color::Indexed(224);
 
 /// Text that is rendered as a whole.
-struct Unit {
-    text: String,
-    /// Whether the lines get the fill that marks stderr.
-    fill: bool,
+enum Unit {
+    /// Text of an output, which can hold escape sequences and carriage returns.
+    Body {
+        text: String,
+        /// Whether the lines get the fill that marks stderr.
+        fill: bool,
+    },
+    /// A line that stands for an output that cannot be shown.
+    Notice(String),
 }
 
 /// Render the outputs of a code cell as styled display lines.
@@ -64,15 +69,21 @@ pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCe
     };
     let mut collector = Collector::new(options);
     for unit in units(outputs) {
-        // The rule runs on the text before escape sequences are read, so a
-        // color set earlier on a line is overwritten with the line, the way
-        // it is when the text arrives live.
-        for runs in ansi::parse(&resolve_carriage_returns(&unit.text)) {
+        let (logical_lines, fill) = match unit {
+            // The rule runs on the text before escape sequences are read, so a
+            // color set earlier on a line is overwritten with the line, the
+            // way it is when the text arrives live.
+            Unit::Body { text, fill: shaded } => (
+                ansi::parse(&resolve_carriage_returns(&text)),
+                shaded.then_some(fill),
+            ),
+            // The names in a notice come from the file and can hold escape
+            // sequences, so a notice is read like any other text.
+            Unit::Notice(text) => (ansi::parse(&text).into_iter().map(dimmed).collect(), None),
+        };
+        for runs in logical_lines {
             for spans in wrap::wrap(&runs, options.width) {
-                collector.push(StyledLine {
-                    spans,
-                    fill: unit.fill.then_some(fill),
-                });
+                collector.push(StyledLine { spans, fill });
             }
         }
     }
@@ -144,13 +155,28 @@ fn notice(hidden: usize, width: NonZeroU16) -> StyledLine {
     StyledLine {
         spans: vec![StyledSpan {
             text: wrap::cut(&format!("... {hidden} lines hidden ..."), width),
-            style: Style {
-                dim: true,
-                ..Style::default()
-            },
+            style: dim(),
         }],
         fill: None,
     }
+}
+
+/// The style of notices. Dim tells a notice from output that reads the same,
+/// and italic would not do, because tmux can draw it as reverse.
+fn dim() -> Style {
+    Style {
+        dim: true,
+        ..Style::default()
+    }
+}
+
+fn dimmed(runs: Vec<StyledSpan>) -> Vec<StyledSpan> {
+    runs.into_iter()
+        .map(|run| StyledSpan {
+            style: dim(),
+            ..run
+        })
+        .collect()
 }
 
 /// Group the outputs into the units that are rendered as a whole.
@@ -165,23 +191,25 @@ fn units(outputs: &[Output]) -> Vec<Unit> {
             Output::Stream(output) => {
                 let text = output.text.text();
                 match units.last_mut() {
-                    Some(last) if previous == Some(output.name.as_str()) => {
-                        last.text.push_str(text);
+                    Some(Unit::Body { text: last, .. })
+                        if previous == Some(output.name.as_str()) =>
+                    {
+                        last.push_str(text);
                     }
-                    _ => units.push(Unit {
+                    _ => units.push(Unit::Body {
                         text: text.to_owned(),
                         fill: output.name == "stderr",
                     }),
                 }
                 stream = Some(&output.name);
             }
-            Output::DisplayData(display) => units.push(plain_unit(&display.data)),
-            Output::ExecuteResult(result) => units.push(plain_unit(&result.data)),
-            Output::Error(error) => units.push(Unit {
+            Output::DisplayData(display) => units.push(bundle_unit(&display.data)),
+            Output::ExecuteResult(result) => units.push(bundle_unit(&result.data)),
+            Output::Error(error) => units.push(Unit::Body {
                 text: traceback_text(error),
                 fill: true,
             }),
-            Output::Unknown(_) => todo!(),
+            Output::Unknown(unknown) => units.push(Unit::Notice(unknown_notice(unknown))),
         }
     }
     units
@@ -200,10 +228,23 @@ fn traceback_text(error: &ErrorOutput) -> String {
     }
 }
 
-fn plain_unit(data: &JsonMap) -> Unit {
+/// The text of a MIME bundle, or a notice that names its types when it has no
+/// text to show.
+fn bundle_unit(data: &JsonMap) -> Unit {
     match plain_text(data) {
-        Some(text) => Unit { text, fill: false },
-        None => todo!(),
+        Some(text) => Unit::Body { text, fill: false },
+        None if data.is_empty() => Unit::Notice("[no data]".to_owned()),
+        None => {
+            let types: Vec<&str> = data.keys().map(String::as_str).collect();
+            Unit::Notice(format!("[{}]", types.join(", ")))
+        }
+    }
+}
+
+fn unknown_notice(unknown: &UnknownOutput) -> String {
+    match unknown.value.get("output_type") {
+        Some(JsonValue::String(kind)) => format!("[unknown output: {kind}]"),
+        _ => "[unknown output]".to_owned(),
     }
 }
 
