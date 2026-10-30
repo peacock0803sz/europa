@@ -1,7 +1,7 @@
 mod common;
 
-use common::{notebook, outputs, running, stream};
-use europa_core::{apply_iopub, ExecState, Notebook};
+use common::{code, notebook, outputs, running, stream};
+use europa_core::{apply_iopub, resolve_carriage_returns, ExecState, Notebook, Output};
 
 /// Deliver `chunks` as stdout of `m1` to a fresh notebook and return the outputs.
 fn deliver(chunks: &[&str]) -> String {
@@ -148,6 +148,43 @@ fn custom_stream_names_merge_like_any_other() {
         deliver_all(&[("custom", "a"), ("custom", "b")]),
         r#"custom:"ab""#
     );
+}
+
+const LOADED_BODIES: [&str; 9] = [
+    "10%\r20%\r30%",
+    "abcdef\rXY",
+    "abc\r",
+    "a\r\r\nb",
+    "\u{1b}[31m10%\r20%",
+    "a\nb\rc",
+    "x\r\ry\r\r",
+    "plain\n",
+    "",
+];
+
+#[test]
+fn a_loaded_body_resolves_carriage_returns_as_received_text_does() {
+    let resolved = [
+        "30%", "XY", "abc\r", "a\nb", "20%", "a\nc", "y\r", "plain\n", "",
+    ];
+    for (body, resolved) in LOADED_BODIES.into_iter().zip(resolved) {
+        assert_eq!(resolve_carriage_returns(body), resolved, "{body:?}");
+    }
+}
+
+#[test]
+fn resolving_gives_the_text_that_one_message_leaves_in_the_notebook() {
+    for body in LOADED_BODIES.into_iter().filter(|body| !body.is_empty()) {
+        let book = deliver_to_notebook(&[body]);
+        let Output::Stream(received) = &code(&book, "c1").outputs[0] else {
+            panic!("no stream output for {body:?}");
+        };
+        assert_eq!(
+            received.text.text(),
+            resolve_carriage_returns(body),
+            "{body:?}"
+        );
+    }
 }
 
 #[test]

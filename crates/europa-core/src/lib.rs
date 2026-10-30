@@ -143,7 +143,7 @@ pub mod render;
 pub use error::ParseError;
 pub use exec::{Applied, CellExecState, ExecEffect, ExecEvent, ExecState, MsgId, ReplyStatus};
 pub use io::{parse, serialize};
-pub use iopub::{apply_iopub, IopubApplied, IopubMsg};
+pub use iopub::{apply_iopub, resolve_carriage_returns, IopubApplied, IopubMsg};
 pub use json::{JsonMap, JsonNumber, JsonValue};
 pub use normalize::MultilineText;
 pub use notebook::{Cell, Notebook, Output};
