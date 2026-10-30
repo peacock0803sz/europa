@@ -53,9 +53,12 @@ fn display_data_with_an_empty_bundle_still_adds_an_output() {
 #[test]
 fn an_update_with_an_empty_id_changes_nothing() {
     let (mut exec, mut book) = fresh();
-    let msgs = [display("m1", Some(""), "x"), update("m1", "", "y")];
-    deliver(&mut exec, &mut book, &msgs);
+    deliver(&mut exec, &mut book, &[display("m1", Some(""), "x")]);
+
+    let result = apply_iopub(&mut exec, &mut book, &update("m1", "", "y"));
+
     assert_eq!(shown(&book, "c1"), shows("x"));
+    assert_eq!(result, applied("c1", &[]));
 }
 
 #[test]
