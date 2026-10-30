@@ -1,7 +1,8 @@
 mod common;
 
 use common::{
-    cell_outputs, light, notebook, opts, outputs, plain, stderr, stdout, stream, styled, texts,
+    cell_outputs, error, light, notebook, opts, outputs, plain, stderr, stdout, stream, styled,
+    texts,
 };
 use europa_core::{Color, JsonMap, Output, RenderedCell, Style};
 use europa_render::render_outputs;
@@ -145,4 +146,80 @@ fn plain_text_kept_as_an_array_is_joined() {
         r#"[{"output_type":"display_data","data":{"text/plain":["a\n","b"]},"metadata":{}}]"#,
     );
     assert_eq!(lines(&display), ["a", "b"]);
+}
+
+#[test]
+fn a_traceback_is_joined_with_newlines_and_every_line_is_filled() {
+    let cell = render_outputs(
+        &[error(
+            "ValueError",
+            "bad",
+            &["head", "frame\n", "ValueError: bad"],
+        )],
+        &opts(80),
+    );
+    assert_eq!(texts(&cell), ["head", "frame", "", "ValueError: bad"]);
+    assert!(cell.lines.iter().all(|line| line.fill == Some(DARK_FILL)));
+}
+
+#[test]
+fn an_empty_traceback_is_replaced_by_the_name_and_value() {
+    for traceback in [&[][..], &["", ""][..]] {
+        let cell = render_outputs(&[error("ValueError", "bad", traceback)], &opts(80));
+        assert_eq!(texts(&cell), ["ValueError: bad"], "{traceback:?}");
+        assert_eq!(cell.lines[0].fill, Some(DARK_FILL), "{traceback:?}");
+    }
+}
+
+#[test]
+fn a_value_with_newlines_makes_several_lines() {
+    assert_eq!(lines(&[error("E", "a\nb", &[])]), ["E: a", "b"]);
+}
+
+#[test]
+fn a_color_continues_from_one_traceback_entry_to_the_next() {
+    let cell = render_outputs(
+        &[error("E", "v", &["\u{1b}[31mred", "next\u{1b}[0m"])],
+        &opts(80),
+    );
+    assert_eq!(texts(&cell), ["red", "next"]);
+    let red = Style {
+        fg: Some(Color::Indexed(1)),
+        ..Style::default()
+    };
+    assert_eq!(styled(&cell.lines[1]), [("next".to_owned(), red)]);
+}
+
+#[test]
+fn a_color_set_in_the_middle_of_an_entry_runs_until_it_is_reset() {
+    let cell = render_outputs(
+        &[error(
+            "E",
+            "v",
+            &["\u{1b}[31mone\ntwo", "three\u{1b}[0m\nfour", "five"],
+        )],
+        &opts(80),
+    );
+    assert_eq!(texts(&cell), ["one", "two", "three", "four", "five"]);
+    let colors: Vec<_> = cell
+        .lines
+        .iter()
+        .map(|line| line.spans[0].style.fg)
+        .collect();
+    let red = Some(Color::Indexed(1));
+    assert_eq!(colors, [red, red, red, None, None]);
+    assert!(cell.lines.iter().all(|line| line.fill == Some(DARK_FILL)));
+}
+
+#[test]
+fn error_lines_are_filled_for_a_light_background_too() {
+    let cell = render_outputs(&[error("E", "v", &["t"])], &light(80));
+    assert_eq!(cell.lines[0].fill, Some(LIGHT_FILL));
+}
+
+#[test]
+fn a_style_does_not_carry_from_a_stream_into_an_error() {
+    let cell = render_outputs(&[stdout("\u{1b}[31mx"), error("E", "v", &["t"])], &opts(80));
+    assert_eq!(texts(&cell), ["x", "t"]);
+    assert_eq!(styled(&cell.lines[1]), [("t".to_owned(), Style::default())]);
 }

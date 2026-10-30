@@ -8,6 +8,7 @@
 mod ansi;
 mod wrap;
 
+use europa_core::notebook::ErrorOutput;
 use europa_core::{
     Background, Color, JsonMap, JsonValue, Output, RenderOptions, RenderedCell, StyledLine,
 };
@@ -98,10 +99,27 @@ fn units(outputs: &[Output]) -> Vec<Unit> {
             }
             Output::DisplayData(display) => units.push(plain_unit(&display.data)),
             Output::ExecuteResult(result) => units.push(plain_unit(&result.data)),
-            Output::Error(_) | Output::Unknown(_) => todo!(),
+            Output::Error(error) => units.push(Unit {
+                text: traceback_text(error),
+                fill: true,
+            }),
+            Output::Unknown(_) => todo!(),
         }
     }
     units
+}
+
+/// The entries of a traceback joined with newlines, as IPython prints them,
+/// or the name and value of the exception when there is nothing to print.
+///
+/// The entries are read as one text, so a color set in one carries over to the
+/// next, and an entry that ends in a newline is followed by an empty line.
+fn traceback_text(error: &ErrorOutput) -> String {
+    if error.traceback.iter().all(String::is_empty) {
+        format!("{}: {}", error.ename, error.evalue)
+    } else {
+        error.traceback.join("\n")
+    }
 }
 
 fn plain_unit(data: &JsonMap) -> Unit {
