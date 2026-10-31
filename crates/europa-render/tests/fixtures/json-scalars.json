@@ -1,0 +1,37 @@
+{
+  "options": { "width": 40 },
+  "outputs": [
+    {
+      "output_type": "display_data",
+      "data": {
+        "application/json": "s",
+        "text/plain": "<IPython.core.display.JSON object>"
+      },
+      "metadata": {}
+    },
+    {
+      "output_type": "display_data",
+      "data": {
+        "application/json": 3,
+        "text/plain": "<IPython.core.display.JSON object>"
+      },
+      "metadata": {}
+    },
+    {
+      "output_type": "display_data",
+      "data": {
+        "application/json": true,
+        "text/plain": "<IPython.core.display.JSON object>"
+      },
+      "metadata": {}
+    },
+    {
+      "output_type": "display_data",
+      "data": {
+        "application/json": null,
+        "text/plain": "<IPython.core.display.JSON object>"
+      },
+      "metadata": {}
+    }
+  ]
+}

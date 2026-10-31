@@ -302,9 +302,17 @@ fn an_image_is_named_by_its_type_and_its_data_is_not_shown() {
 }
 
 #[test]
-fn all_the_types_a_result_has_are_named_in_order() {
+fn an_image_and_html_show_the_html() {
     let result = outputs(
         r#"[{"output_type":"execute_result","data":{"text/html":"<b>x</b>","image/png":"iVBORw0KGgo="},"metadata":{},"execution_count":3}]"#,
+    );
+    assert_eq!(shown(&result), ["x"]);
+}
+
+#[test]
+fn all_the_types_a_result_has_are_named_in_order() {
+    let result = outputs(
+        r#"[{"output_type":"execute_result","data":{"text/html":1,"image/png":"iVBORw0KGgo="},"metadata":{},"execution_count":3}]"#,
     );
     assert_eq!(shown(&result), ["[image/png, text/html]"]);
 }
@@ -384,7 +392,7 @@ fn a_notice_is_dim_and_not_filled_even_between_stderr_outputs() {
 #[test]
 fn a_notice_wider_than_the_area_wraps_and_counts_against_the_limit() {
     let result = outputs(
-        r#"[{"output_type":"execute_result","data":{"image/png":"x","text/html":"y"},"metadata":{},"execution_count":1}]"#,
+        r#"[{"output_type":"execute_result","data":{"image/png":"x","text/html":1},"metadata":{},"execution_count":1}]"#,
     );
     let wrapped = render_outputs(&result, &opts(10));
     assert_eq!(texts(&wrapped), ["[image/png", ", text/htm", "l]"]);

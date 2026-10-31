@@ -4,8 +4,9 @@
 //! lines for a terminal. The types of the result, such as [`RenderedCell`], are
 //! defined in [`europa_core::render`], where every crate shares them.
 //!
-//! Lines from stderr and from errors carry a fill, which a terminal paints to
-//! the right edge of the line, so that they stand out from stdout.
+//! Lines from stderr, from errors and from code blocks carry a fill, which a
+//! terminal paints to the right edge of the line, so that they stand out
+//! from stdout.
 //!
 //! ```
 //! use std::num::NonZeroU16;
@@ -32,6 +33,10 @@
 #![deny(missing_docs)]
 
 mod ansi;
+mod blocks;
+mod html;
+mod json;
+mod markdown;
 mod wrap;
 
 use std::collections::VecDeque;
@@ -42,11 +47,25 @@ use europa_core::{
     resolve_carriage_returns, Background, Color, JsonMap, JsonValue, Output, RenderOptions,
     RenderedCell, Style, StyledLine, StyledSpan,
 };
+use unicode_width::UnicodeWidthStr;
 
 // Palette entries rather than RGB, because some terminals cannot show 24-bit
 // colors and neither ratatui nor crossterm reduces them.
 const DARK_FILL: Color = Color::Indexed(52);
 const LIGHT_FILL: Color = Color::Indexed(224);
+
+// Greys rather than reds, so code blocks read apart from stderr and error
+// outputs.
+const DARK_CODE: Color = Color::Indexed(236);
+const LIGHT_CODE: Color = Color::Indexed(254);
+
+/// Background of code lines for the given terminal background.
+pub(crate) fn code_bg(background: Background) -> Color {
+    match background {
+        Background::Dark => DARK_CODE,
+        Background::Light => LIGHT_CODE,
+    }
+}
 
 /// Text that is rendered as a whole.
 enum Unit {
@@ -58,18 +77,27 @@ enum Unit {
     },
     /// Text that stands for an output that cannot be shown.
     Notice(String),
+    /// Logical lines from a rich output, already styled and indented.
+    Blocks(Vec<blocks::Line>),
 }
 
 /// Render the outputs of a code cell as styled display lines.
 ///
 /// The outputs are taken in order and go through these steps:
 ///
-/// 1. Consecutive streams of one name, the `text/plain` of a display data or
-///    execute result, and the traceback of an error each become a unit with
-///    a body. An output with no text to show, such as an image or an unknown
-///    kind, becomes a notice that names what it holds instead. A notice is
-///    wrapped like other text, so it can take more than one line when it is
-///    wider than [`RenderOptions::width`].
+/// 1. Consecutive streams of one name, the chosen MIME of a display data or
+///    execute result, and the traceback of an error each become a unit. The
+///    choice is `text/markdown`, then `application/json`, then `text/plain`,
+///    then `text/html`, skipping a `text/plain` that only names its object
+///    while `text/html` is usable. Streams, tracebacks and `text/plain`
+///    become a unit with a body. Markdown, JSON and HTML become indented
+///    logical lines, with escape sequences and control characters removed
+///    instead of read, and skip steps 2 and 3. When a non-blank entry gives
+///    no line, `text/plain` that is not such a name, or a notice, stands in.
+///    A blank entry gives no line. An output with nothing to draw,
+///    such as an image or an unknown kind, becomes a notice that names what
+///    it holds instead. A notice is wrapped like other text, so it can take
+///    more than one line when it is wider than [`RenderOptions::width`].
 /// 2. In the body of a unit, `\r` is resolved the way it is for a received
 ///    stream, so that a progress bar leaves only its last state. Notices skip
 ///    this step.
@@ -78,7 +106,7 @@ enum Unit {
 ///    None of them reaches the result.
 /// 4. Tabs are expanded and the logical lines are wrapped at
 ///    [`RenderOptions::width`] columns, counting grapheme clusters by their
-///    width. The lines of stderr and of errors get a fill for
+///    width. The lines of stderr, of errors and of code blocks get a fill for
 ///    [`RenderOptions::background`].
 /// 5. When there are more lines than [`RenderOptions::max_output_lines`], the
 ///    beginning and the end are kept and one line that counts the hidden
@@ -96,22 +124,34 @@ pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCe
         Background::Light => LIGHT_FILL,
     };
     let mut collector = Collector::new(options);
-    for unit in units(outputs) {
-        let (logical_lines, fill) = match unit {
+    for unit in units(outputs, options) {
+        match unit {
+            Unit::Blocks(lines) => {
+                for line in &lines {
+                    for styled in wrap_line(line, options.width) {
+                        collector.push(styled);
+                    }
+                }
+            }
             // The rule runs on the text before escape sequences are read, so a
             // color set earlier on a line is overwritten with the line, the
             // way it is when the text arrives live.
-            Unit::Body { text, fill: shaded } => (
-                ansi::parse(&resolve_carriage_returns(&text)),
-                shaded.then_some(fill),
-            ),
+            Unit::Body { text, fill: shaded } => {
+                let fill = shaded.then_some(fill);
+                for runs in ansi::parse(&resolve_carriage_returns(&text)) {
+                    for spans in wrap::wrap(&runs, options.width) {
+                        collector.push(StyledLine { spans, fill });
+                    }
+                }
+            }
             // The names in a notice come from the file and can hold escape
             // sequences, so a notice is read like any other text.
-            Unit::Notice(text) => (ansi::parse(&text).into_iter().map(dimmed).collect(), None),
-        };
-        for runs in logical_lines {
-            for spans in wrap::wrap(&runs, options.width) {
-                collector.push(StyledLine { spans, fill });
+            Unit::Notice(text) => {
+                for runs in ansi::parse(&text).into_iter().map(dimmed) {
+                    for spans in wrap::wrap(&runs, options.width) {
+                        collector.push(StyledLine { spans, fill: None });
+                    }
+                }
             }
         }
     }
@@ -207,8 +247,68 @@ fn dimmed(runs: Vec<StyledSpan>) -> Vec<StyledSpan> {
         .collect()
 }
 
+/// Break one logical line into display lines with its indentation.
+fn wrap_line(line: &blocks::Line, width: NonZeroU16) -> Vec<StyledLine> {
+    let indent: usize = line
+        .lead
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.text.as_str()))
+        .sum();
+    if line.spans.is_empty() {
+        return vec![StyledLine {
+            spans: normalize(line.lead.clone()),
+            fill: line.fill,
+        }];
+    }
+    if indent < usize::from(width.get()) {
+        let inner = NonZeroU16::new((usize::from(width.get()) - indent) as u16)
+            .expect("indent leaves at least one column");
+        wrap::wrap(&line.spans, inner)
+            .into_iter()
+            .enumerate()
+            .map(|(index, body)| {
+                let mut spans = if index == 0 {
+                    line.lead.clone()
+                } else {
+                    line.hang.clone()
+                };
+                spans.extend(body);
+                StyledLine {
+                    spans: normalize(spans),
+                    fill: line.fill,
+                }
+            })
+            .collect()
+    } else {
+        let mut joined = line.lead.clone();
+        joined.extend(line.spans.clone());
+        wrap::wrap(&joined, width)
+            .into_iter()
+            .map(|spans| StyledLine {
+                spans: normalize(spans),
+                fill: line.fill,
+            })
+            .collect()
+    }
+}
+
+/// Drop empty spans and join neighbours with the same decoration.
+fn normalize(spans: Vec<StyledSpan>) -> Vec<StyledSpan> {
+    let mut kept: Vec<StyledSpan> = Vec::new();
+    for span in spans {
+        if span.text.is_empty() {
+            continue;
+        }
+        match kept.last_mut() {
+            Some(last) if last.style == span.style => last.text.push_str(&span.text),
+            _ => kept.push(span),
+        }
+    }
+    kept
+}
+
 /// Group the outputs into the units that are rendered as a whole.
-fn units(outputs: &[Output]) -> Vec<Unit> {
+fn units(outputs: &[Output], options: &RenderOptions) -> Vec<Unit> {
     let mut units: Vec<Unit> = Vec::new();
     let mut stream: Option<&str> = None;
     for output in outputs {
@@ -231,8 +331,8 @@ fn units(outputs: &[Output]) -> Vec<Unit> {
                 }
                 stream = Some(&output.name);
             }
-            Output::DisplayData(display) => units.push(bundle_unit(&display.data)),
-            Output::ExecuteResult(result) => units.push(bundle_unit(&result.data)),
+            Output::DisplayData(display) => units.push(bundle_unit(&display.data, options)),
+            Output::ExecuteResult(result) => units.push(bundle_unit(&result.data, options)),
             Output::Error(error) => units.push(Unit::Body {
                 text: traceback_text(error),
                 fill: true,
@@ -256,17 +356,100 @@ fn traceback_text(error: &ErrorOutput) -> String {
     }
 }
 
-/// The text of a MIME bundle, or a notice that names its types when it has no
-/// text to show.
-fn bundle_unit(data: &JsonMap) -> Unit {
-    match plain_text(data) {
-        Some(text) => Unit::Body { text, fill: false },
-        None if data.is_empty() => Unit::Notice("[no data]".to_owned()),
-        None => {
-            let types: Vec<&str> = data.keys().map(String::as_str).collect();
-            Unit::Notice(format!("[{}]", types.join(", ")))
-        }
+/// One MIME bundle reduced to the entry that is drawn.
+enum Selected<'a> {
+    /// Markdown drawn as logical lines.
+    Markdown(String),
+    /// JSON value drawn as indented lines.
+    Json(&'a JsonValue),
+    /// Plain text drawn through the text pipeline.
+    Plain(String),
+    /// HTML drawn as logical lines.
+    Html(String),
+    /// Nothing to draw, named by its types instead.
+    None,
+}
+
+/// Choose the entry of a MIME bundle that is drawn.
+fn select(data: &JsonMap) -> Selected<'_> {
+    if let Some(text) = text_of(data, "text/markdown") {
+        return Selected::Markdown(text);
     }
+    if let Some(value) = data.get("application/json") {
+        return Selected::Json(value);
+    }
+    if let Some(text) = text_of(data, "text/plain") {
+        if is_default_repr(&text) {
+            if let Some(html) = text_of(data, "text/html") {
+                return Selected::Html(html);
+            }
+            return Selected::Plain(text);
+        }
+        return Selected::Plain(text);
+    }
+    if let Some(text) = text_of(data, "text/html") {
+        return Selected::Html(text);
+    }
+    Selected::None
+}
+
+/// Whether plain text only names its object instead of showing it.
+///
+/// That is the repr of Python, `<module.Class object>`, or the one IPython
+/// prints instead, `<module.Class at 0x7f...>`.
+fn is_default_repr(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.contains('\n') || trimmed.contains('\r') || !trimmed.starts_with('<') {
+        return false;
+    }
+    if trimmed.ends_with("object>") {
+        return true;
+    }
+    trimmed
+        .strip_suffix('>')
+        .and_then(|rest| rest.rsplit_once(" at 0x"))
+        .is_some_and(|(_, address)| {
+            !address.is_empty() && address.chars().all(|c| c.is_ascii_hexdigit())
+        })
+}
+
+/// The logical lines of Markdown, JSON or HTML in a MIME bundle, its plain
+/// text as a body, or a notice that names its types when it has nothing to
+/// show.
+fn bundle_unit(data: &JsonMap, options: &RenderOptions) -> Unit {
+    let (lines, blank) = match select(data) {
+        Selected::Markdown(text) => (
+            markdown::render(&text, options.width, options.background),
+            text.trim().is_empty(),
+        ),
+        Selected::Json(value) => (json::render(value), false),
+        Selected::Plain(text) => return Unit::Body { text, fill: false },
+        Selected::Html(text) => (
+            html::render(&text, options.width, options.background),
+            text.trim().is_empty(),
+        ),
+        Selected::None => return types_notice(data),
+    };
+    // An empty entry shows nothing on purpose.
+    if !lines.is_empty() || blank {
+        return Unit::Blocks(lines);
+    }
+    // A rich entry whose content renders to nothing, such as HTML that only
+    // holds a script, would leave no trace, so plain text that shows the
+    // object or the types stand in.
+    match text_of(data, "text/plain") {
+        Some(text) if !is_default_repr(&text) => Unit::Body { text, fill: false },
+        _ => types_notice(data),
+    }
+}
+
+/// The notice that names the types of a MIME bundle.
+fn types_notice(data: &JsonMap) -> Unit {
+    if data.is_empty() {
+        return Unit::Notice("[no data]".to_owned());
+    }
+    let types: Vec<&str> = data.keys().map(String::as_str).collect();
+    Unit::Notice(format!("[{}]", types.join(", ")))
 }
 
 fn unknown_notice(unknown: &UnknownOutput) -> String {
@@ -276,9 +459,9 @@ fn unknown_notice(unknown: &UnknownOutput) -> String {
     }
 }
 
-/// The `text/plain` of a MIME bundle, if it is a string or an array of strings.
-fn plain_text(data: &JsonMap) -> Option<String> {
-    match data.get("text/plain")? {
+/// The text of one MIME entry, if it is a string or an array of strings.
+fn text_of(data: &JsonMap, mime: &str) -> Option<String> {
+    match data.get(mime)? {
         JsonValue::String(text) => Some(text.clone()),
         JsonValue::Array(parts) => parts.iter().map(JsonValue::as_str).collect(),
         _ => None,

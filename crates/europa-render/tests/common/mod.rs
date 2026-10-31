@@ -50,6 +50,51 @@ pub fn plain(text: &str) -> Output {
     )
 }
 
+/// Display data holding the MIME bundle `data` as nbformat saves it.
+///
+/// The bundle goes through [`europa_core::parse`], because `serde_json` would
+/// read numbers as `f64` and change their text.
+pub fn display(data: &str) -> Output {
+    let json = format!(r#"[{{"output_type":"display_data","data":{data},"metadata":{{}}}}]"#);
+    let notebook = notebook(&json);
+    cell_outputs(&notebook)[0].clone()
+}
+
+/// Execute result holding the MIME bundle `data` as nbformat saves it.
+///
+/// The bundle goes through [`europa_core::parse`], because `serde_json` would
+/// read numbers as `f64` and change their text.
+pub fn result(data: &str) -> Output {
+    let json = format!(
+        r#"[{{"output_type":"execute_result","data":{data},"metadata":{{}},"execution_count":1}}]"#
+    );
+    let notebook = notebook(&json);
+    cell_outputs(&notebook)[0].clone()
+}
+
+/// Text and background of each span of the line.
+pub fn code_bg(line: &StyledLine) -> Vec<(String, Option<Color>)> {
+    line.spans
+        .iter()
+        .map(|span| (span.text.clone(), span.style.bg))
+        .collect()
+}
+
+/// Check that every span holds text and neighbours differ in decoration.
+pub fn assert_lines_are_well_formed(cell: &RenderedCell) {
+    for (index, line) in cell.lines.iter().enumerate() {
+        for span in &line.spans {
+            assert!(!span.text.is_empty(), "line {index} holds an empty span");
+        }
+        for pair in line.spans.windows(2) {
+            assert!(
+                pair[0].style != pair[1].style,
+                "line {index} holds adjacent spans with the same decoration"
+            );
+        }
+    }
+}
+
 pub fn error(ename: &str, evalue: &str, traceback: &[&str]) -> Output {
     Output::new_error(
         ename,
@@ -107,7 +152,16 @@ pub fn cell_outputs(notebook: &Notebook) -> &[Output] {
 #[derive(serde::Deserialize)]
 struct Fixture {
     options: RenderOptions,
-    outputs: Vec<Output>,
+    outputs: Box<serde_json::value::RawValue>,
+}
+
+/// The `outputs` array of the file `tests/fixtures/{name}` as nbformat saves it.
+pub fn fixture_outputs_json(name: &str) -> String {
+    let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{path}: {error}"));
+    let fixture: Fixture =
+        serde_json::from_str(&text).unwrap_or_else(|error| panic!("{path}: {error}"));
+    fixture.outputs.get().to_owned()
 }
 
 /// The rendering conditions and the outputs of the file `tests/fixtures/{name}`.
@@ -116,7 +170,8 @@ pub fn fixture(name: &str) -> (RenderOptions, Vec<Output>) {
     let text = std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{path}: {error}"));
     let fixture: Fixture =
         serde_json::from_str(&text).unwrap_or_else(|error| panic!("{path}: {error}"));
-    (fixture.options, fixture.outputs)
+    let notebook = notebook(fixture.outputs.get());
+    (fixture.options, cell_outputs(&notebook).to_vec())
 }
 
 /// Draw the cell on a test screen and describe the screen.

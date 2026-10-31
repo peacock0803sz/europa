@@ -78,7 +78,8 @@ pub struct StyledLine {
     #[serde(default)]
     pub spans: Vec<StyledSpan>,
     /// Background color to paint from the end of the text to the right edge
-    /// of the line. Only the lines of stderr and of error outputs have one.
+    /// of the line. Only the lines of stderr, of error outputs and of code
+    /// blocks have one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill: Option<Color>,
 }

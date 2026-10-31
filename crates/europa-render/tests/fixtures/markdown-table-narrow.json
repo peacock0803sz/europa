@@ -1,0 +1,13 @@
+{
+  "options": { "width": 20 },
+  "outputs": [
+    {
+      "output_type": "display_data",
+      "data": {
+        "text/markdown": "| longername | middle | values |\n|:-----------|:-:|-------:|\n| a | b | 1 |\n| 名前 | `c` | 22 |",
+        "text/plain": "<IPython.core.display.Markdown object>"
+      },
+      "metadata": {}
+    }
+  ]
+}
