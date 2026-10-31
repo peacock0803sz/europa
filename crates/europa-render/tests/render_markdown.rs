@@ -224,6 +224,62 @@ fn quotes_keep_marks_on_every_line() {
 }
 
 #[test]
+fn links_show_targets_after_words() {
+    let (cell, texts) = show("[docs](https://example.com)");
+    assert_eq!(texts, ["docs (https://example.com)"]);
+    let spans = common::styled(&cell.lines[0]);
+    assert_eq!(spans.len(), 3);
+    assert!(spans[0].1.underline);
+    assert!(!spans[0].1.dim);
+    assert_eq!(spans[1], (" ".to_owned(), europa_core::Style::default()));
+    assert!(spans[2].1.dim);
+    let (cell, texts) = show("<https://example.com>");
+    assert_eq!(texts, ["https://example.com"]);
+    assert!(style_at(&cell, 0, 0).underline);
+    let (_, texts) = show("[https://example.com](https://example.com)");
+    assert_eq!(texts, ["https://example.com"]);
+    let (cell, _) = show("[**docs**](https://example.com)");
+    let style = style_at(&cell, 0, 0);
+    assert!(style.bold && style.underline);
+    let (_, inline) = show("[docs](https://example.com)");
+    let (_, reference) = show("[docs][1]\n\n[1]: https://example.com");
+    assert_eq!(inline, reference);
+}
+
+#[test]
+fn long_link_targets_wrap() {
+    let (cell, texts) = show_with("[x](https://example.com/very/long/path)", &common::opts(20));
+    assert!(texts
+        .concat()
+        .contains("https://example.com/very/long/path"));
+    let _ = cell;
+}
+
+#[test]
+fn images_become_notices() {
+    let (cell, texts) = show("![plot](a.png)");
+    assert_eq!(texts, ["[image: plot]"]);
+    assert!(style_at(&cell, 0, 0).dim);
+    assert!(!texts.concat().contains("a.png"));
+}
+
+#[test]
+fn raw_html_follows_html_rules() {
+    let (_, texts) = show("<div><p>x</p></div>");
+    assert_eq!(texts, ["x"]);
+    let (cell, texts) = show("a <b>b</b> c");
+    assert_eq!(texts, ["a b c"]);
+    let body: String = cell.lines[0]
+        .spans
+        .iter()
+        .map(|span| span.text.as_str())
+        .collect();
+    assert!(style_at(&cell, 0, body.find('b').expect("b")).bold);
+    let (_, texts) = show("a<br>b");
+    assert_eq!(texts, ["a", "b"]);
+}
+
+#[test]
 fn rules_fill_the_width() {
     let (cell, texts) = show_with("---", &common::opts(20));
     assert_eq!(texts, ["\u{254c}".repeat(20)]);
