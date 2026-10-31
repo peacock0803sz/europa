@@ -4,8 +4,9 @@
 //! lines for a terminal. The types of the result, such as [`RenderedCell`], are
 //! defined in [`europa_core::render`], where every crate shares them.
 //!
-//! Lines from stderr and from errors carry a fill, which a terminal paints to
-//! the right edge of the line, so that they stand out from stdout.
+//! Lines from stderr, from errors and from code blocks carry a fill, which a
+//! terminal paints to the right edge of the line, so that they stand out
+//! from stdout.
 //!
 //! ```
 //! use std::num::NonZeroU16;
@@ -83,12 +84,15 @@ enum Unit {
 ///
 /// The outputs are taken in order and go through these steps:
 ///
-/// 1. Consecutive streams of one name, the `text/plain` of a display data or
+/// 1. Consecutive streams of one name, the chosen MIME of a display data or
 ///    execute result, and the traceback of an error each become a unit with
-///    a body. An output with no text to show, such as an image or an unknown
-///    kind, becomes a notice that names what it holds instead. A notice is
-///    wrapped like other text, so it can take more than one line when it is
-///    wider than [`RenderOptions::width`].
+///    a body. The choice is `application/json`, then `text/plain`, then
+///    `text/html`, skipping a `text/plain` that only names its object while
+///    `text/html` is usable. JSON and HTML bodies become indented logical
+///    lines without `\r` or ANSI handling. An output with nothing to draw,
+///    such as an image or an unknown kind, becomes a notice that names what
+///    it holds instead. A notice is wrapped like other text, so it can take
+///    more than one line when it is wider than [`RenderOptions::width`].
 /// 2. In the body of a unit, `\r` is resolved the way it is for a received
 ///    stream, so that a progress bar leaves only its last state. Notices skip
 ///    this step.
