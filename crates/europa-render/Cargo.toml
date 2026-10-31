@@ -8,6 +8,7 @@ license = "MIT"
 [dependencies]
 europa-core = { path = "../europa-core" }
 htmlize = { version = "1.1.0", features = ["unescape"] }
+pulldown-cmark = { version = "0.13.4", default-features = false }
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
 
