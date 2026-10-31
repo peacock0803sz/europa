@@ -477,7 +477,19 @@ fn build_table(state: TableState, width: NonZeroU16) -> Vec<Line> {
     let total: usize = widths.iter().sum::<usize>() + 3 * columns.saturating_sub(1);
     let inner = usize::from(width.get());
     if total > inner {
-        return rows.into_iter().map(join_cells).collect();
+        return rows
+            .into_iter()
+            .enumerate()
+            .map(|(number, cells)| {
+                let mut line = join_cells(cells);
+                if number == 0 {
+                    for span in &mut line.spans {
+                        span.style.bold = true;
+                    }
+                }
+                line
+            })
+            .collect();
     }
     let mut lines = Vec::new();
     for (number, row) in rows.into_iter().enumerate() {
