@@ -43,11 +43,28 @@ use europa_core::{
     resolve_carriage_returns, Background, Color, JsonMap, JsonValue, Output, RenderOptions,
     RenderedCell, Style, StyledLine, StyledSpan,
 };
+use unicode_width::UnicodeWidthStr;
 
 // Palette entries rather than RGB, because some terminals cannot show 24-bit
 // colors and neither ratatui nor crossterm reduces them.
 const DARK_FILL: Color = Color::Indexed(52);
 const LIGHT_FILL: Color = Color::Indexed(224);
+
+// Grey shades with a hue kept away from the red fills, so code blocks read
+// apart from stderr and error outputs.
+#[allow(dead_code)]
+const DARK_CODE: Color = Color::Indexed(236);
+#[allow(dead_code)]
+const LIGHT_CODE: Color = Color::Indexed(254);
+
+/// Background of code lines for the given terminal background.
+#[allow(dead_code)]
+fn code_bg(background: Background) -> Color {
+    match background {
+        Background::Dark => DARK_CODE,
+        Background::Light => LIGHT_CODE,
+    }
+}
 
 /// Text that is rendered as a whole.
 enum Unit {
@@ -59,6 +76,9 @@ enum Unit {
     },
     /// Text that stands for an output that cannot be shown.
     Notice(String),
+    /// Logical lines from a rich output, already styled and indented.
+    #[allow(dead_code)]
+    Blocks(Vec<blocks::Line>),
 }
 
 /// Render the outputs of a code cell as styled display lines.
@@ -98,21 +118,33 @@ pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCe
     };
     let mut collector = Collector::new(options);
     for unit in units(outputs) {
-        let (logical_lines, fill) = match unit {
+        match unit {
+            Unit::Blocks(lines) => {
+                for line in &lines {
+                    for styled in wrap_line(line, options.width) {
+                        collector.push(styled);
+                    }
+                }
+            }
             // The rule runs on the text before escape sequences are read, so a
             // color set earlier on a line is overwritten with the line, the
             // way it is when the text arrives live.
-            Unit::Body { text, fill: shaded } => (
-                ansi::parse(&resolve_carriage_returns(&text)),
-                shaded.then_some(fill),
-            ),
+            Unit::Body { text, fill: shaded } => {
+                let fill = shaded.then_some(fill);
+                for runs in ansi::parse(&resolve_carriage_returns(&text)) {
+                    for spans in wrap::wrap(&runs, options.width) {
+                        collector.push(StyledLine { spans, fill });
+                    }
+                }
+            }
             // The names in a notice come from the file and can hold escape
             // sequences, so a notice is read like any other text.
-            Unit::Notice(text) => (ansi::parse(&text).into_iter().map(dimmed).collect(), None),
-        };
-        for runs in logical_lines {
-            for spans in wrap::wrap(&runs, options.width) {
-                collector.push(StyledLine { spans, fill });
+            Unit::Notice(text) => {
+                for runs in ansi::parse(&text).into_iter().map(dimmed) {
+                    for spans in wrap::wrap(&runs, options.width) {
+                        collector.push(StyledLine { spans, fill: None });
+                    }
+                }
             }
         }
     }
@@ -206,6 +238,66 @@ fn dimmed(runs: Vec<StyledSpan>) -> Vec<StyledSpan> {
             ..run
         })
         .collect()
+}
+
+/// Break one logical line into display lines with its indentation.
+fn wrap_line(line: &blocks::Line, width: NonZeroU16) -> Vec<StyledLine> {
+    let indent: usize = line
+        .lead
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.text.as_str()))
+        .sum();
+    if line.spans.is_empty() {
+        return vec![StyledLine {
+            spans: normalize(line.lead.clone()),
+            fill: line.fill,
+        }];
+    }
+    if indent < usize::from(width.get()) {
+        let inner = NonZeroU16::new((usize::from(width.get()) - indent) as u16)
+            .expect("indent leaves at least one column");
+        wrap::wrap(&line.spans, inner)
+            .into_iter()
+            .enumerate()
+            .map(|(index, body)| {
+                let mut spans = if index == 0 {
+                    line.lead.clone()
+                } else {
+                    line.hang.clone()
+                };
+                spans.extend(body);
+                StyledLine {
+                    spans: normalize(spans),
+                    fill: line.fill,
+                }
+            })
+            .collect()
+    } else {
+        let mut joined = line.lead.clone();
+        joined.extend(line.spans.clone());
+        wrap::wrap(&joined, width)
+            .into_iter()
+            .map(|spans| StyledLine {
+                spans: normalize(spans),
+                fill: line.fill,
+            })
+            .collect()
+    }
+}
+
+/// Drop empty spans and join neighbours with the same decoration.
+fn normalize(spans: Vec<StyledSpan>) -> Vec<StyledSpan> {
+    let mut kept: Vec<StyledSpan> = Vec::new();
+    for span in spans {
+        if span.text.is_empty() {
+            continue;
+        }
+        match kept.last_mut() {
+            Some(last) if last.style == span.style => last.text.push_str(&span.text),
+            _ => kept.push(span),
+        }
+    }
+    kept
 }
 
 /// Group the outputs into the units that are rendered as a whole.
