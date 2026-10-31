@@ -123,9 +123,9 @@ pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCe
 
 /// Collects the display lines of a cell, and drops the middle of a long output.
 ///
-/// Lines are counted as they arrive instead of being all held, so the memory
-/// for display lines stays in proportion to the limit however long the output
-/// is.
+/// Lines are counted as they arrive instead of being all held, so the lines
+/// it keeps stay in proportion to the limit however long the output is. The
+/// lines of one unit are still all built before they reach it.
 struct Collector {
     max: usize,
     width: NonZeroU16,
