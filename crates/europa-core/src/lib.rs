@@ -127,6 +127,12 @@
 //! assert!(saved.contains("100%"));
 //! assert!(!saved.contains("50%"));
 //! ```
+//!
+//! What the terminal UI draws for a cell is described by the types in
+//! [`render`], such as [`RenderedCell`], which `europa-render` builds from the
+//! outputs. Output text that was read from a file may still hold `\r`, and
+//! [`resolve_carriage_returns`] applies the rule that [`apply_iopub`] uses for
+//! received text, so that it shows the same as it did when it arrived.
 #![deny(missing_docs)]
 
 mod canonical;
@@ -138,12 +144,16 @@ pub mod json;
 pub mod normalize;
 pub mod notebook;
 pub mod pos;
+pub mod render;
 
 pub use error::ParseError;
 pub use exec::{Applied, CellExecState, ExecEffect, ExecEvent, ExecState, MsgId, ReplyStatus};
 pub use io::{parse, serialize};
-pub use iopub::{apply_iopub, IopubApplied, IopubMsg};
+pub use iopub::{apply_iopub, resolve_carriage_returns, IopubApplied, IopubMsg};
 pub use json::{JsonMap, JsonNumber, JsonValue};
 pub use normalize::MultilineText;
 pub use notebook::{Cell, Notebook, Output};
 pub use pos::{CellPos, ResolveError};
+pub use render::{
+    Background, Color, ImageSlot, RenderOptions, RenderedCell, Style, StyledLine, StyledSpan,
+};

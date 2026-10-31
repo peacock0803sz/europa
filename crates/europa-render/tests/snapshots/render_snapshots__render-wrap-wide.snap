@@ -1,0 +1,25 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common :: draw(& cell, & options)"
+---
+{"width":12,"max_output_lines":200,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 12, height: 12 },
+    content: [
+        "日本語の文字", // hidden by multi-width symbols: [(1, " "), (3, " "), (5, " "), (7, " "), (9, " "), (11, " ")]
+        "列を折り返す", // hidden by multi-width symbols: [(1, " "), (3, " "), (5, " "), (7, " "), (9, " "), (11, " ")]
+        "aあいうえお ", // hidden by multi-width symbols: [(2, " "), (4, " "), (6, " "), (8, " "), (10, " ")]
+        "か          ", // hidden by multi-width symbols: [(1, " ")]
+        "emoji 👍🏽 and", // hidden by multi-width symbols: [(7, " ")]
+        " 👨‍👩‍👧 family  ", // hidden by multi-width symbols: [(2, " ")]
+        "tab     here",
+        "    and     ",
+        "there       ",
+        "spaces  betw",
+        "een   words ",
+        "wrap here   ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}

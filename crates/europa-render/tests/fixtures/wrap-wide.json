@@ -1,0 +1,16 @@
+{
+  "options": { "width": 12 },
+  "outputs": [
+    {
+      "output_type": "stream",
+      "name": "stdout",
+      "text": [
+        "日本語の文字列を折り返す\n",
+        "aあいうえおか\n",
+        "emoji 👍🏽 and 👨‍👩‍👧 family\n",
+        "tab\there\tand\tthere\n",
+        "spaces  between   words wrap here\n"
+      ]
+    }
+  ]
+}

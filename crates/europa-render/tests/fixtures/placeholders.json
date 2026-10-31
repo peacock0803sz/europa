@@ -1,0 +1,24 @@
+{
+  "options": { "width": 16 },
+  "outputs": [
+    {
+      "output_type": "display_data",
+      "data": { "image/png": "iVBORw0KGgo=" },
+      "metadata": {}
+    },
+    {
+      "output_type": "execute_result",
+      "data": { "image/png": "iVBORw0KGgo=", "text/html": "<b>x</b>" },
+      "metadata": {},
+      "execution_count": 3
+    },
+    { "output_type": "display_data", "data": {}, "metadata": {} },
+    { "output_type": "widget_state", "state": {} },
+    {
+      "output_type": "display_data",
+      "data": { "image/png": "iVBORw0KGgo=", "text/plain": 42 },
+      "metadata": {}
+    },
+    { "output_type": "stream", "name": "stderr", "text": "after\n" }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "options": { "width": 30 },
+  "outputs": [
+    {
+      "output_type": "error",
+      "ename": "ValueError",
+      "evalue": "bad",
+      "traceback": []
+    },
+    {
+      "output_type": "error",
+      "ename": "KeyError",
+      "evalue": "'k'",
+      "traceback": ["", ""]
+    },
+    {
+      "output_type": "error",
+      "ename": "E",
+      "evalue": "v",
+      "traceback": ["head", "frame\n", "E: v"]
+    }
+  ]
+}

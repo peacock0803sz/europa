@@ -1,0 +1,22 @@
+{
+  "options": { "width": 40 },
+  "outputs": [
+    {
+      "output_type": "execute_result",
+      "data": { "text/html": "<b>42</b>", "text/plain": "42" },
+      "metadata": {},
+      "execution_count": 1
+    },
+    {
+      "output_type": "display_data",
+      "data": { "text/plain": ["line one\n", "line two"] },
+      "metadata": {}
+    },
+    {
+      "output_type": "execute_result",
+      "data": { "text/plain": "\u001b[32mcolored repr\u001b[0m" },
+      "metadata": {},
+      "execution_count": 2
+    }
+  ]
+}

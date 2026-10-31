@@ -466,6 +466,31 @@ pub(crate) fn append_stream(existing: &mut String, chunk: &str) {
     }
 }
 
+/// Resolve the `\r` in `text` the way [`apply_iopub`] does for a stream it
+/// receives.
+///
+/// A run of `\r` before `\n` belongs to the newline, and any other `\r`
+/// discards what its line held before it. One trailing `\r` is kept, because
+/// more text could still overwrite the line. ANSI escape sequences are plain
+/// characters to this rule, so one that comes before the `\r` on the same line
+/// is discarded with the rest of the line.
+///
+/// A notebook file holds the text as it was saved, and showing it should look
+/// the same as the text did when it arrived. This is for that.
+///
+/// ```
+/// assert_eq!(
+///     europa_core::resolve_carriage_returns("10%\r20%\ndone\n"),
+///     "20%\ndone\n"
+/// );
+/// ```
+#[must_use]
+pub fn resolve_carriage_returns(text: &str) -> String {
+    let mut resolved = String::new();
+    append_stream(&mut resolved, text);
+    resolved
+}
+
 /// Whether [`append_stream`] would just push `chunk` onto `existing`.
 ///
 /// That holds when neither `chunk` nor the last line of `existing` has a

@@ -1,0 +1,20 @@
+{
+  "options": { "width": 40 },
+  "outputs": [
+    {
+      "output_type": "stream",
+      "name": "stdout",
+      "text": [
+        "\u001b[31mred\u001b[0m \u001b[32mgreen\u001b[0m \u001b[93mbright yellow\u001b[0m\n",
+        "\u001b[41mred bg\u001b[0m \u001b[104mbright blue bg\u001b[0m\n",
+        "\u001b[38;5;208m256 fg\u001b[0m \u001b[48;5;22m256 bg\u001b[0m\n",
+        "\u001b[38;2;255;128;0mrgb fg\u001b[0m \u001b[48;2;0;64;128mrgb bg\u001b[0m\n",
+        "\u001b[1mbold\u001b[22m \u001b[2mdim\u001b[22m \u001b[3mitalic\u001b[23m \u001b[4munderline\u001b[24m\n",
+        "\u001b[7mreverse\u001b[27m \u001b[9mstrike\u001b[29m\n",
+        "\u001b[1;31mbold red\u001b[39m bold only\u001b[0m plain\n",
+        "\u001b[34mblue carried\n",
+        "across lines\u001b[0m\n"
+      ]
+    }
+  ]
+}
