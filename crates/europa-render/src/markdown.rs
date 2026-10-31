@@ -108,6 +108,13 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
                 }
             }
         }
+        // Styles of unclosed inline HTML end with their block too. They are
+        // removed before the block's own end, which removes its own layer.
+        if is_block_boundary(&event) {
+            for _ in html_tags.drain(..) {
+                blocks.pop_style();
+            }
+        }
         match event {
             Event::Start(Tag::Paragraph) | Event::End(TagEnd::Paragraph) => blocks.gap(),
             Event::Start(Tag::Heading { level, .. }) => {
@@ -402,10 +409,14 @@ fn handle_table_event(
             let row = std::mem::take(&mut state.current_row);
             state.rows.push(row);
         }
+        // Every decoration lives inside one cell, so an unclosed inline HTML
+        // style ends with its cell.
         Event::Start(Tag::TableCell) => {
             state.current_cell.clear();
+            state.cell_styles.clear();
         }
         Event::End(TagEnd::TableCell) => {
+            state.cell_styles.clear();
             let cell = std::mem::take(&mut state.current_cell);
             if state.in_head
                 || state.header.is_empty()

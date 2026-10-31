@@ -382,6 +382,31 @@ fn raw_html_follows_html_rules() {
 }
 
 #[test]
+fn unclosed_inline_styles_end_with_their_block() {
+    let (cell, texts) = show("a <b>x\n\nnext para");
+    assert_eq!(texts, ["a x", "", "next para"]);
+    assert!(style_at(&cell, 0, 2).bold);
+    assert_eq!(style_at(&cell, 2, 0), Style::default());
+    let (cell, texts) = show("# T <b>x\n\nnext para");
+    assert_eq!(texts, ["T x", "", "next para"]);
+    let heading = style_at(&cell, 0, 2);
+    assert!(heading.bold && heading.underline, "{heading:?}");
+    assert_eq!(style_at(&cell, 2, 0), Style::default());
+    let (cell, texts) = show("- a <i>x\n- b");
+    assert_eq!(texts, ["\u{2023} a x", "\u{2023} b"]);
+    assert!(!style_at(&cell, 1, 2).italic);
+}
+
+#[test]
+fn unclosed_inline_styles_end_with_their_table_cell() {
+    let (cell, texts) = show("| h | i |\n|---|---|\n| <b>x | y |\n| z | w |");
+    assert_eq!(texts[2], "x \u{254e} y");
+    assert!(style_at(&cell, 2, 0).bold);
+    assert!(!style_at(&cell, 2, 4).bold);
+    assert!(!style_at(&cell, 3, 0).bold);
+}
+
+#[test]
 fn inline_replaced_elements_become_notices() {
     let (cell, texts) = show("see <img alt=\"plot\"> here");
     assert_eq!(texts, ["see [img: plot] here"]);
