@@ -44,6 +44,7 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
     let mut html_body: Option<String> = None;
     let mut html_tags: Vec<String> = Vec::new();
     let mut html_hidden: Option<String> = None;
+    let mut hidden_inlines = 0usize;
     let mut table: Option<TableState> = None;
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
     for event in Parser::new_ext(text, options) {
@@ -58,13 +59,29 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
             );
             continue;
         }
-        if html_hidden.is_some()
-            && matches!(
-                event,
-                Event::Text(_) | Event::Code(_) | Event::SoftBreak | Event::HardBreak
-            )
-        {
-            continue;
+        // Inline HTML ends with its block, even when it never closes. A tight
+        // list item has no paragraph, so every block boundary ends it.
+        if is_block_boundary(&event) {
+            html_hidden = None;
+            hidden_inlines = 0;
+        }
+        if html_hidden.is_some() {
+            match event {
+                Event::Text(_) | Event::Code(_) | Event::SoftBreak | Event::HardBreak => {
+                    continue;
+                }
+                // Links and images inside hidden content show no target or
+                // notice. Their ends are dropped only for starts dropped here.
+                Event::Start(Tag::Link { .. } | Tag::Image { .. }) => {
+                    hidden_inlines += 1;
+                    continue;
+                }
+                Event::End(TagEnd::Link | TagEnd::Image) if hidden_inlines > 0 => {
+                    hidden_inlines -= 1;
+                    continue;
+                }
+                _ => {}
+            }
         }
         // Consecutive text is joined before control removal, because a
         // sequence can span the boundary pulldown-cmark reports. Text inside
@@ -88,12 +105,7 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
             }
         }
         match event {
-            Event::Start(Tag::Paragraph) => blocks.gap(),
-            // Inline HTML ends with its block, even when it never closes.
-            Event::End(TagEnd::Paragraph) => {
-                html_hidden = None;
-                blocks.gap();
-            }
+            Event::Start(Tag::Paragraph) | Event::End(TagEnd::Paragraph) => blocks.gap(),
             Event::Start(Tag::Heading { level, .. }) => {
                 blocks.gap();
                 blocks.push_style(|style| match level {
@@ -111,7 +123,6 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
                 });
             }
             Event::End(TagEnd::Heading(..)) => {
-                html_hidden = None;
                 blocks.pop_style();
                 blocks.gap();
             }
@@ -299,6 +310,34 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
         blocks.text(&buffered);
     }
     blocks.finish()
+}
+
+/// Whether the event starts or ends a block rather than an inline span.
+fn is_block_boundary(event: &Event) -> bool {
+    match event {
+        Event::Start(tag) => !matches!(
+            tag,
+            Tag::Emphasis
+                | Tag::Strong
+                | Tag::Strikethrough
+                | Tag::Superscript
+                | Tag::Subscript
+                | Tag::Link { .. }
+                | Tag::Image { .. }
+        ),
+        Event::End(tag) => !matches!(
+            tag,
+            TagEnd::Emphasis
+                | TagEnd::Strong
+                | TagEnd::Strikethrough
+                | TagEnd::Superscript
+                | TagEnd::Subscript
+                | TagEnd::Link
+                | TagEnd::Image
+        ),
+        Event::Rule => true,
+        _ => false,
+    }
 }
 
 /// Handle one event inside a table.

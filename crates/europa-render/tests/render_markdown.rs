@@ -403,6 +403,32 @@ fn inline_replaced_elements_become_notices() {
 }
 
 #[test]
+fn unclosed_inline_elements_end_with_tight_list_items() {
+    let (_, texts) = show("- a <video src=x.mp4>\n- b\n- c\n\nafter para\n\nsecond para");
+    assert_eq!(
+        texts,
+        [
+            "\u{2023} a [video]",
+            "\u{2023} b",
+            "\u{2023} c",
+            "",
+            "after para",
+            "",
+            "second para"
+        ]
+    );
+    let (_, texts) = show("1. Step <iframe src=x>\n2. Step two");
+    assert_eq!(texts, ["1. Step [iframe]", "2. Step two"]);
+}
+
+#[test]
+fn links_and_images_inside_hidden_elements_leave_no_trace() {
+    let (cell, texts) = show("a <svg>[x](https://e.com) ![p](i.png)</svg> b");
+    assert_eq!(texts, ["a [svg] b"]);
+    assert!(!style_at(&cell, 0, 8).underline);
+}
+
+#[test]
 fn inline_scripts_and_styles_stay_hidden() {
     for markdown in ["a <script>alert(1)</script> b", "a <style>p{}</style> b"] {
         let (_, texts) = show(markdown);
