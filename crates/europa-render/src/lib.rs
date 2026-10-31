@@ -33,6 +33,7 @@
 
 mod ansi;
 mod blocks;
+mod json;
 mod wrap;
 
 use std::collections::VecDeque;
