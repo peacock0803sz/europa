@@ -1,0 +1,13 @@
+{
+  "options": { "width": 40 },
+  "outputs": [
+    {
+      "output_type": "display_data",
+      "data": {
+        "text/markdown": "# Title\n## Sub\n### Subsub\n\nSome **bold**, *italic*, ~~strike~~ text with soft\nbreak and hard  \nbreak.\n\n- a\n- b\n  - c\n\n1. one\n2. two\n\n- loose\n\n- item\n\n> quote\n> continued\n\n---\n\n[docs](https://example.com) and <https://example.com> and ![plot](a.png)\n\n<div><p>x</p></div>\n\na <b>b</b> c and a<br>b",
+        "text/plain": "<IPython.core.display.Markdown object>"
+      },
+      "metadata": {}
+    }
+  ]
+}
