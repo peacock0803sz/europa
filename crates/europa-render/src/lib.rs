@@ -78,7 +78,6 @@ enum Unit {
     /// Text that stands for an output that cannot be shown.
     Notice(String),
     /// Logical lines from a rich output, already styled and indented.
-    #[allow(dead_code)]
     Blocks(Vec<blocks::Line>),
 }
 
@@ -350,13 +349,35 @@ fn traceback_text(error: &ErrorOutput) -> String {
     }
 }
 
+/// One MIME bundle reduced to the entry that is drawn.
+enum Selected<'a> {
+    /// JSON value drawn as indented lines.
+    Json(&'a JsonValue),
+    /// Plain text drawn through the text pipeline.
+    Plain(String),
+    /// Nothing to draw, named by its types instead.
+    None,
+}
+
+/// Choose the entry of a MIME bundle that is drawn.
+fn select(data: &JsonMap) -> Selected<'_> {
+    if let Some(value) = data.get("application/json") {
+        return Selected::Json(value);
+    }
+    if let Some(text) = text_of(data, "text/plain") {
+        return Selected::Plain(text);
+    }
+    Selected::None
+}
+
 /// The text of a MIME bundle, or a notice that names its types when it has no
 /// text to show.
 fn bundle_unit(data: &JsonMap) -> Unit {
-    match plain_text(data) {
-        Some(text) => Unit::Body { text, fill: false },
-        None if data.is_empty() => Unit::Notice("[no data]".to_owned()),
-        None => {
+    match select(data) {
+        Selected::Json(value) => Unit::Blocks(json::render(value)),
+        Selected::Plain(text) => Unit::Body { text, fill: false },
+        Selected::None if data.is_empty() => Unit::Notice("[no data]".to_owned()),
+        Selected::None => {
             let types: Vec<&str> = data.keys().map(String::as_str).collect();
             Unit::Notice(format!("[{}]", types.join(", ")))
         }
@@ -370,9 +391,9 @@ fn unknown_notice(unknown: &UnknownOutput) -> String {
     }
 }
 
-/// The `text/plain` of a MIME bundle, if it is a string or an array of strings.
-fn plain_text(data: &JsonMap) -> Option<String> {
-    match data.get("text/plain")? {
+/// The text of one MIME entry, if it is a string or an array of strings.
+fn text_of(data: &JsonMap, mime: &str) -> Option<String> {
+    match data.get(mime)? {
         JsonValue::String(text) => Some(text.clone()),
         JsonValue::Array(parts) => parts.iter().map(JsonValue::as_str).collect(),
         _ => None,

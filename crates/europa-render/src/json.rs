@@ -44,7 +44,6 @@ fn keyword_style() -> Style {
 ///
 /// One value or one key and value pair becomes one line. Nesting adds two
 /// blanks per depth. Empty objects and arrays stay on one line.
-#[allow(dead_code)]
 pub(crate) fn render(value: &JsonValue) -> Vec<Line> {
     render_value(value, 0)
 }

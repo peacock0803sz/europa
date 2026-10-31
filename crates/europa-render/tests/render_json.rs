@@ -192,7 +192,7 @@ fn deep_nesting_wraps_without_losing_characters() {
     let data = format!(
         "{{\"application/json\": {value}, \"text/plain\": \"<IPython.core.display.JSON object>\"}}"
     );
-    let cell = render_outputs(&[common::display(&data)], &common::opts(20));
+    let cell = render_outputs(&[common::display(&data)], &common::limited(20, 1000));
     common::assert_lines_are_well_formed(&cell);
     let joined: String = common::texts(&cell)
         .join("")
@@ -238,8 +238,8 @@ fn wrapped_string_continuation_keeps_indentation() {
     let cell = render_outputs(&[common::display(data)], &common::opts(20));
     common::assert_lines_are_well_formed(&cell);
     let texts = common::texts(&cell);
-    assert!(texts.len() > 2, "{texts:?}");
-    for line in texts.iter().skip(1) {
+    assert!(texts.len() > 3, "{texts:?}");
+    for line in texts.iter().skip(1).take(texts.len() - 2) {
         assert!(line.starts_with(' '), "{line:?}");
     }
 }

@@ -15,7 +15,6 @@ use unicode_width::UnicodeWidthStr;
 /// An empty line has no body and no fill, and its `lead` and `hang` are the
 /// hanging indentation of every level with trailing blanks removed. Only a
 /// blank body inside a code block or a `pre` element keeps a fill.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Line {
     /// Indentation and marker of the first display line.
