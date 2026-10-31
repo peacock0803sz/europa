@@ -173,6 +173,66 @@ fn code_in_lists_is_filled_with_indent() {
 }
 
 #[test]
+fn bullets_and_numbers_render_one_line_each() {
+    let (_, texts) = show("- a\n- b\n- c");
+    assert_eq!(texts, ["\u{2023} a", "\u{2023} b", "\u{2023} c"]);
+    let (_, texts) = show("3. a\n4. b");
+    assert_eq!(texts, ["3. a", "4. b"]);
+    let (_, texts) = show("- a\n\n- b");
+    assert_eq!(texts, ["\u{2023} a", "", "\u{2023} b"]);
+}
+
+#[test]
+fn nested_items_indent_with_depth_marks() {
+    let (_, texts) = show("- a\n  - b\n    - c\n      - d");
+    assert_eq!(
+        texts,
+        [
+            "\u{2023} a",
+            "  \u{25aa} b",
+            "    \u{25b8} c",
+            "      \u{25b8} d",
+        ]
+    );
+    let (_, texts) = show("- a\n  - b");
+    assert_eq!(texts, ["\u{2023} a", "  \u{25aa} b"]);
+}
+
+#[test]
+fn long_items_wrap_with_indent() {
+    let (cell, texts) = show_with(&format!("- {}", "x".repeat(30)), &common::opts(20));
+    assert!(texts.len() > 1, "{texts:?}");
+    for line in texts.iter().skip(1) {
+        assert!(line.starts_with("  "), "{line:?}");
+    }
+    let _ = cell;
+}
+
+#[test]
+fn quotes_keep_marks_on_every_line() {
+    let (cell, texts) = show("> q");
+    assert_eq!(texts, ["\u{254f} q"]);
+    assert!(style_at(&cell, 0, 0).dim);
+    let (_, texts) = show_with("> a\n>\n> b", &common::opts(80));
+    assert_eq!(texts, ["\u{254f} a", "\u{254f}", "\u{254f} b"]);
+    let long = format!("> {}", "y".repeat(30));
+    let (_, texts) = show_with(&long, &common::opts(10));
+    assert!(texts.len() > 1);
+    for line in &texts {
+        assert!(line.starts_with("\u{254f} "), "{line:?}");
+    }
+}
+
+#[test]
+fn rules_fill_the_width() {
+    let (cell, texts) = show_with("---", &common::opts(20));
+    assert_eq!(texts, ["\u{254c}".repeat(20)]);
+    assert!(style_at(&cell, 0, 0).dim);
+    let (_, texts) = show_with("1. ---", &common::opts(20));
+    assert_eq!(texts, [format!("1. {}", "\u{254c}".repeat(17))]);
+}
+
+#[test]
 fn blanks_around_code_have_no_fill() {
     let (cell, texts) = show("p\n\n```\nc\n```\n\nq");
     assert_eq!(texts, ["p", "", "c", "", "q"]);
