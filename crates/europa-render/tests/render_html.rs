@@ -46,6 +46,34 @@ fn div_and_break_split_lines_without_blank_lines() {
 }
 
 #[test]
+fn block_elements_split_lines_like_div() {
+    for tag in [
+        "section",
+        "article",
+        "header",
+        "footer",
+        "main",
+        "nav",
+        "aside",
+        "dt",
+        "dd",
+        "figure",
+        "figcaption",
+        "details",
+        "summary",
+        "form",
+        "fieldset",
+        "address",
+    ] {
+        let data = format!(r#"{{"text/html": "<{tag}>a</{tag}><{tag}>b</{tag}>"}}"#);
+        let (_, texts) = render(&data);
+        assert_eq!(texts, ["a", "b"], "{tag}");
+    }
+    let (_, texts) = render(r#"{"text/html": "<dl><dt>t</dt><dd>d</dd></dl>after"}"#);
+    assert_eq!(texts, ["t", "d", "after"]);
+}
+
+#[test]
 fn nested_blocks_share_a_single_blank_line() {
     let (_, texts) =
         render(r#"{"text/html": "<div><div><p>a</p></div></div><div><p>b</p></div>"}"#);

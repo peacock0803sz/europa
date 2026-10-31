@@ -615,7 +615,7 @@ impl Renderer {
                     kind: Kind::Cell { bold },
                 });
             }
-            "div" => {
+            _ if is_flush_block(&name) => {
                 self.do_flush();
                 self.open.push(Frame {
                     name,
@@ -709,7 +709,10 @@ impl Renderer {
                     self.do_gap();
                 }
             }
-            "div" | "tr" => {
+            "tr" => {
+                self.do_flush();
+            }
+            _ if is_flush_block(&name) => {
                 self.do_flush();
             }
             _ => {}
@@ -843,6 +846,34 @@ impl Renderer {
         self.has_content = true;
         self.pending = false;
     }
+}
+
+/// Block elements that start and end lines like `div`, without blank lines.
+fn is_flush_block(name: &str) -> bool {
+    matches!(
+        name,
+        "div"
+            | "section"
+            | "article"
+            | "header"
+            | "footer"
+            | "main"
+            | "nav"
+            | "aside"
+            | "dl"
+            | "dt"
+            | "dd"
+            | "caption"
+            | "figure"
+            | "figcaption"
+            | "details"
+            | "summary"
+            | "form"
+            | "fieldset"
+            | "legend"
+            | "address"
+            | "hgroup"
+    )
 }
 
 /// Elements replaced by a notice instead of their content.
