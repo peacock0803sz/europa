@@ -78,6 +78,21 @@ fn unknown_json_kinds_fall_back_to_plain_text_or_a_notice() {
 }
 
 #[test]
+fn markdown_is_shown_instead_of_the_default_repr() {
+    let texts = show(
+        "{\"text/markdown\": \"# T\", \"text/plain\": \"<IPython.core.display.Markdown object>\"}",
+    );
+    assert_eq!(texts, ["T"]);
+    assert!(!texts.concat().contains("IPython"), "{texts:?}");
+}
+
+#[test]
+fn markdown_arrays_join_their_parts() {
+    let texts = show("{\"text/markdown\": [\"# A\\n\\n\", \"body\"]}");
+    assert_eq!(texts, ["A", "", "body"]);
+}
+
+#[test]
 fn html_arrays_join_their_parts() {
     let texts = show(r#"{"text/html": ["<p>a</p>", "<p>b</p>"]}"#);
     assert_eq!(texts, ["a", "", "b"]);
