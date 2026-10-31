@@ -54,8 +54,8 @@ use unicode_width::UnicodeWidthStr;
 const DARK_FILL: Color = Color::Indexed(52);
 const LIGHT_FILL: Color = Color::Indexed(224);
 
-// Grey shades with a hue kept away from the red fills, so code blocks read
-// apart from stderr and error outputs.
+// Greys rather than reds, so code blocks read apart from stderr and error
+// outputs.
 const DARK_CODE: Color = Color::Indexed(236);
 const LIGHT_CODE: Color = Color::Indexed(254);
 
@@ -86,11 +86,14 @@ enum Unit {
 /// The outputs are taken in order and go through these steps:
 ///
 /// 1. Consecutive streams of one name, the chosen MIME of a display data or
-///    execute result, and the traceback of an error each become a unit with
-///    a body. The choice is `text/markdown`, then `application/json`, then
-///    `text/plain`, then `text/html`, skipping a `text/plain` that only names
-///    its object while `text/html` is usable. Markdown, JSON and HTML bodies
-///    become indented logical lines without `\r` or ANSI handling. An output with nothing to draw,
+///    execute result, and the traceback of an error each become a unit. The
+///    choice is `text/markdown`, then `application/json`, then `text/plain`,
+///    then `text/html`, skipping a `text/plain` that only names its object
+///    while `text/html` is usable. Streams, tracebacks and `text/plain`
+///    become a unit with a body. Markdown, JSON and HTML become indented
+///    logical lines, with escape sequences and control characters removed
+///    instead of read, and skip steps 2 and 3. When they give no line,
+///    `text/plain` or a notice stands in. An output with nothing to draw,
 ///    such as an image or an unknown kind, becomes a notice that names what
 ///    it holds instead. A notice is wrapped like other text, so it can take
 ///    more than one line when it is wider than [`RenderOptions::width`].
@@ -102,7 +105,7 @@ enum Unit {
 ///    None of them reaches the result.
 /// 4. Tabs are expanded and the logical lines are wrapped at
 ///    [`RenderOptions::width`] columns, counting grapheme clusters by their
-///    width. The lines of stderr and of errors get a fill for
+///    width. The lines of stderr, of errors and of code blocks get a fill for
 ///    [`RenderOptions::background`].
 /// 5. When there are more lines than [`RenderOptions::max_output_lines`], the
 ///    beginning and the end are kept and one line that counts the hidden
@@ -409,8 +412,9 @@ fn is_default_repr(text: &str) -> bool {
         })
 }
 
-/// The text of a MIME bundle, or a notice that names its types when it has no
-/// text to show.
+/// The logical lines of Markdown, JSON or HTML in a MIME bundle, its plain
+/// text as a body, or a notice that names its types when it has nothing to
+/// show.
 fn bundle_unit(data: &JsonMap, options: &RenderOptions) -> Unit {
     let lines = match select(data) {
         Selected::Markdown(text) => markdown::render(&text, options.width, options.background),

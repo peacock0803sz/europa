@@ -1,7 +1,7 @@
 //! Rendering of Markdown bodies as logical lines.
 //!
-//! CommonMark comes from pulldown-cmark events. Only the events a task
-//! implements affect gaps and decorations and the rest keep their text.
+//! CommonMark comes from pulldown-cmark events. Events without a rule here
+//! keep their text and add no gaps or decorations.
 
 use std::num::NonZeroU16;
 
