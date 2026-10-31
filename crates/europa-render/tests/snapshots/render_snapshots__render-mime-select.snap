@@ -6,7 +6,7 @@ expression: "common :: draw(& cell, & options)"
 Buffer {
     area: Rect { x: 0, y: 0, width: 60, height: 12 },
     content: [
-        "<IPython.core.display.Markdown object>                      ",
+        "T                                                           ",
         "{                                                           ",
         "  "a": 1                                                    ",
         "}                                                           ",
@@ -20,7 +20,8 @@ Buffer {
         "vega fallback                                               ",
     ],
     styles: [
-        x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: BOLD | UNDERLINED,
+        x: 1, y: 0, fg: Reset, bg: Reset, modifier: NONE,
         x: 2, y: 2, fg: Indexed(4), bg: Reset, modifier: BOLD,
         x: 5, y: 2, fg: Reset, bg: Reset, modifier: NONE,
         x: 7, y: 2, fg: Indexed(6), bg: Reset, modifier: NONE,

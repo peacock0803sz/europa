@@ -36,6 +36,11 @@ snapshot!(json_truncate, "json-truncate");
 snapshot!(html_sample, "html-sample");
 snapshot!(html_broken, "html-broken");
 snapshot!(mime_select, "mime-select");
+snapshot!(markdown_sample, "markdown-sample");
+snapshot!(markdown_code_dark, "markdown-code-dark");
+snapshot!(markdown_code_light, "markdown-code-light");
+snapshot!(markdown_table, "markdown-table");
+snapshot!(markdown_table_narrow, "markdown-table-narrow");
 
 /// Fixtures whose output is longer than their limit, so that a notice stands
 /// in for lines and the text is not the whole output.
@@ -46,11 +51,19 @@ const CUT: [&str; 4] = [
     "json-truncate",
 ];
 
-/// Fixtures with rules or indents that change with width, so unwrapped text
-/// differs from wrapped text.
-const WIDTH_VARIES: [&str; 2] = ["html-sample", "mime-select"];
+/// Fixtures with rules, lists, tables or indents that change with width, so
+/// unwrapped text differs from wrapped text.
+const WIDTH_VARIES: [&str; 7] = [
+    "html-sample",
+    "mime-select",
+    "markdown-sample",
+    "markdown-code-dark",
+    "markdown-code-light",
+    "markdown-table",
+    "markdown-table-narrow",
+];
 
-const FIXTURES: [&str; 19] = [
+const FIXTURES: [&str; 24] = [
     "ansi-styles",
     "escape-removal",
     "stdout-stderr-dark",
@@ -70,6 +83,11 @@ const FIXTURES: [&str; 19] = [
     "html-sample",
     "html-broken",
     "mime-select",
+    "markdown-sample",
+    "markdown-code-dark",
+    "markdown-code-light",
+    "markdown-table",
+    "markdown-table-narrow",
 ];
 
 #[test]
@@ -129,6 +147,11 @@ fn rich_fixtures_show_no_tag_shapes() {
         "json-truncate",
         "html-sample",
         "html-broken",
+        "markdown-sample",
+        "markdown-code-dark",
+        "markdown-code-light",
+        "markdown-table",
+        "markdown-table-narrow",
     ] {
         let (options, outputs) = fixture(&format!("{name}.json"));
         let cell = render_outputs(&outputs, &options);
@@ -152,8 +175,11 @@ fn rich_fixtures_show_no_tag_shapes() {
 #[test]
 fn mime_select_shows_bodies_not_default_reprs() {
     let (options, outputs) = fixture("mime-select.json");
-    let text = texts(&render_outputs(&outputs, &options)).join("\n");
+    let cell = render_outputs(&outputs, &options);
+    let lines = texts(&cell);
+    let text = lines.join("\n");
     assert!(!text.contains("IPython.core.display.JSON"), "{text}");
+    assert!(!text.contains("IPython.core.display.Markdown"), "{text}");
     assert_eq!(
         text.matches("IPython.core.display.HTML").count(),
         1,
@@ -162,6 +188,16 @@ fn mime_select_shows_bodies_not_default_reprs() {
     assert!(text.contains("\"a\""), "{text}");
     assert!(text.contains('x'), "{text}");
     assert!(text.contains("0  1"), "{text}");
+    assert!(lines.iter().any(|line| line == "T"), "{text}");
+}
+
+#[test]
+fn markdown_sample_hides_its_marks() {
+    let (options, outputs) = fixture("markdown-sample.json");
+    let text = texts(&render_outputs(&outputs, &options)).join("\n");
+    for mark in ["#", "**", "`", "]("] {
+        assert!(!text.contains(mark), "{mark:?} in {text}");
+    }
 }
 
 #[test]
@@ -173,6 +209,11 @@ fn rich_fixtures_keep_well_formed_spans() {
         "html-sample",
         "html-broken",
         "mime-select",
+        "markdown-sample",
+        "markdown-code-dark",
+        "markdown-code-light",
+        "markdown-table",
+        "markdown-table-narrow",
     ] {
         let (options, outputs) = fixture(&format!("{name}.json"));
         let cell = render_outputs(&outputs, &options);

@@ -1,0 +1,22 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common :: draw(& cell, & options)"
+---
+{"width":60,"max_output_lines":200,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 60, height: 4 },
+    content: [
+        "longername ╎ middle ╎ values                                ",
+        "╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌                                ",
+        "a          ╎   b    ╎      1                                ",
+        "名前       ╎   c    ╎     22                                ", // hidden by multi-width symbols: [(1, " "), (3, " ")]
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: BOLD,
+        x: 28, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 1, fg: Reset, bg: Reset, modifier: DIM,
+        x: 28, y: 1, fg: Reset, bg: Reset, modifier: NONE,
+        x: 15, y: 3, fg: Reset, bg: Indexed(236), modifier: NONE,
+        x: 16, y: 3, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}
