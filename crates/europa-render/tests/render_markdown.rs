@@ -286,6 +286,19 @@ fn tables_align_columns() {
 }
 
 #[test]
+fn table_cells_show_link_targets_and_split_at_breaks() {
+    let (cell, texts) = show("| a | b |\n|---|---|\n| x<br>y | [l](https://e.com) |");
+    assert_eq!(texts[2], "x y \u{254e} l (https://e.com)");
+    let col = texts[2].find('l').expect("link");
+    let link = style_at(&cell, 2, texts[2][..col].chars().count());
+    assert!(link.underline, "{link:?}");
+    let target = style_at(&cell, 2, texts[2][..col].chars().count() + 2);
+    assert!(target.dim && !target.underline, "{target:?}");
+    let (_, texts) = show("| a |\n|---|\n| <https://e.com> |");
+    assert_eq!(texts[2], "https://e.com");
+}
+
+#[test]
 fn centered_remainder_goes_right() {
     let (_, texts) = show("| xxxx | y |\n|:----:|---|\n| a | b |");
     assert!(texts.iter().any(|line| line.contains(" a  ")), "{texts:?}");

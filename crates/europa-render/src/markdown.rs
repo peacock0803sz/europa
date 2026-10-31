@@ -27,6 +27,8 @@ struct TableState {
     current_cell: Vec<StyledSpan>,
     /// Consecutive text of the current cell, joined before control removal.
     cell_text: String,
+    /// Target and text of the open link, for the target shown after it.
+    link: Option<(String, String)>,
     cell_styles: Vec<Style>,
     in_head: bool,
 }
@@ -285,6 +287,7 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
                     current_row: Vec::new(),
                     current_cell: Vec::new(),
                     cell_text: String::new(),
+                    link: None,
                     cell_styles: Vec::new(),
                     in_head: false,
                 });
@@ -350,9 +353,15 @@ fn handle_table_event(
                 alt.push_str(&body);
             } else {
                 state.cell_text.push_str(&body);
+                if let Some((_, text)) = state.link.as_mut() {
+                    text.push_str(&body);
+                }
             }
         }
         Event::Code(body) => {
+            if let Some((_, text)) = state.link.as_mut() {
+                text.push_str(&body);
+            }
             let bg = crate::code_bg(background);
             push_cell_span(
                 state,
@@ -367,6 +376,9 @@ fn handle_table_event(
         }
         Event::SoftBreak => {
             state.cell_text.push(' ');
+            if let Some((_, text)) = state.link.as_mut() {
+                text.push(' ');
+            }
         }
         Event::Start(Tag::Emphasis) => push_cell_style(state, |style| style.italic = true),
         Event::End(TagEnd::Emphasis) => {
@@ -382,11 +394,33 @@ fn handle_table_event(
         Event::End(TagEnd::Strikethrough) => {
             state.cell_styles.pop();
         }
-        Event::Start(Tag::Link { .. }) => {
+        Event::Start(Tag::Link { dest_url, .. }) => {
             push_cell_style(state, |style| style.underline = true);
+            state.link = Some((dest_url.into_string(), String::new()));
         }
         Event::End(TagEnd::Link) => {
             state.cell_styles.pop();
+            if let Some((target, text)) = state.link.take() {
+                if text != target {
+                    push_cell_span(
+                        state,
+                        StyledSpan {
+                            text: " ".to_owned(),
+                            style: Style::default(),
+                        },
+                    );
+                    push_cell_span(
+                        state,
+                        StyledSpan {
+                            text: crate::ansi::strip(&format!("({target})")),
+                            style: Style {
+                                dim: true,
+                                ..Style::default()
+                            },
+                        },
+                    );
+                }
+            }
         }
         Event::Start(Tag::Image { .. }) => {
             *image_alt = Some(String::new());
@@ -407,6 +441,9 @@ fn handle_table_event(
         Event::InlineHtml(body) => {
             let tag = tag_name(&body);
             match tag.as_str() {
+                // A cell holds one display line, so a break only separates
+                // the words around it.
+                "br" => state.cell_text.push(' '),
                 "b" | "strong" => {
                     if body.starts_with("</") {
                         state.cell_styles.pop();
