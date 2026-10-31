@@ -27,4 +27,6 @@ code cell, with the outputs in the form nbformat saves them:
   jq '{options: {width: 80}, outputs: [.cells[0].outputs[0]]}' target/europa-corpus/nbformat/tests/many_tracebacks.ipynb
   ```
 
+- `mime-select.json` is written by hand from the shapes of `IPython.display.Markdown`, `IPython.display.JSON` and `IPython.display.HTML`. Each `data` holds the keys those objects publish with a default repr as `text/plain`. The DataFrame entry imitates the `_repr_html_` table and the `__repr__` text table of pandas.
+
 - The other fixtures are written by hand.
