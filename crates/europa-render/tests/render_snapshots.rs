@@ -30,12 +30,27 @@ snapshot!(traceback_edge, "traceback-edge");
 snapshot!(carriage_return, "carriage-return");
 snapshot!(placeholders, "placeholders");
 snapshot!(notice_narrow, "notice-narrow");
+snapshot!(json_nested, "json-nested");
+snapshot!(json_scalars, "json-scalars");
+snapshot!(json_truncate, "json-truncate");
+snapshot!(html_sample, "html-sample");
+snapshot!(html_broken, "html-broken");
+snapshot!(mime_select, "mime-select");
 
 /// Fixtures whose output is longer than their limit, so that a notice stands
 /// in for lines and the text is not the whole output.
-const CUT: [&str; 3] = ["truncate-stream", "truncate-across", "notice-narrow"];
+const CUT: [&str; 4] = [
+    "truncate-stream",
+    "truncate-across",
+    "notice-narrow",
+    "json-truncate",
+];
 
-const FIXTURES: [&str; 13] = [
+/// Fixtures with rules or indents that change with width, so unwrapped text
+/// differs from wrapped text.
+const WIDTH_VARIES: [&str; 2] = ["html-sample", "mime-select"];
+
+const FIXTURES: [&str; 19] = [
     "ansi-styles",
     "escape-removal",
     "stdout-stderr-dark",
@@ -49,6 +64,12 @@ const FIXTURES: [&str; 13] = [
     "carriage-return",
     "placeholders",
     "notice-narrow",
+    "json-nested",
+    "json-scalars",
+    "json-truncate",
+    "html-sample",
+    "html-broken",
+    "mime-select",
 ];
 
 #[test]
@@ -68,7 +89,10 @@ fn no_fixture_leaves_a_control_character_in_a_line() {
 
 #[test]
 fn the_width_does_not_change_the_text_of_a_fixture_that_is_not_cut() {
-    for name in FIXTURES.into_iter().filter(|name| !CUT.contains(name)) {
+    for name in FIXTURES
+        .into_iter()
+        .filter(|name| !CUT.contains(name) && !WIDTH_VARIES.contains(name))
+    {
         let (options, outputs) = fixture(&format!("{name}.json"));
         let as_given = texts(&render_outputs(&outputs, &options)).concat();
         let wide = RenderOptions {
@@ -95,4 +119,74 @@ fn the_recorded_traceback_shows_the_name_the_value_the_file_and_the_line() {
             "{expected:?} is missing from {text}"
         );
     }
+}
+
+#[test]
+fn rich_fixtures_show_no_tag_shapes() {
+    for name in [
+        "json-nested",
+        "json-scalars",
+        "json-truncate",
+        "html-sample",
+        "html-broken",
+    ] {
+        let (options, outputs) = fixture(&format!("{name}.json"));
+        let cell = render_outputs(&outputs, &options);
+        for line in texts(&cell) {
+            let mut chars = line.chars();
+            while let Some(c) = chars.next() {
+                if c != '<' {
+                    continue;
+                }
+                match chars.next() {
+                    Some('a'..='z') | Some('A'..='Z') | Some('/') | Some('!') => {
+                        panic!("{name}: tag shape in {line:?}")
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn mime_select_shows_bodies_not_default_reprs() {
+    let (options, outputs) = fixture("mime-select.json");
+    let text = texts(&render_outputs(&outputs, &options)).join("\n");
+    assert!(!text.contains("IPython.core.display.JSON"), "{text}");
+    assert_eq!(
+        text.matches("IPython.core.display.HTML").count(),
+        1,
+        "{text}"
+    );
+    assert!(text.contains("\"a\""), "{text}");
+    assert!(text.contains('x'), "{text}");
+    assert!(text.contains("0  1"), "{text}");
+}
+
+#[test]
+fn rich_fixtures_keep_well_formed_spans() {
+    for name in [
+        "json-nested",
+        "json-scalars",
+        "json-truncate",
+        "html-sample",
+        "html-broken",
+        "mime-select",
+    ] {
+        let (options, outputs) = fixture(&format!("{name}.json"));
+        let cell = render_outputs(&outputs, &options);
+        common::assert_lines_are_well_formed(&cell);
+    }
+}
+
+#[test]
+fn rendering_does_not_change_what_is_saved_for_mime_select() {
+    let outputs_json = common::fixture_outputs_json("mime-select.json");
+    let notebook = common::notebook(&outputs_json);
+    let before = europa_core::serialize(&notebook);
+    let (options, outputs) = fixture("mime-select.json");
+    let _ = render_outputs(&outputs, &options);
+    let after = europa_core::serialize(&notebook);
+    assert_eq!(before, after);
 }

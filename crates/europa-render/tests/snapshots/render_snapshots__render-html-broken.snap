@@ -1,0 +1,19 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common :: draw(& cell, & options)"
+---
+{"width":40,"max_output_lines":200,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 40, height: 4 },
+    content: [
+        "ab                                      ",
+        "x                                       ",
+        "a                                       ",
+        "a < b                                   ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 1, y: 0, fg: Reset, bg: Reset, modifier: BOLD,
+        x: 2, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}

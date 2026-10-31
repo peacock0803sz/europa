@@ -1,0 +1,29 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common :: draw(& cell, & options)"
+---
+{"width":60,"max_output_lines":200,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 60, height: 12 },
+    content: [
+        "<IPython.core.display.Markdown object>                      ",
+        "{                                                           ",
+        "  "a": 1                                                    ",
+        "}                                                           ",
+        "x                                                           ",
+        "   a                                                        ",
+        "0  1                                                        ",
+        "1  2                                                        ",
+        "fallback                                                    ",
+        "<IPython.core.display.HTML object>                          ",
+        "plain text                                                  ",
+        "vega fallback                                               ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 2, y: 2, fg: Indexed(4), bg: Reset, modifier: BOLD,
+        x: 5, y: 2, fg: Reset, bg: Reset, modifier: NONE,
+        x: 7, y: 2, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 8, y: 2, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}

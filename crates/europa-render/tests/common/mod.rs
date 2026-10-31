@@ -155,6 +155,15 @@ struct Fixture {
     outputs: Box<serde_json::value::RawValue>,
 }
 
+/// The `outputs` array of the file `tests/fixtures/{name}` as nbformat saves it.
+pub fn fixture_outputs_json(name: &str) -> String {
+    let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{path}: {error}"));
+    let fixture: Fixture =
+        serde_json::from_str(&text).unwrap_or_else(|error| panic!("{path}: {error}"));
+    fixture.outputs.get().to_owned()
+}
+
 /// The rendering conditions and the outputs of the file `tests/fixtures/{name}`.
 pub fn fixture(name: &str) -> (RenderOptions, Vec<Output>) {
     let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
