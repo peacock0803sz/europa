@@ -1,0 +1,13 @@
+{
+  "options": { "width": 30 },
+  "outputs": [
+    {
+      "output_type": "display_data",
+      "data": {
+        "text/markdown": "a `x = 1` b\n\n```py\nif x:\n    y\n\nz\n```\n\n```\n01234567890123456789012345678901234\n```\n\n- a\n\n  ```\n  c\n  ```\n",
+        "text/plain": "<IPython.core.display.Markdown object>"
+      },
+      "metadata": {}
+    }
+  ]
+}
