@@ -105,6 +105,18 @@ fn markdown_is_shown_instead_of_the_default_repr() {
 }
 
 #[test]
+fn markdown_wins_over_json() {
+    let texts = show(r##"{"text/markdown": "# T", "application/json": {"a": 1}}"##);
+    assert_eq!(texts, ["T"]);
+}
+
+#[test]
+fn broken_markdown_falls_back_to_json() {
+    let texts = show(r#"{"text/markdown": 42, "application/json": {"a": 1}}"#);
+    assert!(texts.iter().any(|line| line.contains("\"a\"")), "{texts:?}");
+}
+
+#[test]
 fn markdown_arrays_join_their_parts() {
     let texts = show("{\"text/markdown\": [\"# A\\n\\n\", \"body\"]}");
     assert_eq!(texts, ["A", "", "body"]);
