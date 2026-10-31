@@ -1,0 +1,22 @@
+{
+  "options": { "width": 40 },
+  "outputs": [
+    {
+      "output_type": "display_data",
+      "data": {
+        "application/json": {
+          "a": { "b": [1, 2, { "c": null }] },
+          "big": 12345678901234567890,
+          "d": "text",
+          "empty_arr": [],
+          "empty_obj": {},
+          "esc": "tab\tand\u001b[1m",
+          "exp": 1e3,
+          "float": 1.0
+        },
+        "text/plain": "<IPython.core.display.JSON object>"
+      },
+      "metadata": {}
+    }
+  ]
+}
