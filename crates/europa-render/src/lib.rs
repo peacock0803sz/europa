@@ -365,12 +365,27 @@ fn select(data: &JsonMap) -> Selected<'_> {
         return Selected::Json(value);
     }
     if let Some(text) = text_of(data, "text/plain") {
+        if is_default_repr(&text) {
+            if let Some(html) = text_of(data, "text/html") {
+                return Selected::Html(html);
+            }
+            return Selected::Plain(text);
+        }
         return Selected::Plain(text);
     }
     if let Some(text) = text_of(data, "text/html") {
         return Selected::Html(text);
     }
     Selected::None
+}
+
+/// Whether plain text only names its object instead of showing it.
+fn is_default_repr(text: &str) -> bool {
+    let trimmed = text.trim();
+    !trimmed.contains('\n')
+        && !trimmed.contains('\r')
+        && trimmed.starts_with('<')
+        && trimmed.ends_with("object>")
 }
 
 /// The text of a MIME bundle, or a notice that names its types when it has no
