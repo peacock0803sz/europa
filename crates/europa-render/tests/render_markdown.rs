@@ -109,6 +109,13 @@ fn escape_sequences_vanish_without_styling() {
 }
 
 #[test]
+fn escape_sequences_vanish_from_table_cells() {
+    let (_, texts) = show("| h |\n|---|\n| a\u{1b}[31mb `c\u{1b}[1md` |");
+    assert_eq!(texts[2], "ab cd");
+    assert!(!texts.concat().contains('\u{1b}'), "{texts:?}");
+}
+
+#[test]
 fn carriage_returns_become_soft_breaks() {
     let (_, texts) = show("a\rb");
     assert_eq!(texts, ["a b"]);

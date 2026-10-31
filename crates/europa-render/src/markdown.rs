@@ -25,6 +25,8 @@ struct TableState {
     rows: Vec<Vec<Vec<StyledSpan>>>,
     current_row: Vec<Vec<StyledSpan>>,
     current_cell: Vec<StyledSpan>,
+    /// Consecutive text of the current cell, joined before control removal.
+    cell_text: String,
     cell_styles: Vec<Style>,
     in_head: bool,
 }
@@ -262,6 +264,7 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
                     rows: Vec::new(),
                     current_row: Vec::new(),
                     current_cell: Vec::new(),
+                    cell_text: String::new(),
                     cell_styles: Vec::new(),
                     in_head: false,
                 });
@@ -290,6 +293,9 @@ fn handle_table_event(
     let Some(state) = table.as_mut() else {
         return;
     };
+    if !matches!(event, Event::Text(_) | Event::SoftBreak) {
+        flush_cell_text(state);
+    }
     match event {
         Event::Start(Tag::TableHead) => {
             state.in_head = true;
@@ -323,7 +329,7 @@ fn handle_table_event(
             if let Some(alt) = image_alt.as_mut() {
                 alt.push_str(&body);
             } else {
-                push_cell_text(state, &body);
+                state.cell_text.push_str(&body);
             }
         }
         Event::Code(body) => {
@@ -331,7 +337,7 @@ fn handle_table_event(
             push_cell_span(
                 state,
                 StyledSpan {
-                    text: body.into_string(),
+                    text: crate::ansi::strip(&body),
                     style: Style {
                         bg: Some(bg),
                         ..cell_style(state)
@@ -340,7 +346,7 @@ fn handle_table_event(
             );
         }
         Event::SoftBreak => {
-            push_cell_text(state, " ");
+            state.cell_text.push(' ');
         }
         Event::Start(Tag::Emphasis) => push_cell_style(state, |style| style.italic = true),
         Event::End(TagEnd::Emphasis) => {
@@ -429,20 +435,28 @@ fn push_cell_style(state: &mut TableState, change: impl FnOnce(&mut Style)) {
     state.cell_styles.push(style);
 }
 
-/// Append text to the current table cell with its decoration.
-fn push_cell_text(state: &mut TableState, text: &str) {
+/// Append the collected text to the current table cell with its decoration,
+/// without escape sequences and control characters.
+fn flush_cell_text(state: &mut TableState) {
+    if state.cell_text.is_empty() {
+        return;
+    }
     let style = cell_style(state);
+    let text = crate::ansi::strip(&std::mem::take(&mut state.cell_text));
+    if text.is_empty() {
+        return;
+    }
     match state.current_cell.last_mut() {
-        Some(last) if last.style == style => last.text.push_str(text),
-        _ => state.current_cell.push(StyledSpan {
-            text: text.to_owned(),
-            style,
-        }),
+        Some(last) if last.style == style => last.text.push_str(&text),
+        _ => state.current_cell.push(StyledSpan { text, style }),
     }
 }
 
 /// Append one span to the current table cell, joining equal decorations.
 fn push_cell_span(state: &mut TableState, span: StyledSpan) {
+    if span.text.is_empty() {
+        return;
+    }
     match state.current_cell.last_mut() {
         Some(last) if last.style == span.style => last.text.push_str(&span.text),
         _ => state.current_cell.push(span),
