@@ -69,19 +69,20 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
             html_hidden = None;
             hidden_inlines = 0;
         }
+        // Links and images started inside hidden content show no target or
+        // notice. Their ends are dropped only for starts dropped here, even
+        // when the hidden element has closed before them.
+        if hidden_inlines > 0 && matches!(event, Event::End(TagEnd::Link | TagEnd::Image)) {
+            hidden_inlines -= 1;
+            continue;
+        }
         if html_hidden.is_some() {
             match event {
                 Event::Text(_) | Event::Code(_) | Event::SoftBreak | Event::HardBreak => {
                     continue;
                 }
-                // Links and images inside hidden content show no target or
-                // notice. Their ends are dropped only for starts dropped here.
                 Event::Start(Tag::Link { .. } | Tag::Image { .. }) => {
                     hidden_inlines += 1;
-                    continue;
-                }
-                Event::End(TagEnd::Link | TagEnd::Image) if hidden_inlines > 0 => {
-                    hidden_inlines -= 1;
                     continue;
                 }
                 _ => {}
@@ -375,15 +376,15 @@ fn handle_table_event(
         state.hidden = None;
         state.hidden_inlines = 0;
     }
+    if state.hidden_inlines > 0 && matches!(event, Event::End(TagEnd::Link | TagEnd::Image)) {
+        state.hidden_inlines -= 1;
+        return;
+    }
     if state.hidden.is_some() {
         match event {
             Event::Text(_) | Event::Code(_) | Event::SoftBreak | Event::HardBreak => return,
             Event::Start(Tag::Link { .. } | Tag::Image { .. }) => {
                 state.hidden_inlines += 1;
-                return;
-            }
-            Event::End(TagEnd::Link | TagEnd::Image) if state.hidden_inlines > 0 => {
-                state.hidden_inlines -= 1;
                 return;
             }
             _ => {}

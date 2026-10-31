@@ -462,6 +462,18 @@ fn links_and_images_inside_hidden_elements_leave_no_trace() {
 }
 
 #[test]
+fn links_starting_inside_hidden_elements_keep_outer_styles() {
+    let (cell, texts) = show("# T <script>[x </script> y](u) z\n\nnext");
+    assert_eq!(texts, ["T  y z", "", "next"]);
+    let heading = style_at(&cell, 0, 5);
+    assert!(heading.bold && heading.underline, "{heading:?}");
+    assert_eq!(style_at(&cell, 2, 0), Style::default());
+    let (cell, texts) = show("| h |\n|---|\n| **a <script>[x </script> y](u) z** |");
+    assert_eq!(texts[2], "a  y z");
+    assert!(style_at(&cell, 2, 5).bold);
+}
+
+#[test]
 fn inline_scripts_and_styles_stay_hidden() {
     for markdown in ["a <script>alert(1)</script> b", "a <style>p{}</style> b"] {
         let (_, texts) = show(markdown);
