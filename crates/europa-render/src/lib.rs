@@ -32,6 +32,7 @@
 #![deny(missing_docs)]
 
 mod ansi;
+mod blocks;
 mod wrap;
 
 use std::collections::VecDeque;
