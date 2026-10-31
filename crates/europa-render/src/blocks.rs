@@ -260,6 +260,36 @@ impl Blocks {
         (lead, hang)
     }
 
+    /// Append logical lines made elsewhere with current indentation.
+    ///
+    /// A pending gap inserts one blank line before the first incoming line.
+    /// Blank incoming lines without a fill become blanks of current levels.
+    pub(crate) fn lines(&mut self, incoming: Vec<Line>) {
+        self.flush();
+        if self.gap {
+            self.gap = false;
+            if !self.lines.is_empty() && !incoming.is_empty() {
+                self.push_empty();
+            }
+        }
+        for line in incoming {
+            if line.spans.is_empty() && line.fill.is_none() {
+                self.push_empty();
+                continue;
+            }
+            let (mut lead, mut hang) = self.body_indent();
+            extend_spans(&mut lead, &line.lead);
+            extend_spans(&mut hang, &line.hang);
+            self.lines.push(Line {
+                lead,
+                hang,
+                spans: line.spans,
+                fill: line.fill,
+            });
+            self.mark_lead_used();
+        }
+    }
+
     /// Mark every level as having emitted its first line.
     fn mark_lead_used(&mut self) {
         for level in &mut self.levels {
