@@ -265,7 +265,7 @@ fn images_become_notices() {
 
 #[test]
 fn tables_align_columns() {
-    let (cell, texts) = show("| name | value |\n|---|---|--:|\n| a | 1 |\n| bb | 22 |");
+    let (cell, texts) = show("| name | value |\n|---|--:|\n| a | 1 |\n| bb | 22 |");
     assert_eq!(
         texts,
         ["name \u{254e} value", "\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}", "a    \u{254e}     1", "bb   \u{254e}    22"]
@@ -309,7 +309,7 @@ fn wide_characters_align_separators() {
 
 #[test]
 fn narrow_tables_wrap_without_separators() {
-    let markdown = "| name | value |\n|---|---|--:|\n| a | 1 |\n| bb | 22 |";
+    let markdown = "| name | value |\n|---|--:|\n| a | 1 |\n| bb | 22 |";
     let (cell, texts) = show_with(markdown, &common::opts(10));
     assert!(!texts.concat().contains('\u{254c}'), "{texts:?}");
     for expected in ["name", "value", "a", "1", "bb", "22"] {

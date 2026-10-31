@@ -6,7 +6,8 @@
 use std::num::NonZeroU16;
 
 use europa_core::{Background, Style, StyledSpan};
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, Event, Options, Parser, Tag, TagEnd};
+use unicode_width::UnicodeWidthStr;
 
 use crate::blocks::{Blocks, Line};
 
@@ -15,6 +16,17 @@ struct ListContext {
     ordered: bool,
     next: u64,
     nested: bool,
+}
+
+/// Collecting table with its alignments and styled cells.
+struct TableState {
+    aligns: Vec<Alignment>,
+    header: Vec<Vec<StyledSpan>>,
+    rows: Vec<Vec<Vec<StyledSpan>>>,
+    current_row: Vec<Vec<StyledSpan>>,
+    current_cell: Vec<StyledSpan>,
+    cell_styles: Vec<Style>,
+    in_head: bool,
 }
 
 /// Render a Markdown body as logical lines.
@@ -27,8 +39,20 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
     let mut image_alt: Option<String> = None;
     let mut html_body: Option<String> = None;
     let mut html_tags: Vec<String> = Vec::new();
+    let mut table: Option<TableState> = None;
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
     for event in Parser::new_ext(text, options) {
+        if table.is_some() {
+            handle_table_event(
+                event,
+                &mut table,
+                &mut blocks,
+                &mut image_alt,
+                background,
+                width,
+            );
+            continue;
+        }
         // Consecutive text is joined before control removal, because a
         // sequence can span the boundary pulldown-cmark reports. Text inside
         // links is also collected for the target and the notice.
@@ -230,6 +254,18 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
             Event::HardBreak => {
                 blocks.end_line();
             }
+            Event::Start(Tag::Table(aligns)) => {
+                blocks.gap();
+                table = Some(TableState {
+                    aligns,
+                    header: Vec::new(),
+                    rows: Vec::new(),
+                    current_row: Vec::new(),
+                    current_cell: Vec::new(),
+                    cell_styles: Vec::new(),
+                    in_head: false,
+                });
+            }
             _ => {}
         }
     }
@@ -237,6 +273,339 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
         blocks.text(&buffered);
     }
     blocks.finish()
+}
+
+/// Handle one event inside a table.
+///
+/// Table cells collect styled spans instead of logical lines. The end of the
+/// table builds aligned lines and merges them into the surrounding blocks.
+fn handle_table_event(
+    event: Event,
+    table: &mut Option<TableState>,
+    blocks: &mut Blocks,
+    image_alt: &mut Option<String>,
+    background: Background,
+    _width: NonZeroU16,
+) {
+    let Some(state) = table.as_mut() else {
+        return;
+    };
+    match event {
+        Event::Start(Tag::TableHead) => {
+            state.in_head = true;
+            state.current_row.clear();
+        }
+        Event::End(TagEnd::TableHead) => {
+            state.header = std::mem::take(&mut state.current_row);
+            state.in_head = false;
+        }
+        Event::Start(Tag::TableRow) => {
+            state.in_head = false;
+            state.current_row.clear();
+        }
+        Event::End(TagEnd::TableRow) => {
+            let row = std::mem::take(&mut state.current_row);
+            state.rows.push(row);
+        }
+        Event::Start(Tag::TableCell) => {
+            state.current_cell.clear();
+        }
+        Event::End(TagEnd::TableCell) => {
+            let cell = std::mem::take(&mut state.current_cell);
+            if state.in_head
+                || state.header.is_empty()
+                || state.current_row.len() < state.header.len()
+            {
+                state.current_row.push(cell);
+            }
+        }
+        Event::Text(body) => {
+            if let Some(alt) = image_alt.as_mut() {
+                alt.push_str(&body);
+            } else {
+                push_cell_text(state, &body);
+            }
+        }
+        Event::Code(body) => {
+            let bg = crate::code_bg(background);
+            push_cell_span(
+                state,
+                StyledSpan {
+                    text: body.into_string(),
+                    style: Style {
+                        bg: Some(bg),
+                        ..cell_style(state)
+                    },
+                },
+            );
+        }
+        Event::SoftBreak => {
+            push_cell_text(state, " ");
+        }
+        Event::Start(Tag::Emphasis) => push_cell_style(state, |style| style.italic = true),
+        Event::End(TagEnd::Emphasis) => {
+            state.cell_styles.pop();
+        }
+        Event::Start(Tag::Strong) => push_cell_style(state, |style| style.bold = true),
+        Event::End(TagEnd::Strong) => {
+            state.cell_styles.pop();
+        }
+        Event::Start(Tag::Strikethrough) => {
+            push_cell_style(state, |style| style.strikethrough = true);
+        }
+        Event::End(TagEnd::Strikethrough) => {
+            state.cell_styles.pop();
+        }
+        Event::Start(Tag::Link { .. }) => {
+            push_cell_style(state, |style| style.underline = true);
+        }
+        Event::End(TagEnd::Link) => {
+            state.cell_styles.pop();
+        }
+        Event::Start(Tag::Image { .. }) => {
+            *image_alt = Some(String::new());
+        }
+        Event::End(TagEnd::Image) => {
+            let alt = image_alt.take().unwrap_or_default();
+            push_cell_span(
+                state,
+                StyledSpan {
+                    text: format!("[image: {alt}]"),
+                    style: Style {
+                        dim: true,
+                        ..Style::default()
+                    },
+                },
+            );
+        }
+        Event::InlineHtml(body) => {
+            let tag = tag_name(&body);
+            match tag.as_str() {
+                "b" | "strong" => {
+                    if body.starts_with("</") {
+                        state.cell_styles.pop();
+                    } else if !body.ends_with("/>") {
+                        push_cell_style(state, |style| style.bold = true);
+                    }
+                }
+                "i" | "em" => {
+                    if body.starts_with("</") {
+                        state.cell_styles.pop();
+                    } else if !body.ends_with("/>") {
+                        push_cell_style(state, |style| style.italic = true);
+                    }
+                }
+                "code" => {
+                    if body.starts_with("</") {
+                        state.cell_styles.pop();
+                    } else if !body.ends_with("/>") {
+                        let bg = crate::code_bg(background);
+                        push_cell_style(state, |style| style.bg = Some(bg));
+                    }
+                }
+                _ => {}
+            }
+        }
+        Event::End(TagEnd::Table) => {
+            let state = table.take().expect("table");
+            let width = blocks.inner_width();
+            blocks.lines(build_table(state, width));
+            blocks.gap();
+        }
+        Event::Start(Tag::Table(_)) => {}
+        _ => {}
+    }
+}
+
+/// Current cell style, defaulting to plain text.
+fn cell_style(state: &TableState) -> Style {
+    state.cell_styles.last().copied().unwrap_or_default()
+}
+
+/// Layer a decoration for the rest of the current table cell.
+fn push_cell_style(state: &mut TableState, change: impl FnOnce(&mut Style)) {
+    let mut style = cell_style(state);
+    change(&mut style);
+    state.cell_styles.push(style);
+}
+
+/// Append text to the current table cell with its decoration.
+fn push_cell_text(state: &mut TableState, text: &str) {
+    let style = cell_style(state);
+    match state.current_cell.last_mut() {
+        Some(last) if last.style == style => last.text.push_str(text),
+        _ => state.current_cell.push(StyledSpan {
+            text: text.to_owned(),
+            style,
+        }),
+    }
+}
+
+/// Append one span to the current table cell, joining equal decorations.
+fn push_cell_span(state: &mut TableState, span: StyledSpan) {
+    match state.current_cell.last_mut() {
+        Some(last) if last.style == span.style => last.text.push_str(&span.text),
+        _ => state.current_cell.push(span),
+    }
+}
+
+/// Build aligned logical lines from collected table cells.
+fn build_table(state: TableState, width: NonZeroU16) -> Vec<Line> {
+    let columns = state.header.len();
+    if columns == 0 {
+        return Vec::new();
+    }
+    let mut rows: Vec<Vec<Vec<StyledSpan>>> = Vec::new();
+    rows.push(state.header);
+    for mut row in state.rows {
+        row.truncate(columns);
+        while row.len() < columns {
+            row.push(Vec::new());
+        }
+        rows.push(row);
+    }
+    let mut widths = vec![0usize; columns];
+    for row in &rows {
+        for (index, cell) in row.iter().enumerate() {
+            let used: usize = cell
+                .iter()
+                .map(|span| UnicodeWidthStr::width(span.text.as_str()))
+                .sum();
+            widths[index] = widths[index].max(used);
+        }
+    }
+    let total: usize = widths.iter().sum::<usize>() + 3 * columns.saturating_sub(1);
+    let inner = usize::from(width.get());
+    if total > inner {
+        return rows.into_iter().map(join_cells).collect();
+    }
+    let mut lines = Vec::new();
+    for (number, row) in rows.into_iter().enumerate() {
+        let header = number == 0;
+        lines.push(padded_row(row, &state.aligns, &widths, header));
+        if header {
+            lines.push(separator_row(total));
+        }
+    }
+    lines
+}
+
+/// Join one table row with separators and no padding.
+fn join_cells(cells: Vec<Vec<StyledSpan>>) -> Line {
+    let mut spans = Vec::new();
+    for (index, cell) in cells.into_iter().enumerate() {
+        if index > 0 {
+            spans.push(StyledSpan {
+                text: " \u{254e} ".to_owned(),
+                style: Style::default(),
+            });
+        }
+        spans.extend(cell);
+    }
+    Line {
+        lead: Vec::new(),
+        hang: Vec::new(),
+        spans,
+        fill: None,
+    }
+}
+
+/// Pad one table row to its column widths.
+fn padded_row(
+    cells: Vec<Vec<StyledSpan>>,
+    aligns: &[Alignment],
+    widths: &[usize],
+    header: bool,
+) -> Line {
+    let mut spans = Vec::new();
+    for (index, cell) in cells.into_iter().enumerate() {
+        if index > 0 {
+            spans.push(StyledSpan {
+                text: " \u{254e} ".to_owned(),
+                style: Style::default(),
+            });
+        }
+        let used: usize = cell
+            .iter()
+            .map(|span| UnicodeWidthStr::width(span.text.as_str()))
+            .sum();
+        let padded = pad_cell(
+            cell,
+            widths[index].saturating_sub(used),
+            aligns.get(index),
+            header,
+        );
+        spans.extend(padded);
+    }
+    if header {
+        for span in &mut spans {
+            span.style.bold = true;
+        }
+    }
+    Line {
+        lead: Vec::new(),
+        hang: Vec::new(),
+        spans,
+        fill: None,
+    }
+}
+
+/// Pad one cell to its column width without styling the blanks.
+fn pad_cell(
+    cell: Vec<StyledSpan>,
+    missing: usize,
+    align: Option<&Alignment>,
+    header: bool,
+) -> Vec<StyledSpan> {
+    if missing == 0 {
+        return cell;
+    }
+    let style = if header {
+        Style {
+            bold: true,
+            ..Style::default()
+        }
+    } else {
+        Style::default()
+    };
+    let blank = |count: usize| StyledSpan {
+        text: " ".repeat(count),
+        style,
+    };
+    let mut padded = Vec::new();
+    match align {
+        Some(Alignment::Right) => {
+            padded.push(blank(missing));
+            padded.extend(cell);
+        }
+        Some(Alignment::Center) => {
+            let left = missing / 2;
+            padded.push(blank(left));
+            padded.extend(cell);
+            padded.push(blank(missing - left));
+        }
+        _ => {
+            padded.extend(cell);
+            padded.push(blank(missing));
+        }
+    }
+    padded
+}
+
+/// Thin rule under the header row.
+fn separator_row(total: usize) -> Line {
+    Line {
+        lead: Vec::new(),
+        hang: Vec::new(),
+        spans: vec![StyledSpan {
+            text: "\u{254c}".repeat(total),
+            style: Style {
+                dim: true,
+                ..Style::default()
+            },
+        }],
+        fill: None,
+    }
 }
 
 /// Interpret one inline HTML tag for emphasis and line breaks.
