@@ -33,6 +33,7 @@
 
 mod ansi;
 mod blocks;
+mod html;
 mod json;
 mod wrap;
 
