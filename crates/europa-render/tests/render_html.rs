@@ -1,6 +1,6 @@
 mod common;
 
-use europa_core::{Background, Color, Style};
+use europa_core::{Color, Style};
 use europa_render::render_outputs;
 
 fn render(data: &str) -> (europa_core::RenderedCell, Vec<String>) {
@@ -269,20 +269,29 @@ fn broken_html_still_renders_text() {
         (r#"{"text/html": "<p>a<b>b"}"#, "b"),
         (r#"{"text/html": "<div><p>x"}"#, "x"),
         (r#"{"text/html": "<table><tr><td>a"}"#, "a"),
-        (r#"{"text/html": "<b"}"#, ""),
         (r#"{"text/html": "a < b"}"#, "a < b"),
     ] {
         let cell = render_outputs(&[common::display(data)], &common::opts(80));
         common::assert_lines_are_well_formed(&cell);
         let texts = common::texts(&cell);
-        if expected.is_empty() {
-            continue;
-        }
         assert!(
             texts.iter().any(|line| line.contains(expected)),
             "{data} -> {texts:?}"
         );
     }
+    // An unclosed tag is dropped, so nothing is left but the notice.
+    let (_, texts) = render(r#"{"text/html": "<b"}"#);
+    assert_eq!(texts, ["[text/html]"]);
+}
+
+#[test]
+fn tag_names_ignore_case() {
+    let (_, texts) = render(r#"{"text/html": "<SCRIPT>alert(1)</SCRIPT>x"}"#);
+    assert_eq!(texts, ["x"]);
+    let (_, texts) = render(r#"{"text/html": "<P>a</P><P>b</P>"}"#);
+    assert_eq!(texts, ["a", "", "b"]);
+    let (_, texts) = render(r#"{"text/html": "<IMG ALT=x>"}"#);
+    assert_eq!(texts, ["[img: x]"]);
 }
 
 #[test]
@@ -291,9 +300,4 @@ fn arrays_join_and_broken_plain_falls_back_to_html() {
     assert_eq!(texts, ["a", "", "b"]);
     let (_, texts) = render(r#"{"text/html": "<p>y</p>", "text/plain": 1}"#);
     assert_eq!(texts, ["y"]);
-}
-
-#[test]
-fn background_is_kept_for_dark_and_light() {
-    let _ = Background::Dark;
 }

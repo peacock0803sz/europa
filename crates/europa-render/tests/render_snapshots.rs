@@ -226,8 +226,8 @@ fn rendering_does_not_change_what_is_saved_for_mime_select() {
     let outputs_json = common::fixture_outputs_json("mime-select.json");
     let notebook = common::notebook(&outputs_json);
     let before = europa_core::serialize(&notebook);
-    let (options, outputs) = fixture("mime-select.json");
-    let _ = render_outputs(&outputs, &options);
+    let (options, _) = fixture("mime-select.json");
+    let _ = render_outputs(common::cell_outputs(&notebook), &options);
     let after = europa_core::serialize(&notebook);
     assert_eq!(before, after);
 }
