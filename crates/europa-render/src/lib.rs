@@ -115,7 +115,7 @@ pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCe
         Background::Light => LIGHT_FILL,
     };
     let mut collector = Collector::new(options);
-    for unit in units(outputs) {
+    for unit in units(outputs, options) {
         match unit {
             Unit::Blocks(lines) => {
                 for line in &lines {
@@ -299,7 +299,7 @@ fn normalize(spans: Vec<StyledSpan>) -> Vec<StyledSpan> {
 }
 
 /// Group the outputs into the units that are rendered as a whole.
-fn units(outputs: &[Output]) -> Vec<Unit> {
+fn units(outputs: &[Output], options: &RenderOptions) -> Vec<Unit> {
     let mut units: Vec<Unit> = Vec::new();
     let mut stream: Option<&str> = None;
     for output in outputs {
@@ -322,8 +322,8 @@ fn units(outputs: &[Output]) -> Vec<Unit> {
                 }
                 stream = Some(&output.name);
             }
-            Output::DisplayData(display) => units.push(bundle_unit(&display.data)),
-            Output::ExecuteResult(result) => units.push(bundle_unit(&result.data)),
+            Output::DisplayData(display) => units.push(bundle_unit(&display.data, options)),
+            Output::ExecuteResult(result) => units.push(bundle_unit(&result.data, options)),
             Output::Error(error) => units.push(Unit::Body {
                 text: traceback_text(error),
                 fill: true,
@@ -353,6 +353,8 @@ enum Selected<'a> {
     Json(&'a JsonValue),
     /// Plain text drawn through the text pipeline.
     Plain(String),
+    /// HTML drawn as logical lines.
+    Html(String),
     /// Nothing to draw, named by its types instead.
     None,
 }
@@ -365,15 +367,21 @@ fn select(data: &JsonMap) -> Selected<'_> {
     if let Some(text) = text_of(data, "text/plain") {
         return Selected::Plain(text);
     }
+    if let Some(text) = text_of(data, "text/html") {
+        return Selected::Html(text);
+    }
     Selected::None
 }
 
 /// The text of a MIME bundle, or a notice that names its types when it has no
 /// text to show.
-fn bundle_unit(data: &JsonMap) -> Unit {
+fn bundle_unit(data: &JsonMap, options: &RenderOptions) -> Unit {
     match select(data) {
         Selected::Json(value) => Unit::Blocks(json::render(value)),
         Selected::Plain(text) => Unit::Body { text, fill: false },
+        Selected::Html(text) => {
+            Unit::Blocks(html::render(&text, options.width, options.background))
+        }
         Selected::None if data.is_empty() => Unit::Notice("[no data]".to_owned()),
         Selected::None => {
             let types: Vec<&str> = data.keys().map(String::as_str).collect();

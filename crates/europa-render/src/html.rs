@@ -335,7 +335,6 @@ enum Kind {
 ///
 /// Blocks share their gaps so nested `div` elements add no blank lines.
 /// Unclosed elements close at the end of the body.
-#[allow(dead_code)]
 pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> Vec<Line> {
     let tokens = tokenize(text);
     let mut renderer = Renderer {
@@ -605,7 +604,7 @@ impl Renderer {
                 }
                 if separated {
                     self.pending = false;
-                    self.blocks.styled_text(" \u{250e} ", Style::default());
+                    self.blocks.styled_text(" \u{254e} ", Style::default());
                     self.has_content = true;
                 }
                 if bold {
@@ -645,6 +644,7 @@ impl Renderer {
                 self.do_gap();
             }
             "b" | "strong" => {
+                self.flush_pending();
                 self.blocks.push_style(|s| s.bold = true);
                 self.open.push(Frame {
                     name,
@@ -652,6 +652,7 @@ impl Renderer {
                 });
             }
             "i" | "em" => {
+                self.flush_pending();
                 self.blocks.push_style(|s| s.italic = true);
                 self.open.push(Frame {
                     name,
@@ -659,6 +660,7 @@ impl Renderer {
                 });
             }
             "code" if !self.pre => {
+                self.flush_pending();
                 let bg = crate::code_bg(self.background);
                 self.blocks.push_style(|s| s.bg = Some(bg));
                 self.open.push(Frame {
@@ -724,9 +726,17 @@ impl Renderer {
         }
     }
 
+    fn flush_pending(&mut self) {
+        if self.pending && self.has_content {
+            self.blocks.text(" ");
+        }
+        self.pending = false;
+    }
+
     fn cleanup(&mut self, frame: Frame) {
         match frame.kind {
             Kind::Style => {
+                self.flush_pending();
                 self.blocks.pop_style();
             }
             Kind::Quote | Kind::Item => {
@@ -748,6 +758,7 @@ impl Renderer {
             }
             Kind::Cell { bold } => {
                 if bold {
+                    self.flush_pending();
                     self.blocks.pop_style();
                 }
                 for frame in self.open.iter_mut().rev() {
