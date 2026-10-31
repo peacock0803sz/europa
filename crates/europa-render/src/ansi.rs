@@ -17,7 +17,6 @@ type Input<'a> = Peekable<Chars<'a>>;
 /// Characters from Markdown and HTML keep the styling their converter gives
 /// them, so even SGR sequences are dropped rather than read as styling.
 /// Newlines and tabs are kept and every other control character is dropped.
-#[allow(dead_code)]
 pub(crate) fn strip(text: &str) -> String {
     let mut kept = String::new();
     let mut chars = text.chars().peekable();

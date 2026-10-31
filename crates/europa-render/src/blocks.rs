@@ -40,7 +40,6 @@ struct Level {
 }
 
 /// Assembly of logical lines with shared indentation and styling.
-#[allow(dead_code)]
 pub(crate) struct Blocks {
     /// Finished logical lines.
     lines: Vec<Line>,
@@ -58,10 +57,9 @@ pub(crate) struct Blocks {
     width: NonZeroU16,
 }
 
-#[allow(dead_code)]
 impl Blocks {
     /// Empty assembly for an area `width` columns wide.
-    fn new(width: NonZeroU16) -> Self {
+    pub(crate) fn new(width: NonZeroU16) -> Self {
         Self {
             lines: Vec::new(),
             current: Vec::new(),
@@ -77,13 +75,13 @@ impl Blocks {
     ///
     /// Newlines end the current logical line, so code blocks and `pre`
     /// elements keep their line breaks.
-    fn text(&mut self, text: &str) {
+    pub(crate) fn text(&mut self, text: &str) {
         let style = self.styles.last().copied().unwrap_or_default();
         self.append(&crate::ansi::strip(text), style);
     }
 
     /// Append `text` with the given decoration.
-    fn styled_text(&mut self, text: &str, style: Style) {
+    pub(crate) fn styled_text(&mut self, text: &str, style: Style) {
         self.append(&crate::ansi::strip(text), style);
     }
 
@@ -107,19 +105,19 @@ impl Blocks {
     }
 
     /// Layer a decoration derived from the current one.
-    fn push_style(&mut self, f: impl FnOnce(&mut Style)) {
+    pub(crate) fn push_style(&mut self, f: impl FnOnce(&mut Style)) {
         let mut style = self.styles.last().copied().unwrap_or_default();
         f(&mut style);
         self.styles.push(style);
     }
 
     /// Remove the most recent decoration layer.
-    fn pop_style(&mut self) {
+    pub(crate) fn pop_style(&mut self) {
         self.styles.pop();
     }
 
     /// End the current logical line.
-    fn end_line(&mut self) {
+    pub(crate) fn end_line(&mut self) {
         if self.gap {
             self.gap = false;
             if !self.lines.is_empty() {
@@ -153,26 +151,26 @@ impl Blocks {
     }
 
     /// End the current line when it holds text.
-    fn flush(&mut self) {
+    pub(crate) fn flush(&mut self) {
         if !self.current.is_empty() {
             self.end_line();
         }
     }
 
     /// Ask for one blank line before the next content.
-    fn gap(&mut self) {
+    pub(crate) fn gap(&mut self) {
         self.flush();
         self.gap = true;
     }
 
     /// Drop a pending blank line request.
-    fn no_gap(&mut self) {
+    pub(crate) fn no_gap(&mut self) {
         self.flush();
         self.gap = false;
     }
 
     /// Enter an item with `marker` as its bullet or number.
-    fn push_item(&mut self, marker: Vec<StyledSpan>) {
+    pub(crate) fn push_item(&mut self, marker: Vec<StyledSpan>) {
         let width: usize = marker
             .iter()
             .map(|span| UnicodeWidthStr::width(span.text.as_str()))
@@ -190,7 +188,7 @@ impl Blocks {
     }
 
     /// Enter a quote level.
-    fn push_quote(&mut self) {
+    pub(crate) fn push_quote(&mut self) {
         let marker = StyledSpan {
             text: "╏ ".to_owned(),
             style: Style {
@@ -207,18 +205,18 @@ impl Blocks {
     }
 
     /// Leave the innermost item or quote level.
-    fn pop_level(&mut self) {
+    pub(crate) fn pop_level(&mut self) {
         self.flush();
         self.levels.pop();
     }
 
     /// One plus the number of enclosing item levels.
-    fn depth(&self) -> usize {
+    pub(crate) fn depth(&self) -> usize {
         self.levels.iter().filter(|level| level.item).count() + 1
     }
 
     /// Width left for content after the current indentation.
-    fn inner_width(&self) -> NonZeroU16 {
+    pub(crate) fn inner_width(&self) -> NonZeroU16 {
         let used: usize = self
             .levels
             .iter()
@@ -231,12 +229,12 @@ impl Blocks {
     }
 
     /// Set the background for code lines.
-    fn set_fill(&mut self, fill: Option<Color>) {
+    pub(crate) fn set_fill(&mut self, fill: Option<Color>) {
         self.fill = fill;
     }
 
     /// Finish the assembly and return the logical lines.
-    fn finish(mut self) -> Vec<Line> {
+    pub(crate) fn finish(mut self) -> Vec<Line> {
         self.flush();
         while self.lines.first().is_some_and(is_empty) {
             self.lines.remove(0);

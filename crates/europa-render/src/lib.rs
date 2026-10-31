@@ -54,14 +54,11 @@ const LIGHT_FILL: Color = Color::Indexed(224);
 
 // Grey shades with a hue kept away from the red fills, so code blocks read
 // apart from stderr and error outputs.
-#[allow(dead_code)]
 const DARK_CODE: Color = Color::Indexed(236);
-#[allow(dead_code)]
 const LIGHT_CODE: Color = Color::Indexed(254);
 
 /// Background of code lines for the given terminal background.
-#[allow(dead_code)]
-fn code_bg(background: Background) -> Color {
+pub(crate) fn code_bg(background: Background) -> Color {
     match background {
         Background::Dark => DARK_CODE,
         Background::Light => LIGHT_CODE,
