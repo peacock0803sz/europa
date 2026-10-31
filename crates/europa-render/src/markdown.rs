@@ -41,6 +41,7 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
     let mut image_alt: Option<String> = None;
     let mut html_body: Option<String> = None;
     let mut html_tags: Vec<String> = Vec::new();
+    let mut html_hidden: Option<String> = None;
     let mut table: Option<TableState> = None;
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
     for event in Parser::new_ext(text, options) {
@@ -53,6 +54,14 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
                 background,
                 width,
             );
+            continue;
+        }
+        if html_hidden.is_some()
+            && matches!(
+                event,
+                Event::Text(_) | Event::Code(_) | Event::SoftBreak | Event::HardBreak
+            )
+        {
             continue;
         }
         // Consecutive text is joined before control removal, because a
@@ -78,7 +87,11 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
         }
         match event {
             Event::Start(Tag::Paragraph) => blocks.gap(),
-            Event::End(TagEnd::Paragraph) => blocks.gap(),
+            // Inline HTML ends with its block, even when it never closes.
+            Event::End(TagEnd::Paragraph) => {
+                html_hidden = None;
+                blocks.gap();
+            }
             Event::Start(Tag::Heading { level, .. }) => {
                 blocks.gap();
                 blocks.push_style(|style| match level {
@@ -96,6 +109,7 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
                 });
             }
             Event::End(TagEnd::Heading(..)) => {
+                html_hidden = None;
                 blocks.pop_style();
                 blocks.gap();
             }
@@ -236,7 +250,13 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
                     blocks.lines(crate::html::render(&collected, width, background));
                 }
             }
-            Event::InlineHtml(body) => inline_html(&mut blocks, &mut html_tags, &body, background),
+            Event::InlineHtml(body) => inline_html(
+                &mut blocks,
+                &mut html_tags,
+                &mut html_hidden,
+                &body,
+                background,
+            ),
             Event::Text(_) => {}
             Event::Code(body) => {
                 let bg = crate::code_bg(background);
@@ -634,9 +654,45 @@ fn separator_row(total: usize) -> Line {
     }
 }
 
-/// Interpret one inline HTML tag for emphasis and line breaks.
-fn inline_html(blocks: &mut Blocks, stack: &mut Vec<String>, body: &str, background: Background) {
+/// Interpret one inline HTML tag for emphasis, line breaks and replaced
+/// elements.
+///
+/// `hidden` names the open element whose content is left out, such as a
+/// `script` or an `svg`, until its end tag arrives.
+fn inline_html(
+    blocks: &mut Blocks,
+    stack: &mut Vec<String>,
+    hidden: &mut Option<String>,
+    body: &str,
+    background: Background,
+) {
     let tag = tag_name(body);
+    let closing = body.starts_with("</");
+    if let Some(name) = hidden.as_ref() {
+        if closing && *name == tag {
+            *hidden = None;
+        }
+        return;
+    }
+    if !closing {
+        if (tag == "script" || tag == "style") && !body.ends_with("/>") {
+            *hidden = Some(tag);
+            return;
+        }
+        if let Some((notice, holds)) = crate::html::replaced_start(body) {
+            blocks.styled_text(
+                &notice,
+                Style {
+                    dim: true,
+                    ..Style::default()
+                },
+            );
+            if holds {
+                *hidden = Some(tag);
+            }
+            return;
+        }
+    }
     match tag.as_str() {
         "br" => {
             blocks.end_line();

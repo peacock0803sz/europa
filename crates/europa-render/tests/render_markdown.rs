@@ -373,6 +373,31 @@ fn raw_html_follows_html_rules() {
 }
 
 #[test]
+fn inline_replaced_elements_become_notices() {
+    let (cell, texts) = show("see <img alt=\"plot\"> here");
+    assert_eq!(texts, ["see [img: plot] here"]);
+    assert!(style_at(&cell, 0, 4).dim);
+    let (_, texts) = show("see <svg><text>x</text></svg> here");
+    assert_eq!(texts, ["see [svg] here"]);
+    for tag in ["iframe", "video", "audio", "canvas", "object"] {
+        let (_, texts) = show(&format!("a <{tag}>x</{tag}> b"));
+        assert_eq!(texts, [format!("a [{tag}] b")], "{tag}");
+    }
+    let (_, texts) = show("a <embed src=x> b");
+    assert_eq!(texts, ["a [embed] b"]);
+    let (_, texts) = show("a <video>x\n\nnext");
+    assert_eq!(texts, ["a [video]", "", "next"]);
+}
+
+#[test]
+fn inline_scripts_and_styles_stay_hidden() {
+    for markdown in ["a <script>alert(1)</script> b", "a <style>p{}</style> b"] {
+        let (_, texts) = show(markdown);
+        assert_eq!(texts, ["a  b"], "{markdown}");
+    }
+}
+
+#[test]
 fn rules_fill_the_width() {
     let (cell, texts) = show_with("---", &common::opts(20));
     assert_eq!(texts, ["\u{254c}".repeat(20)]);

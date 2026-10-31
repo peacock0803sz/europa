@@ -853,6 +853,24 @@ fn is_replaced(name: &str) -> bool {
     )
 }
 
+/// Notice for one start tag of a replaced element, and whether the element
+/// holds content to hide until its end tag.
+///
+/// Markdown reports inline HTML one tag at a time, so it cannot go through
+/// [`render`] as a whole.
+pub(crate) fn replaced_start(tag: &str) -> Option<(String, bool)> {
+    let chars: Vec<char> = tag.chars().collect();
+    if !chars.get(1).is_some_and(char::is_ascii_alphabetic) {
+        return None;
+    }
+    let (name, alt, self_closing, _) = read_start(&chars, 0)?;
+    if !is_replaced(&name) {
+        return None;
+    }
+    let holds = !(name == "img" || name == "embed" || self_closing);
+    Some((replaced_notice(&name, alt), holds))
+}
+
 /// Notice text for a replaced element.
 fn replaced_notice(name: &str, alt: Option<String>) -> String {
     if name == "img" {
