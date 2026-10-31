@@ -56,7 +56,7 @@ enum Unit {
         /// Whether the lines get the fill that marks stderr.
         fill: bool,
     },
-    /// A line that stands for an output that cannot be shown.
+    /// Text that stands for an output that cannot be shown.
     Notice(String),
 }
 
@@ -67,7 +67,9 @@ enum Unit {
 /// 1. Consecutive streams of one name, the `text/plain` of a display data or
 ///    execute result, and the traceback of an error each become a unit with
 ///    a body. An output with no text to show, such as an image or an unknown
-///    kind, becomes a one-line notice instead.
+///    kind, becomes a notice that names what it holds instead. A notice is
+///    wrapped like other text, so it can take more than one line when it is
+///    wider than [`RenderOptions::width`].
 /// 2. In the body of a unit, `\r` is resolved the way it is for a received
 ///    stream, so that a progress bar leaves only its last state. Notices skip
 ///    this step.
