@@ -12,6 +12,28 @@ use europa_core::{Color, Style, StyledSpan};
 
 type Input<'a> = Peekable<Chars<'a>>;
 
+/// Keep only the visible characters of `text`, dropping escape sequences.
+///
+/// Characters from Markdown and HTML keep the styling their converter gives
+/// them, so even SGR sequences are dropped rather than read as styling.
+/// Newlines and tabs are kept and every other control character is dropped.
+#[allow(dead_code)]
+pub(crate) fn strip(text: &str) -> String {
+    let mut kept = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\u{1b}' => {
+                let mut ignored = Style::default();
+                escape(&mut chars, &mut ignored);
+            }
+            c if c.is_control() && c != '\n' && c != '\t' => {}
+            c => kept.push(c),
+        }
+    }
+    kept
+}
+
 /// Split `body` at its newlines into logical lines, each as runs of one style.
 ///
 /// The style starts plain and carries over from one line to the next. A line
