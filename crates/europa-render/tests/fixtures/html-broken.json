@@ -1,0 +1,30 @@
+{
+  "options": { "width": 40 },
+  "outputs": [
+    {
+      "output_type": "display_data",
+      "data": { "text/html": "<p>a<b>b" },
+      "metadata": {}
+    },
+    {
+      "output_type": "display_data",
+      "data": { "text/html": "<div><p>x" },
+      "metadata": {}
+    },
+    {
+      "output_type": "display_data",
+      "data": { "text/html": "<table><tr><td>a" },
+      "metadata": {}
+    },
+    {
+      "output_type": "display_data",
+      "data": { "text/html": "<b" },
+      "metadata": {}
+    },
+    {
+      "output_type": "display_data",
+      "data": { "text/html": "a < b" },
+      "metadata": {}
+    }
+  ]
+}
