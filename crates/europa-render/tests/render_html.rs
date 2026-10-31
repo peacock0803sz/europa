@@ -130,6 +130,17 @@ fn pre_keeps_line_breaks_and_fill() {
 }
 
 #[test]
+fn pre_drops_one_newline_after_its_start_tag() {
+    let (cell, texts) = render(r#"{"text/html": "<pre>\ncode\n</pre>"}"#);
+    assert_eq!(texts, ["code"]);
+    assert_eq!(cell.lines.len(), 1);
+    let (_, texts) = render(r#"{"text/html": "<pre>\n\ncode</pre>"}"#);
+    assert_eq!(texts, ["", "code"]);
+    let (_, texts) = render(r#"{"text/html": "<pre><b>a</b>\nb</pre>"}"#);
+    assert_eq!(texts, ["a", "b"]);
+}
+
+#[test]
 fn headings_emphasis_and_code_have_styles() {
     let (cell, texts) = render(r#"{"text/html": "<h1>T</h1>"}"#);
     assert_eq!(texts, ["T"]);

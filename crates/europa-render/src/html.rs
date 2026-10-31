@@ -342,6 +342,7 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
         pending: false,
         has_content: false,
         pre: false,
+        pre_start: false,
         head_depth: 0,
         open: Vec::new(),
         background,
@@ -388,6 +389,8 @@ struct Renderer {
     pending: bool,
     has_content: bool,
     pre: bool,
+    /// Whether nothing came yet after the start tag of `pre`.
+    pre_start: bool,
     head_depth: usize,
     open: Vec<Frame>,
     background: Background,
@@ -400,8 +403,15 @@ impl Renderer {
             return;
         }
         if self.pre {
+            // Browsers drop one newline right after `<pre>`, which is there
+            // only to keep the source readable.
+            let body = if std::mem::take(&mut self.pre_start) {
+                body.strip_prefix('\n').unwrap_or(&body)
+            } else {
+                &body
+            };
             if !body.is_empty() {
-                self.blocks.text(&body);
+                self.blocks.text(body);
                 self.has_content = !body.ends_with('\n');
                 self.pending = false;
             }
@@ -443,6 +453,7 @@ impl Renderer {
         index: usize,
     ) -> Skip {
         self.jump_to = None;
+        self.pre_start = false;
         if self.head_depth > 0 {
             if name == "head" && !self_closing {
                 self.head_depth += 1;
@@ -567,6 +578,7 @@ impl Renderer {
                 self.do_gap();
                 self.blocks.set_fill(Some(crate::code_bg(self.background)));
                 self.pre = true;
+                self.pre_start = true;
                 self.has_content = false;
                 self.pending = false;
                 self.open.push(Frame {
@@ -678,6 +690,7 @@ impl Renderer {
     }
 
     fn end(&mut self, name: String) {
+        self.pre_start = false;
         if self.head_depth > 0 {
             if name == "head" {
                 self.head_depth -= 1;
