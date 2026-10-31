@@ -390,12 +390,23 @@ fn select(data: &JsonMap) -> Selected<'_> {
 }
 
 /// Whether plain text only names its object instead of showing it.
+///
+/// That is the repr of Python, `<module.Class object>`, or the one IPython
+/// prints instead, `<module.Class at 0x7f...>`.
 fn is_default_repr(text: &str) -> bool {
     let trimmed = text.trim();
-    !trimmed.contains('\n')
-        && !trimmed.contains('\r')
-        && trimmed.starts_with('<')
-        && trimmed.ends_with("object>")
+    if trimmed.contains('\n') || trimmed.contains('\r') || !trimmed.starts_with('<') {
+        return false;
+    }
+    if trimmed.ends_with("object>") {
+        return true;
+    }
+    trimmed
+        .strip_suffix('>')
+        .and_then(|rest| rest.rsplit_once(" at 0x"))
+        .is_some_and(|(_, address)| {
+            !address.is_empty() && address.chars().all(|c| c.is_ascii_hexdigit())
+        })
 }
 
 /// The text of a MIME bundle, or a notice that names its types when it has no

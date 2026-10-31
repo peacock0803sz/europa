@@ -39,9 +39,27 @@ fn surrounding_blanks_do_not_hide_a_default_repr() {
 }
 
 #[test]
+fn a_pretty_default_repr_gives_way_to_html() {
+    for plain in [
+        "<pandas.io.formats.style.Styler at 0x7f3a2c1b5e50>",
+        "<folium.folium.Map at 0x10a2b3c4d>",
+    ] {
+        let data = format!(r#"{{"text/html": "<p>x</p>", "text/plain": "{plain}"}}"#);
+        assert_eq!(show(&data), ["x"], "{plain}");
+    }
+}
+
+#[test]
 fn other_reprs_stay_with_plain_text() {
-    let texts = show(r#"{"text/html": "<p>x</p>", "text/plain": "<__main__.Foo at 0x7f00>"}"#);
-    assert!(texts.concat().contains("Foo"), "{texts:?}");
+    for plain in [
+        "<Foo: 1>",
+        "<Foo at 0x>",
+        "<Foo at 0xzz>",
+        "<Foo at 0x7f> x",
+    ] {
+        let data = format!(r#"{{"text/html": "<p>x</p>", "text/plain": "{plain}"}}"#);
+        assert_eq!(show(&data), [plain], "{plain}");
+    }
     let two_lines = show(r#"{"text/html": "<p>x</p>", "text/plain": "<a object>\n<a object>"}"#);
     assert!(
         two_lines.iter().any(|line| line.contains("<a object>"),),
