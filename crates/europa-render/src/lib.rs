@@ -87,10 +87,10 @@ enum Unit {
 ///
 /// 1. Consecutive streams of one name, the chosen MIME of a display data or
 ///    execute result, and the traceback of an error each become a unit with
-///    a body. The choice is `application/json`, then `text/plain`, then
-///    `text/html`, skipping a `text/plain` that only names its object while
-///    `text/html` is usable. JSON and HTML bodies become indented logical
-///    lines without `\r` or ANSI handling. An output with nothing to draw,
+///    a body. The choice is `text/markdown`, then `application/json`, then
+///    `text/plain`, then `text/html`, skipping a `text/plain` that only names
+///    its object while `text/html` is usable. Markdown, JSON and HTML bodies
+///    become indented logical lines without `\r` or ANSI handling. An output with nothing to draw,
 ///    such as an image or an unknown kind, becomes a notice that names what
 ///    it holds instead. A notice is wrapped like other text, so it can take
 ///    more than one line when it is wider than [`RenderOptions::width`].
