@@ -177,6 +177,13 @@ fn a_value_with_newlines_makes_several_lines() {
 }
 
 #[test]
+fn every_line_of_a_value_with_newlines_is_filled() {
+    let cell = render_outputs(&[error("E", "a\nb", &[])], &opts(80));
+    assert_eq!(texts(&cell), ["E: a", "b"]);
+    assert!(cell.lines.iter().all(|line| line.fill == Some(DARK_FILL)));
+}
+
+#[test]
 fn a_color_continues_from_one_traceback_entry_to_the_next() {
     let cell = render_outputs(
         &[error("E", "v", &["\u{1b}[31mred", "next\u{1b}[0m"])],
