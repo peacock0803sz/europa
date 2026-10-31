@@ -264,6 +264,88 @@ fn images_become_notices() {
 }
 
 #[test]
+fn tables_align_columns() {
+    let (cell, texts) = show("| name | value |\n|---|---|--:|\n| a | 1 |\n| bb | 22 |");
+    assert_eq!(
+        texts,
+        ["name \u{254e} value", "\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}\u{254c}", "a    \u{254e}     1", "bb   \u{254e}    22"]
+    );
+    assert!(style_at(&cell, 0, 0).bold);
+    assert!(style_at(&cell, 1, 0).dim);
+}
+
+#[test]
+fn centered_remainder_goes_right() {
+    let (_, texts) = show("| xxxx | y |\n|:----:|---|\n| a | b |");
+    assert!(texts.iter().any(|line| line.contains(" a  ")), "{texts:?}");
+}
+
+#[test]
+fn wide_characters_align_separators() {
+    let (_, texts) = show("| \u{540d}\u{524d} | x |\n|---|---|\n| a | y |");
+    let mut columns = Vec::new();
+    for line in &texts {
+        if line.contains('\u{254e}') {
+            let before = line.split('\u{254e}').next().expect("cell");
+            columns.push(europa_core::Style::default());
+            let _ = before;
+        }
+    }
+    assert!(!texts.is_empty());
+    let positions: Vec<usize> = texts
+        .iter()
+        .filter(|line| line.contains('\u{254e}'))
+        .map(|line| {
+            let before = line.split('\u{254e}').next().expect("cell");
+            unicode_width::UnicodeWidthStr::width(before)
+        })
+        .collect();
+    assert!(!positions.is_empty());
+    assert!(
+        positions.windows(2).all(|pair| pair[0] == pair[1]),
+        "{texts:?}"
+    );
+}
+
+#[test]
+fn narrow_tables_wrap_without_separators() {
+    let markdown = "| name | value |\n|---|---|--:|\n| a | 1 |\n| bb | 22 |";
+    let (cell, texts) = show_with(markdown, &common::opts(10));
+    assert!(!texts.concat().contains('\u{254c}'), "{texts:?}");
+    for expected in ["name", "value", "a", "1", "bb", "22"] {
+        assert!(
+            texts.concat().contains(expected),
+            "{texts:?} missing {expected}"
+        );
+    }
+    let _ = cell;
+}
+
+#[test]
+fn missing_cells_are_empty_and_extra_cells_drop() {
+    let (_, texts) = show("| a | b |\n|---|---|\n| c |\n| d | e | f |");
+    assert!(texts.iter().any(|line| line.contains("c")), "{texts:?}");
+    assert!(!texts.concat().contains('f'), "{texts:?}");
+}
+
+#[test]
+fn code_in_cells_has_no_padded_background() {
+    let (cell, _) = show("| a | b |\n|---|---|\n| `c` | d |");
+    let line = cell
+        .lines
+        .iter()
+        .find(|line| line.spans.iter().any(|span| span.text == "c"))
+        .expect("code cell");
+    for (text, bg) in common::code_bg(line) {
+        if text.contains('c') && !text.contains(' ') {
+            assert_eq!(bg, Some(europa_core::Color::Indexed(236)), "{text:?}");
+        } else if text.trim().is_empty() {
+            assert_eq!(bg, None, "{text:?}");
+        }
+    }
+}
+
+#[test]
 fn raw_html_follows_html_rules() {
     let (_, texts) = show("<div><p>x</p></div>");
     assert_eq!(texts, ["x"]);
