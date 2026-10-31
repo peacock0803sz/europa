@@ -270,6 +270,28 @@ fn a_color_out_of_range_is_skipped_and_the_numbers_after_it_still_apply() {
 }
 
 #[test]
+fn a_number_without_a_meaning_here_is_skipped_and_the_numbers_after_it_still_apply() {
+    for code in ["5", "6", "8", "21", "53", "60"] {
+        assert_eq!(
+            spans(&format!("\u{1b}[{code}mX")),
+            [("X".to_owned(), Style::default())],
+            "code {code}"
+        );
+    }
+    assert_eq!(
+        spans("\u{1b}[5;1;53;31mX"),
+        [(
+            "X".to_owned(),
+            Style {
+                fg: Some(Color::Indexed(1)),
+                bold: true,
+                ..Style::default()
+            }
+        )]
+    );
+}
+
+#[test]
 fn sequences_and_control_characters_leave_only_the_text_around_them() {
     let removed = [
         "\u{1b}[2A",
