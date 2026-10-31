@@ -31,6 +31,10 @@ struct TableState {
     link: Option<(String, String)>,
     cell_styles: Vec<Style>,
     in_head: bool,
+    /// Open inline element of the current cell whose content is left out.
+    hidden: Option<String>,
+    /// Links and images started inside hidden content, whose ends are dropped.
+    hidden_inlines: usize,
 }
 
 /// Render a Markdown body as logical lines.
@@ -301,6 +305,8 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
                     link: None,
                     cell_styles: Vec::new(),
                     in_head: false,
+                    hidden: None,
+                    hidden_inlines: 0,
                 });
             }
             _ => {}
@@ -355,6 +361,27 @@ fn handle_table_event(
     let Some(state) = table.as_mut() else {
         return;
     };
+    if matches!(
+        event,
+        Event::Start(Tag::TableCell) | Event::End(TagEnd::TableCell)
+    ) {
+        state.hidden = None;
+        state.hidden_inlines = 0;
+    }
+    if state.hidden.is_some() {
+        match event {
+            Event::Text(_) | Event::Code(_) | Event::SoftBreak | Event::HardBreak => return,
+            Event::Start(Tag::Link { .. } | Tag::Image { .. }) => {
+                state.hidden_inlines += 1;
+                return;
+            }
+            Event::End(TagEnd::Link | TagEnd::Image) if state.hidden_inlines > 0 => {
+                state.hidden_inlines -= 1;
+                return;
+            }
+            _ => {}
+        }
+    }
     if !matches!(event, Event::Text(_) | Event::SoftBreak) {
         flush_cell_text(state);
     }
@@ -479,6 +506,35 @@ fn handle_table_event(
         }
         Event::InlineHtml(body) => {
             let tag = tag_name(&body);
+            let closing = body.starts_with("</");
+            if let Some(name) = state.hidden.as_ref() {
+                if closing && *name == tag {
+                    state.hidden = None;
+                }
+                return;
+            }
+            if !closing {
+                if (tag == "script" || tag == "style") && !body.ends_with("/>") {
+                    state.hidden = Some(tag);
+                    return;
+                }
+                if let Some((notice, holds)) = crate::html::replaced_start(&body) {
+                    push_cell_span(
+                        state,
+                        StyledSpan {
+                            text: crate::ansi::strip(&notice),
+                            style: Style {
+                                dim: true,
+                                ..Style::default()
+                            },
+                        },
+                    );
+                    if holds {
+                        state.hidden = Some(tag);
+                    }
+                    return;
+                }
+            }
             match tag.as_str() {
                 // A cell holds one display line, so a break only separates
                 // the words around it.

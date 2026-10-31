@@ -418,6 +418,18 @@ fn unclosed_inline_elements_end_with_tight_list_items() {
 }
 
 #[test]
+fn table_cells_hide_scripts_and_replace_elements() {
+    let (_, texts) = show("| h |\n|---|\n| <script>alert(1)</script> |\n| b |");
+    assert!(!texts.concat().contains("alert"), "{texts:?}");
+    assert_eq!(texts[3].trim_end(), "b");
+    let (cell, texts) = show("| h | i |\n|---|---|\n| <svg><b>x</b></svg> y | z |");
+    assert_eq!(texts[2], "[svg] y \u{254e} z");
+    assert!(style_at(&cell, 2, 0).dim);
+    let (_, texts) = show("| h | i |\n|---|---|\n| <video src=x> | z |");
+    assert_eq!(texts[2], "[video] \u{254e} z");
+}
+
+#[test]
 fn links_and_images_inside_hidden_elements_leave_no_trace() {
     let (cell, texts) = show("a <svg>[x](https://e.com) ![p](i.png)</svg> b");
     assert_eq!(texts, ["a [svg] b"]);
