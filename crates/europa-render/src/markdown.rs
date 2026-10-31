@@ -5,13 +5,13 @@
 
 use std::num::NonZeroU16;
 
-use europa_core::Background;
+use europa_core::{Background, Style, StyledSpan};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 use crate::blocks::{Blocks, Line};
 
 /// Render a Markdown body as logical lines.
-pub(crate) fn render(text: &str, width: NonZeroU16, _background: Background) -> Vec<Line> {
+pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> Vec<Line> {
     let mut blocks = Blocks::new(width);
     let mut buffered = String::new();
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
@@ -19,7 +19,7 @@ pub(crate) fn render(text: &str, width: NonZeroU16, _background: Background) -> 
         // Consecutive text is joined before control removal, because a
         // sequence can span the boundary pulldown-cmark reports.
         match &event {
-            Event::Text(_) | Event::Code(_) => {}
+            Event::Text(_) => {}
             _ => {
                 if !buffered.is_empty() {
                     blocks.text(&buffered);
@@ -62,20 +62,36 @@ pub(crate) fn render(text: &str, width: NonZeroU16, _background: Background) -> 
                 blocks.push_style(|style| style.strikethrough = true);
             }
             Event::End(TagEnd::Strikethrough) => blocks.pop_style(),
+            Event::Start(Tag::CodeBlock(_)) => {
+                blocks.gap();
+                blocks.set_fill(Some(crate::code_bg(background)));
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                blocks.flush();
+                blocks.set_fill(None);
+                blocks.gap();
+            }
+            Event::Start(Tag::List(_)) => blocks.gap(),
+            Event::End(TagEnd::List(_)) => blocks.gap(),
+            Event::Start(Tag::Item) => {
+                blocks.flush();
+                blocks.push_item(vec![StyledSpan {
+                    text: "\u{2023} ".to_owned(),
+                    style: Style::default(),
+                }]);
+            }
+            Event::End(TagEnd::Item) => blocks.pop_level(),
             Event::Text(body) => buffered.push_str(&body),
-            Event::Code(body) => buffered.push_str(&body),
+            Event::Code(body) => {
+                let bg = crate::code_bg(background);
+                blocks.push_style(|style| style.bg = Some(bg));
+                blocks.text(&body);
+                blocks.pop_style();
+            }
             Event::SoftBreak => {
-                if !buffered.is_empty() {
-                    blocks.text(&buffered);
-                    buffered.clear();
-                }
                 blocks.text(" ");
             }
             Event::HardBreak => {
-                if !buffered.is_empty() {
-                    blocks.text(&buffered);
-                    buffered.clear();
-                }
                 blocks.end_line();
             }
             _ => {}
