@@ -401,21 +401,31 @@ fn is_default_repr(text: &str) -> bool {
 /// The text of a MIME bundle, or a notice that names its types when it has no
 /// text to show.
 fn bundle_unit(data: &JsonMap, options: &RenderOptions) -> Unit {
-    match select(data) {
-        Selected::Markdown(text) => {
-            Unit::Blocks(markdown::render(&text, options.width, options.background))
-        }
-        Selected::Json(value) => Unit::Blocks(json::render(value)),
-        Selected::Plain(text) => Unit::Body { text, fill: false },
-        Selected::Html(text) => {
-            Unit::Blocks(html::render(&text, options.width, options.background))
-        }
-        Selected::None if data.is_empty() => Unit::Notice("[no data]".to_owned()),
-        Selected::None => {
-            let types: Vec<&str> = data.keys().map(String::as_str).collect();
-            Unit::Notice(format!("[{}]", types.join(", ")))
-        }
+    let lines = match select(data) {
+        Selected::Markdown(text) => markdown::render(&text, options.width, options.background),
+        Selected::Json(value) => json::render(value),
+        Selected::Plain(text) => return Unit::Body { text, fill: false },
+        Selected::Html(text) => html::render(&text, options.width, options.background),
+        Selected::None => return types_notice(data),
+    };
+    if !lines.is_empty() {
+        return Unit::Blocks(lines);
     }
+    // A rich entry with nothing to show, such as HTML that only holds a
+    // script, would leave no trace, so the plain text or the types stand in.
+    match text_of(data, "text/plain") {
+        Some(text) => Unit::Body { text, fill: false },
+        None => types_notice(data),
+    }
+}
+
+/// The notice that names the types of a MIME bundle.
+fn types_notice(data: &JsonMap) -> Unit {
+    if data.is_empty() {
+        return Unit::Notice("[no data]".to_owned());
+    }
+    let types: Vec<&str> = data.keys().map(String::as_str).collect();
+    Unit::Notice(format!("[{}]", types.join(", ")))
 }
 
 fn unknown_notice(unknown: &UnknownOutput) -> String {

@@ -125,14 +125,14 @@ fn headings_emphasis_and_code_have_styles() {
 #[test]
 fn comments_declarations_head_scripts_and_styles_vanish() {
     for data in [
-        r#"{"text/html": "<!-- c -->"}"#,
-        r#"{"text/html": "<!DOCTYPE html>"}"#,
-        r#"{"text/html": "<head><title>t</title></head>"}"#,
-        r#"{"text/html": "<script>alert(\"</p>\")</script>"}"#,
-        r#"{"text/html": "<style>p{}</style>"}"#,
+        r#"{"text/html": "<!-- c -->x"}"#,
+        r#"{"text/html": "<!DOCTYPE html>x"}"#,
+        r#"{"text/html": "<head><title>t</title></head>x"}"#,
+        r#"{"text/html": "<script>alert(\"</p>\")</script>x"}"#,
+        r#"{"text/html": "<style>p{}</style>x"}"#,
     ] {
         let (_, texts) = render(data);
-        assert!(texts.is_empty(), "{data} -> {texts:?}");
+        assert_eq!(texts, ["x"], "{data}");
     }
 }
 
@@ -146,14 +146,14 @@ fn escape_sequences_and_carriage_returns_vanish() {
 }
 
 #[test]
-fn empty_html_renders_no_lines() {
+fn empty_html_becomes_a_notice() {
     for data in [
         r#"{"text/html": ""}"#,
         r#"{"text/html": "  \n "}"#,
         r#"{"text/html": "<div></div>"}"#,
     ] {
         let (_, texts) = render(data);
-        assert!(texts.is_empty(), "{data} -> {texts:?}");
+        assert_eq!(texts, ["[text/html]"], "{data}");
     }
 }
 

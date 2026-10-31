@@ -4,16 +4,19 @@ expression: "common :: draw(& cell, & options)"
 ---
 {"width":40,"max_output_lines":200,"background":"dark"}
 Buffer {
-    area: Rect { x: 0, y: 0, width: 40, height: 4 },
+    area: Rect { x: 0, y: 0, width: 40, height: 5 },
     content: [
         "ab                                      ",
         "x                                       ",
         "a                                       ",
+        "[text/html]                             ",
         "a < b                                   ",
     ],
     styles: [
         x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
         x: 1, y: 0, fg: Reset, bg: Reset, modifier: BOLD,
         x: 2, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 3, fg: Reset, bg: Reset, modifier: DIM,
+        x: 11, y: 3, fg: Reset, bg: Reset, modifier: NONE,
     ]
 }

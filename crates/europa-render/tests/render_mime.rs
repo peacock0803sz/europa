@@ -99,6 +99,22 @@ fn html_arrays_join_their_parts() {
 }
 
 #[test]
+fn html_with_nothing_to_show_falls_back_to_plain_text_or_a_notice() {
+    let texts = show(
+        r#"{"text/html": "<div id=x></div><script>Plotly.newPlot(x)</script>", "text/plain": "Figure()"}"#,
+    );
+    assert_eq!(texts, ["Figure()"]);
+    let notice = show(r#"{"text/html": "<div id=x></div><script>Plotly.newPlot(x)</script>"}"#);
+    assert_eq!(notice, ["[text/html]"]);
+}
+
+#[test]
+fn markdown_with_nothing_to_show_falls_back_to_plain_text() {
+    let texts = show(r#"{"text/markdown": "", "text/plain": "fallback"}"#);
+    assert_eq!(texts, ["fallback"]);
+}
+
+#[test]
 fn streams_errors_and_unknown_outputs_stay() {
     let cell = render_outputs(&[common::stdout("ok\n")], &common::opts(80));
     assert_eq!(common::texts(&cell), ["ok"]);
