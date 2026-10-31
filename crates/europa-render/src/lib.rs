@@ -36,6 +36,7 @@ mod ansi;
 mod blocks;
 mod html;
 mod json;
+mod markdown;
 mod wrap;
 
 use std::collections::VecDeque;
@@ -353,6 +354,8 @@ fn traceback_text(error: &ErrorOutput) -> String {
 
 /// One MIME bundle reduced to the entry that is drawn.
 enum Selected<'a> {
+    /// Markdown drawn as logical lines.
+    Markdown(String),
     /// JSON value drawn as indented lines.
     Json(&'a JsonValue),
     /// Plain text drawn through the text pipeline.
@@ -365,6 +368,9 @@ enum Selected<'a> {
 
 /// Choose the entry of a MIME bundle that is drawn.
 fn select(data: &JsonMap) -> Selected<'_> {
+    if let Some(text) = text_of(data, "text/markdown") {
+        return Selected::Markdown(text);
+    }
     if let Some(value) = data.get("application/json") {
         return Selected::Json(value);
     }
@@ -396,6 +402,9 @@ fn is_default_repr(text: &str) -> bool {
 /// text to show.
 fn bundle_unit(data: &JsonMap, options: &RenderOptions) -> Unit {
     match select(data) {
+        Selected::Markdown(text) => {
+            Unit::Blocks(markdown::render(&text, options.width, options.background))
+        }
         Selected::Json(value) => Unit::Blocks(json::render(value)),
         Selected::Plain(text) => Unit::Body { text, fill: false },
         Selected::Html(text) => {
