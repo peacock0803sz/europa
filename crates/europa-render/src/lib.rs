@@ -92,8 +92,9 @@ enum Unit {
 ///    while `text/html` is usable. Streams, tracebacks and `text/plain`
 ///    become a unit with a body. Markdown, JSON and HTML become indented
 ///    logical lines, with escape sequences and control characters removed
-///    instead of read, and skip steps 2 and 3. When they give no line,
-///    `text/plain` or a notice stands in. An output with nothing to draw,
+///    instead of read, and skip steps 2 and 3. When a non-blank entry gives
+///    no line, `text/plain` that is not such a name, or a notice, stands in.
+///    A blank entry gives no line. An output with nothing to draw,
 ///    such as an image or an unknown kind, becomes a notice that names what
 ///    it holds instead. A notice is wrapped like other text, so it can take
 ///    more than one line when it is wider than [`RenderOptions::width`].
@@ -416,21 +417,29 @@ fn is_default_repr(text: &str) -> bool {
 /// text as a body, or a notice that names its types when it has nothing to
 /// show.
 fn bundle_unit(data: &JsonMap, options: &RenderOptions) -> Unit {
-    let lines = match select(data) {
-        Selected::Markdown(text) => markdown::render(&text, options.width, options.background),
-        Selected::Json(value) => json::render(value),
+    let (lines, blank) = match select(data) {
+        Selected::Markdown(text) => (
+            markdown::render(&text, options.width, options.background),
+            text.trim().is_empty(),
+        ),
+        Selected::Json(value) => (json::render(value), false),
         Selected::Plain(text) => return Unit::Body { text, fill: false },
-        Selected::Html(text) => html::render(&text, options.width, options.background),
+        Selected::Html(text) => (
+            html::render(&text, options.width, options.background),
+            text.trim().is_empty(),
+        ),
         Selected::None => return types_notice(data),
     };
-    if !lines.is_empty() {
+    // An empty entry shows nothing on purpose.
+    if !lines.is_empty() || blank {
         return Unit::Blocks(lines);
     }
-    // A rich entry with nothing to show, such as HTML that only holds a
-    // script, would leave no trace, so the plain text or the types stand in.
+    // A rich entry whose content renders to nothing, such as HTML that only
+    // holds a script, would leave no trace, so plain text that shows the
+    // object or the types stand in.
     match text_of(data, "text/plain") {
-        Some(text) => Unit::Body { text, fill: false },
-        None => types_notice(data),
+        Some(text) if !is_default_repr(&text) => Unit::Body { text, fill: false },
+        _ => types_notice(data),
     }
 }
 

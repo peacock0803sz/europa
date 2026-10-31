@@ -141,7 +141,13 @@ fn html_with_nothing_to_show_falls_back_to_plain_text_or_a_notice() {
 #[test]
 fn markdown_with_nothing_to_show_falls_back_to_plain_text() {
     let texts = show(r#"{"text/markdown": "", "text/plain": "fallback"}"#);
+    assert!(texts.is_empty(), "{texts:?}");
+    let texts = show(r#"{"text/markdown": "<script>x</script>", "text/plain": "fallback"}"#);
     assert_eq!(texts, ["fallback"]);
+    let texts = show(
+        r#"{"text/markdown": "<script>x</script>", "text/plain": "<IPython.core.display.Markdown object>"}"#,
+    );
+    assert_eq!(texts, ["[text/markdown, text/plain]"]);
 }
 
 #[test]

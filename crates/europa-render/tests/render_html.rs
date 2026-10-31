@@ -185,15 +185,26 @@ fn escape_sequences_and_carriage_returns_vanish() {
 }
 
 #[test]
-fn empty_html_becomes_a_notice() {
+fn empty_html_shows_nothing() {
     for data in [
         r#"{"text/html": ""}"#,
-        r#"{"text/html": "  \n "}"#,
-        r#"{"text/html": "<div></div>"}"#,
+        r#"{"text/html": "  \n ", "text/plain": "<IPython.core.display.HTML object>"}"#,
     ] {
         let (_, texts) = render(data);
-        assert_eq!(texts, ["[text/html]"], "{data}");
+        assert!(texts.is_empty(), "{data}: {texts:?}");
     }
+}
+
+#[test]
+fn html_without_text_becomes_a_notice() {
+    let (_, texts) = render(r#"{"text/html": "<div></div>"}"#);
+    assert_eq!(texts, ["[text/html]"]);
+    let (_, texts) = render(
+        r#"{"text/html": "<div></div>", "text/plain": "<IPython.core.display.HTML object>"}"#,
+    );
+    assert_eq!(texts, ["[text/html, text/plain]"]);
+    let (_, texts) = render(r#"{"text/html": "<div></div>", "text/plain": "Figure()"}"#);
+    assert_eq!(texts, ["Figure()"]);
 }
 
 #[test]

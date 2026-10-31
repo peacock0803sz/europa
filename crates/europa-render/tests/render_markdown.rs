@@ -90,14 +90,10 @@ fn math_footnote_and_task_marks_stay_as_written() {
 }
 
 #[test]
-fn empty_markdown_falls_back_to_plain_text() {
-    for markdown in ["", "   "] {
+fn empty_markdown_shows_nothing() {
+    for markdown in ["", "   ", "\n\n"] {
         let (_, texts) = show(markdown);
-        assert_eq!(
-            texts,
-            ["<IPython.core.display.Markdown object>"],
-            "{markdown:?}"
-        );
+        assert!(texts.is_empty(), "{markdown:?}: {texts:?}");
     }
 }
 
