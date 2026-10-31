@@ -19,6 +19,21 @@ fn render(data: &str) -> (europa_core::RenderedCell, Vec<String>) {
     (cell, texts)
 }
 
+fn show_with(
+    markdown: &str,
+    options: &europa_core::RenderOptions,
+) -> (europa_core::RenderedCell, Vec<String>) {
+    let data = serde_json::to_string(&serde_json::json!({
+        "text/markdown": markdown,
+        "text/plain": "<IPython.core.display.Markdown object>"
+    }))
+    .expect("data");
+    let cell = render_outputs(&[common::display(&data)], options);
+    let texts = common::texts(&cell);
+    common::assert_lines_are_well_formed(&cell);
+    (cell, texts)
+}
+
 fn style_at(cell: &europa_core::RenderedCell, line: usize, col: usize) -> Style {
     let mut seen = 0;
     for span in &cell.lines[line].spans {
@@ -93,4 +108,77 @@ fn escape_sequences_vanish_without_styling() {
 fn carriage_returns_become_soft_breaks() {
     let (_, texts) = show("a\rb");
     assert_eq!(texts, ["a b"]);
+}
+
+#[test]
+fn inline_code_has_background_only_on_code() {
+    let (cell, texts) = show("a `x = 1` b");
+    assert_eq!(texts, ["a x = 1 b"]);
+    assert_eq!(
+        common::code_bg(&cell.lines[0]),
+        vec![
+            ("a ".to_owned(), None),
+            ("x = 1".to_owned(), Some(europa_core::Color::Indexed(236))),
+            (" b".to_owned(), None),
+        ]
+    );
+    for span in &cell.lines[0].spans {
+        assert_eq!(span.style.fg, None, "{span:?}");
+    }
+}
+
+#[test]
+fn fenced_code_keeps_breaks_and_fill() {
+    let (cell, texts) = show("```py\nif x:\n    y\n\nz\n```");
+    assert_eq!(texts, ["if x:", "    y", "", "z"]);
+    assert!(!texts.concat().contains("py"), "{texts:?}");
+    for line in &cell.lines {
+        assert_eq!(
+            line.fill,
+            Some(europa_core::Color::Indexed(236)),
+            "{line:?}"
+        );
+    }
+    let (light, _) = show_with("```py\nif x:\n    y\n\nz\n```", &common::light(80));
+    for line in &light.lines {
+        assert_eq!(
+            line.fill,
+            Some(europa_core::Color::Indexed(254)),
+            "{line:?}"
+        );
+    }
+    assert_eq!(light.lines.len(), cell.lines.len());
+}
+
+#[test]
+fn long_code_lines_wrap_with_fill() {
+    let (cell, texts) = show_with("```\n012345678901\n```", &common::opts(10));
+    assert!(texts.len() > 1, "{texts:?}");
+    for line in &cell.lines {
+        assert_eq!(line.fill, Some(europa_core::Color::Indexed(236)));
+    }
+}
+
+#[test]
+fn code_in_lists_is_filled_with_indent() {
+    let (cell, texts) = show("- a\n\n  ```\n  c\n  ```\n");
+    assert!(texts.iter().any(|line| line.contains('c')), "{texts:?}");
+    let line = cell
+        .lines
+        .iter()
+        .find(|line| line.spans.iter().any(|span| span.text.contains('c')))
+        .expect("code line");
+    assert_eq!(line.fill, Some(europa_core::Color::Indexed(236)));
+    assert!(line.spans[0].text.starts_with(' '));
+}
+
+#[test]
+fn blanks_around_code_have_no_fill() {
+    let (cell, texts) = show("p\n\n```\nc\n```\n\nq");
+    assert_eq!(texts, ["p", "", "c", "", "q"]);
+    assert_eq!(cell.lines[0].fill, None);
+    assert_eq!(cell.lines[1].fill, None);
+    assert_eq!(cell.lines[2].fill, Some(europa_core::Color::Indexed(236)));
+    assert_eq!(cell.lines[3].fill, None);
+    assert_eq!(cell.lines[4].fill, None);
 }
