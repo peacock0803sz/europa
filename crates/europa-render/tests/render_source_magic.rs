@@ -168,6 +168,12 @@ fn a_format_spec_does_not_hide_a_later_magic() {
 }
 
 #[test]
+fn a_string_left_open_does_not_hide_the_next_line() {
+    let lines = render("x = 'abc\n%time f()");
+    assert_styled(&lines, "%time f()", MAGIC);
+}
+
+#[test]
 fn a_comment_stays_a_comment() {
     assert_styled(&render("# %time"), "# %time", COMMENT);
 }

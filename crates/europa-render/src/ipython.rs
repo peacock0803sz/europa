@@ -123,6 +123,12 @@ fn scan_python(bytes: &[u8], within: Range<usize>, ranges: &mut Vec<Range<usize>
                 let (quote, triple, raw, format) = (*quote, *triple, *raw, *format);
                 match byte {
                     b'\n' => {
+                        // Python ends a string that is not triple-quoted at
+                        // the line feed, so a draft that leaves one open does
+                        // not swallow the lines after it.
+                        if !triple {
+                            stack.pop();
+                        }
                         at_line_start = true;
                         i += 1;
                     }
@@ -395,5 +401,13 @@ mod tests {
             let _ = scan(source);
         }
         assert_eq!(found(")))\n%x"), ["%x"]);
+    }
+
+    #[test]
+    fn a_string_on_one_line_ends_at_the_line_feed() {
+        assert_eq!(found("x = 'abc\n%time f()"), ["%time f()"]);
+        assert_eq!(found("x = \"abc\n!ls"), ["!ls"]);
+        assert_eq!(found("x = 'abc\\\n%time f()'"), Vec::<&str>::new());
+        assert_eq!(found("x = '''abc\n%time f()"), Vec::<&str>::new());
     }
 }
