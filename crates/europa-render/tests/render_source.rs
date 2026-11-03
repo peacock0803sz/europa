@@ -4,9 +4,7 @@ use europa_core::{Color, SourceLanguage, Style};
 use europa_render::render_source;
 use unicode_width::UnicodeWidthStr;
 
-use common::{
-    assert_source_lines_are_well_formed, light, limited, line_width, opts, source_lines, styles_of,
-};
+use common::{assert_source_lines_are_well_formed, light, limited, opts, source_lines, styles_of};
 
 fn plain(source: &str, width: u16) -> Vec<String> {
     let lines = render_source(source, SourceLanguage::Plain, &opts(width));
@@ -40,9 +38,10 @@ fn tab_expands_to_the_next_stop() {
 #[test]
 fn long_lines_wrap_at_the_width() {
     assert_eq!(plain("x = \"0123456789abc\"", 10).len(), 2);
-    for line in render_source("あいうえおかきくけこ", SourceLanguage::Plain, &opts(10)) {
-        assert!(line_width(&line) <= 10);
-    }
+    assert_eq!(
+        plain("あいうえおかきくけこ", 10),
+        ["あいうえお", "かきくけこ"]
+    );
 }
 
 #[test]
@@ -90,15 +89,11 @@ fn characters_survive_apart_from_known_replacements() {
 #[test]
 fn background_and_repetition_do_not_change_the_result() {
     let source = "x = 1\n\u{1b}y";
-    let dark = render_source(source, SourceLanguage::Plain, &opts(80));
-    assert_eq!(
-        dark,
-        render_source(source, SourceLanguage::Plain, &light(80))
-    );
-    assert_eq!(
-        dark,
-        render_source(source, SourceLanguage::Plain, &opts(80))
-    );
+    for language in [SourceLanguage::Plain, SourceLanguage::Python] {
+        let dark = render_source(source, language, &opts(80));
+        assert_eq!(dark, render_source(source, language, &light(80)));
+        assert_eq!(dark, render_source(source, language, &opts(80)));
+    }
 }
 
 const BASE: Style = Style {
@@ -247,6 +242,15 @@ fn soft_keywords_depend_on_position() {
 }
 
 #[test]
+fn non_ascii_source_keeps_its_decoration() {
+    let lines = python("s = \"全角\"  # コメント\n変数 = 1\n");
+    assert_styled(&lines, "\"全角\"", STRING);
+    assert_styled(&lines, "# コメント", COMMENT);
+    assert_styled(&lines, "変数 = ", PLAIN);
+    assert_styled(&lines, "1", NUMBER);
+}
+
+#[test]
 fn docstrings_are_strings() {
     assert_styled(
         &python("def f():\n    \"\"\"Doc.\"\"\"\n"),
@@ -257,13 +261,24 @@ fn docstrings_are_strings() {
 
 #[test]
 fn the_decorations_of_all_kinds_differ() {
-    let all = [
-        KEYWORD, CONSTANT, STRING, ESCAPE, COMMENT, NUMBER, DEFINITION, BUILTIN, DECORATOR,
-        FSTRING, MAGIC, CONTROL,
+    let lines = python(
+        "@deco\ndef f(x=None):\n    return f\"{x!r}\" + \"a\\n\" + len(x) * 2  # c\n\u{1b}\n",
+    );
+    let needles = [
+        "def", "None", "\"a", "\\n", "# c", "2", "f(x=", "len", "@deco", "!r", "␛",
     ];
-    for (index, style) in all.iter().enumerate() {
-        assert!(!all[index + 1..].contains(style), "{style:?} is not unique");
+    let found: Vec<Style> = needles
+        .iter()
+        .map(|needle| styles_of(&lines, needle)[0])
+        .collect();
+    for (index, style) in found.iter().enumerate() {
+        assert!(
+            !found[index + 1..].contains(style),
+            "{:?} shares {style:?} with another kind",
+            needles[index]
+        );
     }
+    assert!(!found.contains(&MAGIC));
 }
 
 #[test]
@@ -272,6 +287,8 @@ fn wrapped_lines_keep_the_decoration() {
     assert_eq!(lines.len(), 2);
     assert_styled(&lines, "abc\"", STRING);
     let lines = render_source("\"\"\"a\nb\"\"\"", SourceLanguage::Python, &opts(2));
+    assert_source_lines_are_well_formed(&lines);
+    assert!(lines.len() >= 2);
     let text = source_lines(&lines);
     for line in &lines {
         assert!(
