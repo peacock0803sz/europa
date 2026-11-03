@@ -594,6 +594,29 @@ fn long_python_lines_keep_their_decoration_and_fill_when_wrapped() {
 }
 
 #[test]
+fn a_blank_line_in_python_code_keeps_the_fill() {
+    let (cell, texts) = show("```python\ndef f():\n    pass\n\nx = 1\n```\n");
+    assert_eq!(texts.len(), 4, "{texts:?}");
+    assert!(cell.lines[2].spans.is_empty());
+    assert_eq!(cell.lines[2].fill, Some(CODE_BG));
+}
+
+#[test]
+fn python_code_in_a_list_item_is_indented_like_other_code() {
+    let (cell, texts) = show("- a\n\n  ```python\n  x = 1\n  ```\n");
+    let (_, plain) = show("- a\n\n  ```\n  x = 1\n  ```\n");
+    assert_eq!(texts, plain);
+    let line = cell
+        .lines
+        .iter()
+        .find(|line| line.spans.iter().any(|span| span.text.contains('x')))
+        .expect("code line");
+    assert_eq!(line.fill, Some(CODE_BG));
+    assert!(line.spans[0].text.starts_with(' '));
+    assert_styled(&cell, "1", fg(6, false));
+}
+
+#[test]
 fn html_code_of_python_is_not_highlighted() {
     let cell = render_outputs(
         &[common::display(
