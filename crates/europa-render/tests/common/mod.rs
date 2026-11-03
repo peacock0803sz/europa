@@ -375,3 +375,32 @@ pub fn draw_lines(lines: &[StyledLine], options: &RenderOptions) -> String {
     };
     draw(&cell, options)
 }
+
+/// What the display lines of `source` hold when put end to end.
+///
+/// A tab becomes spaces up to the next stop of 8 columns, counted from the
+/// start of its line, `\r\n` becomes `\n`, a control character becomes its
+/// picture, and the line breaks go, because wrapping hides where they were.
+pub fn expected_source_text(source: &str) -> String {
+    let mut text = String::new();
+    for line in source.replace("\r\n", "\n").split('\n') {
+        let mut column = 0;
+        for c in line.chars() {
+            if c == '\t' {
+                let spaces = 8 - column % 8;
+                text.extend(std::iter::repeat_n(' ', spaces));
+                column += spaces;
+                continue;
+            }
+            let shown = match c {
+                '\u{7f}' => '\u{2421}',
+                c if (c as u32) < 0x20 => char::from_u32(0x2400 + c as u32).expect("a picture"),
+                c if c.is_control() => '\u{2426}',
+                c => c,
+            };
+            text.push(shown);
+            column += unicode_width::UnicodeWidthChar::width(shown).unwrap_or(0);
+        }
+    }
+    text
+}
