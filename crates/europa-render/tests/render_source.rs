@@ -289,3 +289,93 @@ fn control_characters_inside_strings_keep_their_own_decoration() {
     assert_styled(&lines, "[31mred\"", STRING);
     assert_styled(&lines, "\"", STRING);
 }
+
+#[test]
+fn fstring_text_and_braces() {
+    let lines = python("f\"total: {n + 1} items\"");
+    assert_styled(&lines, "f\"total: ", STRING);
+    assert_styled(&lines, " items\"", STRING);
+    assert_styled(&lines, "{", FSTRING);
+    assert_styled(&lines, "}", FSTRING);
+    assert_styled(&lines, "1", NUMBER);
+    assert_styled(&lines, "n + ", PLAIN);
+}
+
+#[test]
+fn fstring_format_specs_and_conversions() {
+    let lines = python("f\"{value:.2f}\"");
+    assert_styled(&lines, ":.2f", FSTRING);
+    assert_styled(&lines, "value", PLAIN);
+    let lines = python("f\"{x!r}\"");
+    assert_styled(&lines, "!r", FSTRING);
+    assert_styled(&lines, "x", PLAIN);
+}
+
+#[test]
+fn fstring_inner_strings() {
+    let lines = python("f\"{d['key']}\"");
+    assert_styled(&lines, "'key'", STRING);
+    assert_styled(&lines, "d[", PLAIN);
+    assert_styled(&lines, "]", PLAIN);
+}
+
+#[test]
+fn escaped_braces_stay_in_the_string() {
+    assert_styled(&python("f\"{{literal}}\""), "f\"{{literal}}\"", STRING);
+}
+
+#[test]
+fn the_same_quote_inside_a_replacement_field() {
+    let same = python("f\"{d[\"key\"]}\"");
+    let other = python("f\"{d['key']}\"");
+    // The quotes differ in the two sources, and the decorations do not.
+    let decorations = |lines: &[europa_core::StyledLine]| -> Vec<Style> {
+        lines
+            .iter()
+            .flat_map(|line| line.spans.iter())
+            .flat_map(|span| span.text.chars().map(|_| span.style))
+            .collect()
+    };
+    assert_eq!(decorations(&same), decorations(&other));
+    assert_styled(&same, "\"key\"", STRING);
+    let last = styles_of(&same, "}\"");
+    assert_eq!(last[1], STRING);
+}
+
+#[test]
+fn nested_replacement_fields_and_strings() {
+    let lines = python("f\"{x:{width}}\"");
+    assert_styled(&lines, "width", PLAIN);
+    let lines = python("f\"{f'{y}'}\"");
+    assert_styled(&lines, "y", PLAIN);
+    assert_styled(&lines, "f'", STRING);
+    assert_eq!(styles_of(&lines, "}'")[1], STRING);
+}
+
+#[test]
+fn raw_fstrings() {
+    let lines = python("rf\"\\d{n}\"");
+    assert_styled(&lines, "\\d", STRING);
+    assert_styled(&lines, "n", PLAIN);
+}
+
+#[test]
+fn debug_specifiers() {
+    let lines = python("f\"{x=}\"");
+    assert_styled(&lines, "=", FSTRING);
+    assert_styled(&lines, "x", PLAIN);
+    let lines = python("f\"{x = !r}\"");
+    assert_styled(&lines, "=", FSTRING);
+    assert_styled(&lines, "x ", PLAIN);
+}
+
+#[test]
+fn replacement_fields_with_newlines_and_comments() {
+    let lines = python("f\"\"\"{a +\n b}\"\"\"");
+    assert_styled(&lines, "a +", PLAIN);
+    assert_styled(&lines, "f\"\"\"", STRING);
+    assert_styled(&lines, "\"\"\"", STRING);
+    let lines = python("f\"\"\"{a # c\n}\"\"\"");
+    assert_styled(&lines, "# c", COMMENT);
+    assert_styled(&lines, "a ", PLAIN);
+}
