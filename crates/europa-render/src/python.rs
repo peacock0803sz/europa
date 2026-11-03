@@ -8,10 +8,8 @@ use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter}
 /// Kind of a token, which decides how it is decorated.
 ///
 /// The first eleven variants match [`NAMES`] one to one. `Magic` is not a
-/// capture of the query, because the ranges of IPython syntax are decided
-/// before the source reaches tree-sitter. The pictures for control characters
-/// are not a kind either; they are decorated after the highlighting, in
-/// `source.rs`.
+/// capture of the query. The pictures for control characters are not a kind
+/// either; they are decorated after the highlighting, in `render_source`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {
     /// Keywords, including those that depend on context.
@@ -32,12 +30,14 @@ pub(crate) enum Kind {
     FunctionBuiltin,
     /// Decorators.
     Decorator,
-    /// Braces, `=`, `!` and `:` of an f-string replacement field.
+    /// The braces of an f-string replacement field, its `=`, its conversion
+    /// such as `!r` and its format specifier such as `:>10`.
     FStringSyntax,
     /// A replacement field of an f-string, which is Python code again.
     Embedded,
-    /// IPython magics and shell escapes.
-    #[allow(dead_code)]
+    /// Reserved for IPython magics and shell escapes, which tree-sitter
+    /// cannot parse, so nothing produces it yet.
+    #[expect(dead_code)]
     Magic,
 }
 
