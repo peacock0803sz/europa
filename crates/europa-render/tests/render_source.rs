@@ -379,3 +379,36 @@ fn replacement_fields_with_newlines_and_comments() {
     assert_styled(&lines, "# c", COMMENT);
     assert_styled(&lines, "a ", PLAIN);
 }
+
+/// Check that no character of `source` is lost, which holds where it has no
+/// tab, carriage return or control character.
+#[track_caller]
+fn assert_all_characters_shown(source: &str) {
+    let lines = python(source);
+    assert_eq!(
+        source_lines(&lines).join("\n"),
+        source.trim_end_matches('\n')
+    );
+}
+
+#[test]
+fn a_syntax_error_does_not_hide_the_rest() {
+    let source = "def f(:\n    return 1";
+    assert_all_characters_shown(source);
+    let lines = python(source);
+    assert_styled(&lines, "return", KEYWORD);
+    assert_styled(&lines, "1", NUMBER);
+}
+
+#[test]
+fn an_unclosed_triple_quote_shows_everything() {
+    assert_all_characters_shown("\"\"\"abc");
+    assert_all_characters_shown("x = 1\n\"\"\"abc\ndef");
+}
+
+#[test]
+fn odd_fragments_are_shown() {
+    for source in ["len?", "x = (", ")))", "def", &"(\n".repeat(100)] {
+        assert_all_characters_shown(source);
+    }
+}
