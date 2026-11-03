@@ -291,6 +291,17 @@ fn control_characters_inside_strings_keep_their_own_decoration() {
 }
 
 #[test]
+fn a_nul_character_does_not_shift_the_decoration() {
+    let lines = python("a = \"\u{0}\"\nc = \"x\"");
+    assert_eq!(source_lines(&lines), ["a = \"␀\"", "c = \"x\""]);
+    assert_styled(&lines, "a = ", PLAIN);
+    let quoted = styles_of(&lines, "\"␀\"");
+    assert_eq!(quoted, [STRING, CONTROL, STRING]);
+    assert_styled(&lines, "c = ", PLAIN);
+    assert_styled(&lines, "\"x\"", STRING);
+}
+
+#[test]
 fn fstring_text_and_braces() {
     let lines = python("f\"total: {n + 1} items\"");
     assert_styled(&lines, "f\"total: ", STRING);

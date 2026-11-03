@@ -95,8 +95,12 @@ pub(crate) fn highlight(source: &str) -> Vec<(Range<usize>, Option<Kind>)> {
     let Some(config) = config() else {
         return undecorated();
     };
+    // The scanner of the grammar takes a NUL for the end of the input and
+    // breaks the string around it, so tree-sitter gets another control
+    // character of the same length, and the ranges still fall on `source`.
+    let parsed = source.replace('\0', "\u{1}");
     let mut highlighter = Highlighter::new();
-    let Ok(events) = highlighter.highlight(config, source.as_bytes(), None, None, |_| None) else {
+    let Ok(events) = highlighter.highlight(config, parsed.as_bytes(), None, None, |_| None) else {
         return undecorated();
     };
 
