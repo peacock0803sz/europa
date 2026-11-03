@@ -1,8 +1,9 @@
 ; Highlight query for Python, written for Europa on top of the
 ; queries/highlights.scm of tree-sitter-python 0.25.0.
 ;
-; tree-sitter-highlight uses the last pattern that matches a node, so the
-; general patterns come first and the specific ones after them.
+; When several patterns capture the same node, tree-sitter-highlight uses the
+; last of them. Nested nodes are not in conflict: the innermost capture is on
+; top wherever it lies, whatever the order of the patterns.
 
 ; Keywords. Unlike the bundled query, this leaves out the Python 2 statements
 ; `print` and `exec`, takes the word operators as keywords, and adds `type`.
@@ -48,8 +49,7 @@
   "yield"
 ] @keyword
 
-; Literals. The escape comes after the string because it sits inside one and
-; has to end up on top of it.
+; Literals. An escape sits inside a string, so it is on top of the string.
 [
   (none)
   (true)
@@ -69,8 +69,8 @@
 
 ; Parts of an f-string. The replacement field is Python again, so `@embedded`
 ; cancels the decoration of the string around it, and what only belongs to the
-; f-string syntax is picked out in the same color. They come after the string
-; so that they win over it.
+; f-string syntax is in one color of its own. These nodes sit inside the
+; string, so they are on top of it.
 (interpolation
   "{" @punctuation.special
   "}" @punctuation.special) @embedded
@@ -87,8 +87,9 @@
   "{" @punctuation.special
   "}" @punctuation.special) @embedded
 
-; Calls of built-in functions, which are those of Python 3.12. They come after
-; the keywords so that `type(x)` is a call and `type X = int` a keyword.
+; Calls of built-in functions, which are those of Python 3.12. The `type` of
+; `type(x)` is an identifier, while that of `type X = int` is the anonymous
+; keyword node, so the two never meet.
 ((call
   function: (identifier) @function.builtin)
  (#match?
@@ -103,7 +104,9 @@
   name: (identifier) @function.definition)
 
 ; Decorators, with the `@` and the name or the call of the decorator, but not
-; the arguments of the call.
+; the arguments of the call. A decorator such as `@staticmethod(f)` calls a
+; built-in, so the call pattern above captures the same identifier; these come
+; after it so that the decorator wins.
 (decorator "@" @decorator)
 
 (decorator
