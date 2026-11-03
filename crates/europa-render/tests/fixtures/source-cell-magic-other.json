@@ -1,0 +1,10 @@
+{
+  "options": { "width": 40 },
+  "metadata": { "language_info": { "name": "python" } },
+  "cell_type": "code",
+  "source": [
+    "%%bash\n",
+    "echo $HOME\n",
+    "for f in *; do echo \"$f\"; done"
+  ]
+}

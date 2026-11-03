@@ -1,0 +1,9 @@
+{
+  "options": { "width": 40 },
+  "metadata": { "language_info": { "name": "python" } },
+  "cell_type": "code",
+  "source": [
+    "%%timeit -n 10\n",
+    "sorted(range(100))"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "options": { "width": 30, "background": "light" },
+  "outputs": [
+    {
+      "output_type": "display_data",
+      "data": {
+        "text/markdown": "```python\ndef f(x):\n    return x + 1  # inc\n```\n\n```PY\nprint(\"hi\")\n```\n\n```\ndef g(): pass\n```\n\ninline `print(1)` here\n",
+        "text/plain": "<IPython.core.display.Markdown object>"
+      },
+      "metadata": {}
+    }
+  ]
+}
