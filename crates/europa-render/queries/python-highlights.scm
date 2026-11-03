@@ -67,6 +67,26 @@
 
 (escape_sequence) @string.escape
 
+; Parts of an f-string. The replacement field is Python again, so `@embedded`
+; cancels the decoration of the string around it, and what only belongs to the
+; f-string syntax is picked out in the same color. They come after the string
+; so that they win over it.
+(interpolation
+  "{" @punctuation.special
+  "}" @punctuation.special) @embedded
+
+(interpolation
+  "=" @punctuation.special)
+
+(interpolation
+  (type_conversion) @punctuation.special)
+
+(format_specifier) @punctuation.special
+
+(format_expression
+  "{" @punctuation.special
+  "}" @punctuation.special) @embedded
+
 ; Calls of built-in functions, which are those of Python 3.12. They come after
 ; the keywords so that `type(x)` is a call and `type X = int` a keyword.
 ((call
