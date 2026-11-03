@@ -7,7 +7,7 @@ use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter}
 
 /// Kind of a token, which decides how it is decorated.
 ///
-/// The first eleven variants match [`NAMES`] one to one. `Magic` is not a
+/// The first eleven variants match [`CAPTURES`] one to one. `Magic` is not a
 /// capture of the query. The pictures for control characters are not a kind
 /// either; they are decorated after the highlighting, in `render_source`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,34 +41,22 @@ pub(crate) enum Kind {
     Magic,
 }
 
-/// Capture names of the query, in the order of the variants of [`Kind`].
-const NAMES: [&str; 11] = [
-    "keyword",
-    "constant.builtin",
-    "string",
-    "string.escape",
-    "comment",
-    "number",
-    "function.definition",
-    "function.builtin",
-    "decorator",
-    "punctuation.special",
-    "embedded",
-];
-
-/// The kinds in the order of [`NAMES`], to turn an index back into a kind.
-const KINDS: [Kind; 11] = [
-    Kind::Keyword,
-    Kind::ConstantBuiltin,
-    Kind::String,
-    Kind::StringEscape,
-    Kind::Comment,
-    Kind::Number,
-    Kind::FunctionDefinition,
-    Kind::FunctionBuiltin,
-    Kind::Decorator,
-    Kind::FStringSyntax,
-    Kind::Embedded,
+/// Capture names of the query and their kinds.
+///
+/// The highlighter reports a capture by its index in this table, so the names
+/// and the kinds sit side by side to keep that index meaning one kind.
+const CAPTURES: [(&str, Kind); 11] = [
+    ("keyword", Kind::Keyword),
+    ("constant.builtin", Kind::ConstantBuiltin),
+    ("string", Kind::String),
+    ("string.escape", Kind::StringEscape),
+    ("comment", Kind::Comment),
+    ("number", Kind::Number),
+    ("function.definition", Kind::FunctionDefinition),
+    ("function.builtin", Kind::FunctionBuiltin),
+    ("decorator", Kind::Decorator),
+    ("punctuation.special", Kind::FStringSyntax),
+    ("embedded", Kind::Embedded),
 ];
 
 /// The configuration of the highlighter, which is built once.
@@ -86,7 +74,7 @@ fn config() -> Option<&'static HighlightConfiguration> {
                 "",
             )
             .ok()?;
-            config.configure(&NAMES);
+            config.configure(&CAPTURES.map(|(name, _)| name));
             Some(config)
         })
         .as_ref()
@@ -117,8 +105,8 @@ pub(crate) fn highlight(source: &str) -> Vec<(Range<usize>, Option<Kind>)> {
     for event in events {
         match event {
             Err(_) => return undecorated(),
-            Ok(HighlightEvent::HighlightStart(highlight)) => match KINDS.get(highlight.0) {
-                Some(kind) => stack.push(*kind),
+            Ok(HighlightEvent::HighlightStart(highlight)) => match CAPTURES.get(highlight.0) {
+                Some((_, kind)) => stack.push(*kind),
                 None => return undecorated(),
             },
             Ok(HighlightEvent::HighlightEnd) => {
