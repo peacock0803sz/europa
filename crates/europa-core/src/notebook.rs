@@ -6,6 +6,7 @@ use crate::canonical::{is_split_mime, split_lines};
 use crate::error::ParseError;
 use crate::json::{JsonMap, JsonValue};
 use crate::normalize::MultilineText;
+use crate::render::SourceLanguage;
 
 /// Notebook document in nbformat v4.
 ///
@@ -561,6 +562,29 @@ impl<'de> Deserialize<'de> for Notebook {
     {
         let value = JsonValue::deserialize(deserializer)?;
         Self::from_json(value).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Notebook {
+    /// The language that the source of the code cells is highlighted as.
+    ///
+    /// The name comes from `metadata.language_info.name`, or, where that is
+    /// not a string, from `metadata.kernelspec.language`. A notebook that
+    /// names neither is taken to be Python, because the first release only
+    /// supports ipykernel. Raw cells are never highlighted, whatever this
+    /// returns.
+    #[must_use]
+    pub fn source_language(&self) -> SourceLanguage {
+        let name = |key: &str, field: &str| match self.metadata.get(key) {
+            Some(JsonValue::Object(object)) => match object.get(field) {
+                Some(JsonValue::String(name)) => Some(name.as_str()),
+                _ => None,
+            },
+            _ => None,
+        };
+        name("language_info", "name")
+            .or_else(|| name("kernelspec", "language"))
+            .map_or(SourceLanguage::Python, SourceLanguage::from_name)
     }
 }
 
