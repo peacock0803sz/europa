@@ -124,6 +124,40 @@ pub enum Background {
     Light,
 }
 
+/// How the source of a cell is highlighted.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceLanguage {
+    /// Parsed as Python and styled by kind of token. This is the default.
+    #[default]
+    Python,
+    /// Not styled. Used for code cells of other languages and for raw cells.
+    Plain,
+}
+
+impl SourceLanguage {
+    /// Maps a language name to the way its source is highlighted.
+    ///
+    /// Surrounding whitespace is ignored and the case does not matter. The
+    /// names `python`, `py`, `python3` and `ipython` give
+    /// [`SourceLanguage::Python`]; any other name gives
+    /// [`SourceLanguage::Plain`].
+    ///
+    /// ```
+    /// use europa_core::SourceLanguage;
+    ///
+    /// assert_eq!(SourceLanguage::from_name("Python3"), SourceLanguage::Python);
+    /// assert_eq!(SourceLanguage::from_name("julia"), SourceLanguage::Plain);
+    /// ```
+    #[must_use]
+    pub fn from_name(name: &str) -> SourceLanguage {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "python" | "py" | "python3" | "ipython" => SourceLanguage::Python,
+            _ => SourceLanguage::Plain,
+        }
+    }
+}
+
 /// What a rendering depends on besides the outputs themselves.
 ///
 /// Zero is not a valid width or limit, and the types say so: reading a zero
