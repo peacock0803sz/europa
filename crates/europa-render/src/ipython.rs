@@ -16,7 +16,8 @@ pub(crate) struct Magics {
     /// overlapping, and never reaching over a line feed.
     pub(crate) ranges: Vec<Range<usize>>,
     /// The bytes to read as Python: the whole source, the lines after a cell
-    /// magic whose body is Python, or nothing after any other cell magic.
+    /// magic whose body is Python, or nothing after any other cell magic. Its
+    /// end is always the end of the source.
     pub(crate) python: Range<usize>,
     /// The source with every byte of `ranges` replaced by `_`, which is what
     /// tree-sitter reads. A range then is one identifier, so the code around
@@ -44,8 +45,11 @@ enum Context {
 
 /// Finds the magics of `source`.
 ///
-/// Nothing in the source can make this fail: a string or bracket that is not
-/// closed lasts to the end of the source.
+/// Nothing in the source can make this fail: a bracket or a triple-quoted
+/// string that is not closed lasts to the end of the source.
+///
+/// Line breaks must already be `\n` only, so callers turn `\r\n` into `\n`
+/// first.
 pub(crate) fn scan(source: &str) -> Magics {
     let bytes = source.as_bytes();
     let mut ranges = Vec::new();
@@ -63,15 +67,24 @@ pub(crate) fn scan(source: &str) -> Magics {
     }
     scan_python(bytes, python.clone(), &mut ranges);
 
-    let mut masked = bytes.to_vec();
-    for range in &ranges {
-        masked[range.clone()].fill(b'_');
-    }
+    debug_assert!(ranges.windows(2).all(|pair| pair[0].end <= pair[1].start));
+    debug_assert!(ranges.iter().all(|range| range.start <= range.end
+        && source.is_char_boundary(range.start)
+        && source.is_char_boundary(range.end)
+        && !source[range.clone()].contains('\n')));
+    debug_assert!(source.is_char_boundary(python.start) && source.is_char_boundary(python.end));
+    debug_assert_eq!(python.end, source.len());
+
     // The ranges start at an ASCII `%` or `!` and stop at a line feed or the
-    // end, and every byte of them becomes ASCII, so this is valid UTF-8.
-    let masked = String::from_utf8(masked);
-    debug_assert!(masked.is_ok());
-    let masked = masked.unwrap_or_else(|_| source.to_owned());
+    // end, so they fall on characters.
+    let mut masked = String::with_capacity(source.len());
+    let mut prev = 0;
+    for range in &ranges {
+        masked.push_str(&source[prev..range.start]);
+        masked.push_str(&"_".repeat(range.len()));
+        prev = range.end;
+    }
+    masked.push_str(&source[prev..]);
     Magics {
         ranges,
         python,

@@ -196,6 +196,7 @@ fn python_runs(source: &str) -> Vec<(&str, Style)> {
         // characters means that a range is wrong. Showing the source whole is
         // better than losing some of it.
         let Some(text) = source.get(range) else {
+            debug_assert!(false, "a range does not fall on characters");
             return vec![(source, Style::default())];
         };
         pieces.push((text, style));
