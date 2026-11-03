@@ -162,6 +162,16 @@ mod tests {
     }
 
     #[test]
+    fn the_query_captures_exactly_the_names_of_the_table() {
+        let config = config().expect("configuration builds");
+        let in_query: std::collections::BTreeSet<&str> =
+            config.query.capture_names().iter().copied().collect();
+        let in_table: std::collections::BTreeSet<&str> =
+            CAPTURES.iter().map(|(name, _)| *name).collect();
+        assert_eq!(in_query, in_table);
+    }
+
+    #[test]
     fn a_string_in_a_replacement_field_stays_in_one_string() {
         let source = "f\"{d[\"key\"]}\"\n";
         let mut parser = tree_sitter::Parser::new();
