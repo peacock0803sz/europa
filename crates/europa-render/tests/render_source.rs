@@ -412,3 +412,22 @@ fn odd_fragments_are_shown() {
         assert_all_characters_shown(source);
     }
 }
+
+#[test]
+fn decorations_use_only_palette_colors_and_no_background() {
+    let source = "@deco\ndef f(x, y=None):\n    \"\"\"Doc \\n\"\"\"\n    return f\"{x!r:>{y}} \\t\" + print(1)  # c\n\u{1b}\n";
+    let dark = render_source(source, SourceLanguage::Python, &opts(80));
+    let light = render_source(source, SourceLanguage::Python, &light(80));
+    assert_eq!(dark, light);
+    for line in &dark {
+        for span in &line.spans {
+            let style = span.style;
+            assert_eq!(style.bg, None);
+            assert!(
+                matches!(style.fg, None | Some(Color::Indexed(1..=6))),
+                "{style:?}"
+            );
+            assert!(!style.italic && !style.underline && !style.reverse && !style.strikethrough);
+        }
+    }
+}
