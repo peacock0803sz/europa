@@ -14,6 +14,14 @@ code cell, with the outputs in the form nbformat saves them:
 `options` is a `RenderOptions` as serde reads it, so `max_output_lines` and
 `background` can be left out.
 
+The files `source-*.json` hold the source of one cell instead of outputs. They
+have `options`, `metadata` (the notebook-level metadata), `cell_type`, which is
+`code` or `raw`, and `source`, which is a string or an array of strings:
+
+```json
+{ "options": { "width": 40 }, "metadata": {}, "cell_type": "raw", "source": "x" }
+```
+
 ## Sources
 
 - `traceback-ipython.json` copies `cells[0].outputs[0]` of

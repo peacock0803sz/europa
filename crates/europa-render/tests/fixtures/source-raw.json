@@ -1,0 +1,6 @@
+{
+  "options": { "width": 40 },
+  "metadata": {},
+  "cell_type": "raw",
+  "source": "def f(): return 1"
+}
