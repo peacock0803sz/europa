@@ -1,0 +1,10 @@
+{
+  "options": { "width": 40 },
+  "metadata": { "language_info": { "name": "julia" } },
+  "cell_type": "code",
+  "source": [
+    "function f(x)",
+    "    x + 1",
+    "end"
+  ]
+}
