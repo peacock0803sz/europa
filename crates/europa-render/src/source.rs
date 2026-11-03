@@ -73,7 +73,7 @@ pub fn render_source(
     language: SourceLanguage,
     options: &RenderOptions,
 ) -> Vec<StyledLine> {
-    logical_lines(source, language, true)
+    split_lines(source, language, true)
         .iter()
         .flat_map(|runs| wrap::wrap(runs, options.width))
         .map(|spans| StyledLine { spans, fill: None })
@@ -87,26 +87,26 @@ pub fn render_source(
 /// removed before it comes here, so the pictures of `render_source` are not
 /// wanted.
 pub(crate) fn highlight_lines(source: &str) -> Vec<Vec<StyledSpan>> {
-    logical_lines(source, SourceLanguage::Python, false)
+    split_lines(source, SourceLanguage::Python, false)
 }
 
 /// Cuts the source into logical lines of decorated spans.
 ///
 /// With `pictures`, control characters other than the line feed and the tab
 /// become pictures that stand for them.
-fn logical_lines(source: &str, language: SourceLanguage, pictures: bool) -> Vec<Vec<StyledSpan>> {
+fn split_lines(source: &str, language: SourceLanguage, pictures: bool) -> Vec<Vec<StyledSpan>> {
     let source = source.replace("\r\n", "\n");
     let styled = match language {
         SourceLanguage::Python => python_runs(&source),
         SourceLanguage::Plain => vec![(source.as_str(), Style::default())],
     };
 
-    let mut logical: Vec<Vec<StyledSpan>> = Vec::new();
+    let mut lines: Vec<Vec<StyledSpan>> = Vec::new();
     let mut current: Vec<StyledSpan> = Vec::new();
     for (text, style) in styled {
         for c in text.chars() {
             match c {
-                '\n' => logical.push(std::mem::take(&mut current)),
+                '\n' => lines.push(std::mem::take(&mut current)),
                 c if pictures && c.is_control() && c != '\t' => {
                     push_char(&mut current, control_picture(c), CONTROL);
                 }
@@ -116,9 +116,9 @@ fn logical_lines(source: &str, language: SourceLanguage, pictures: bool) -> Vec<
     }
     // A final line feed ends the last line, and does not start another.
     if !source.is_empty() && !source.ends_with('\n') {
-        logical.push(current);
+        lines.push(current);
     }
-    logical
+    lines
 }
 
 /// Adds `c` to the line, joining it to the last span if the style is the same.
