@@ -38,6 +38,7 @@
 mod ansi;
 mod blocks;
 mod html;
+mod ipython;
 mod json;
 mod markdown;
 mod python;
