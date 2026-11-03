@@ -37,9 +37,11 @@ const CONTROL: Style = Style {
 /// strings, escapes, comments, numbers, the names given at definitions,
 /// calls of built-in functions, decorators and the syntax of f-strings. The
 /// colors are 1 to 6 of the 16-color palette, red to cyan, so the theme of the
-/// terminal decides how they look. Comments are dim without a color, the
-/// expressions inside f-strings are not decorated, and some kinds are bold.
-/// Control pictures are bold in color 1. No background is used.
+/// terminal decides how they look. Comments are dim without a color, and some
+/// kinds are bold. A replacement field of an f-string drops the color of the
+/// string around it, and the tokens inside are decorated as Python again, so
+/// the `1` in `f"total: {n + 1}"` is a number. Control pictures are bold in
+/// color 1. No background is used.
 ///
 /// Pass [`SourceLanguage::Plain`] for raw cells, and for code cells the value
 /// of [`europa_core::Notebook::source_language`].
