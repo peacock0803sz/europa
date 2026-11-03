@@ -357,10 +357,9 @@ pub fn source_fixture(name: &str) -> (RenderOptions, SourceLanguage, String) {
         panic!("no cell c1");
     };
     match cell {
-        // TODO: use `Notebook::source_language` once it exists.
         Cell::Code(code) => (
             options,
-            SourceLanguage::Python,
+            notebook.source_language(),
             code.source.text().to_owned(),
         ),
         Cell::Raw(raw) => (options, SourceLanguage::Plain, raw.source.text().to_owned()),

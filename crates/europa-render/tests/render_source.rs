@@ -431,3 +431,12 @@ fn decorations_use_only_palette_colors_and_no_background() {
         }
     }
 }
+
+#[test]
+fn plain_source_has_no_decoration() {
+    let lines = render_source("def f(): return 1", SourceLanguage::Plain, &opts(80));
+    assert_source_lines_are_well_formed(&lines);
+    for line in &lines {
+        assert!(line.spans.iter().all(|span| span.style == PLAIN));
+    }
+}
