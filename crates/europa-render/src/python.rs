@@ -122,6 +122,17 @@ pub(crate) fn highlight(source: &str) -> Vec<(Range<usize>, Option<Kind>)> {
             Ok(HighlightEvent::Source { .. }) => {}
         }
     }
+    debug_assert_eq!(ranges.first().map(|(range, _)| range.start), Some(0));
+    debug_assert_eq!(
+        ranges.last().map(|(range, _)| range.end),
+        Some(source.len())
+    );
+    debug_assert!(ranges
+        .windows(2)
+        .all(|pair| pair[0].0.end == pair[1].0.start));
+    debug_assert!(ranges.iter().all(
+        |(range, _)| source.is_char_boundary(range.start) && source.is_char_boundary(range.end)
+    ));
     ranges
 }
 
