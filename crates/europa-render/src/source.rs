@@ -46,6 +46,14 @@ const CONTROL: Style = Style {
 /// the `1` in `f"total: {n + 1}"` is a number. Control pictures are bold in
 /// color 1. No background is used.
 ///
+/// IPython syntax is recognized in Python source. A line magic or shell escape
+/// that starts a logical line, or follows the first `=` of one, is decorated
+/// as a magic from its `%` or `!` to the end of the line, and so is the first
+/// line of a cell magic such as `%%timeit`. The lines after `%%time`,
+/// `%%timeit`, `%%capture` and `%%prun` are Python; after any other cell magic
+/// they are left undecorated. A `%` or `!` inside a string, a bracket or a line
+/// continuation is not a magic.
+///
 /// Pass [`SourceLanguage::Plain`] for raw cells, and for code cells the value
 /// of [`europa_core::Notebook::source_language`].
 ///
