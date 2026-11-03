@@ -37,6 +37,9 @@ enum Context {
         raw: bool,
         format: bool,
     },
+    /// The format spec after the `:` of a replacement field, which is text
+    /// that can hold replacement fields of its own and ends with the field.
+    Spec,
 }
 
 /// Finds the magics of `source`.
@@ -200,6 +203,12 @@ fn scan_python(bytes: &[u8], within: Range<usize>, ranges: &mut Vec<Range<usize>
                     stack.pop();
                     i += 1;
                 }
+                // Python reads a `:` outside brackets in a field as the start
+                // of the format spec, even in `:=`.
+                b':' if *field && *depth == 0 => {
+                    stack.push(Context::Spec);
+                    i += 1;
+                }
                 b')' | b']' | b'}' => {
                     *depth = depth.saturating_sub(1);
                     i += 1;
@@ -217,6 +226,27 @@ fn scan_python(bytes: &[u8], within: Range<usize>, ranges: &mut Vec<Range<usize>
                     } else {
                         i += 1;
                     }
+                }
+                _ => i += 1,
+            },
+            // A `#` or a quote in a spec is text, as in `{n:#x}`.
+            Some(Context::Spec) => match byte {
+                b'\n' => {
+                    at_line_start = true;
+                    i += 1;
+                }
+                b'{' => {
+                    stack.push(Context::Code {
+                        depth: 0,
+                        field: true,
+                    });
+                    i += 1;
+                }
+                b'}' => {
+                    // The brace ends the spec and the field it belongs to.
+                    stack.pop();
+                    stack.pop();
+                    i += 1;
                 }
                 _ => i += 1,
             },
@@ -310,6 +340,16 @@ mod tests {
         assert_eq!(found("f\"{x}\"\n%time f()"), ["%time f()"]);
         assert_eq!(found("rf\"\\{x}\"\n%time f()"), ["%time f()"]);
         assert_eq!(found("f\"\\N{DASH}{{x}}\"\n!ls"), ["!ls"]);
+    }
+
+    #[test]
+    fn a_format_spec_is_text_and_not_code() {
+        assert_eq!(found("print(f\"{n:#x}\")\n%time f()"), ["%time f()"]);
+        assert_eq!(found("f\"{x!r:#>10}\"\n%time f()"), ["%time f()"]);
+        assert_eq!(found("f\"{x:'^10}\"\n%time f()"), ["%time f()"]);
+        assert_eq!(found("f\"{x:{w}}\"\n%time f()"), ["%time f()"]);
+        assert_eq!(found("f\"{x:{w}#}\"\n%time f()"), ["%time f()"]);
+        assert_eq!(found("f\"{d[1:2]}\"\n%time f()"), ["%time f()"]);
     }
 
     #[test]

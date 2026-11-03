@@ -162,6 +162,12 @@ fn a_percent_in_a_replacement_field_is_not_a_magic() {
 }
 
 #[test]
+fn a_format_spec_does_not_hide_a_later_magic() {
+    let lines = render("print(f\"{n:#x}\")\n%matplotlib inline");
+    assert_styled(&lines, "%matplotlib inline", MAGIC);
+}
+
+#[test]
 fn a_comment_stays_a_comment() {
     assert_styled(&render("# %time"), "# %time", COMMENT);
 }
