@@ -4,6 +4,9 @@
 //! lines for a terminal. The types of the result, such as [`RenderedCell`], are
 //! defined in [`europa_core::render`], where every crate shares them.
 //!
+//! [`render_source`] does the same for the source of a cell, and highlights
+//! Python by the kind of token.
+//!
 //! Lines from stderr, from errors and from code blocks carry a fill, which a
 //! terminal paints to the right edge of the line, so that they stand out
 //! from stdout.

@@ -34,6 +34,13 @@ const CONTROL: Style = Style {
 ///    final `\n`.
 /// 5. Each logical line is wrapped to the width and its tabs are expanded.
 ///
+/// Python is decorated by the kind of token: keywords, built-in constants,
+/// strings, escapes, comments, numbers, the names given at definitions,
+/// calls of built-in functions, decorators and the syntax of f-strings. Each
+/// kind has a foreground color from the first six entries of the 16-color
+/// palette, and some are bold or dim, so the theme of the terminal decides how
+/// they look. No background or other attribute is used.
+///
 /// Pass [`SourceLanguage::Plain`] for raw cells, and for code cells the value
 /// of `Notebook::source_language` in `europa-core`.
 ///
