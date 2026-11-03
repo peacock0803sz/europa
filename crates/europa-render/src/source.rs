@@ -146,7 +146,8 @@ fn style(kind: Option<Kind>) -> Style {
         Some(Kind::FunctionBuiltin) => (4, false),
         Some(Kind::Decorator) => (3, true),
         Some(Kind::FStringSyntax) => (3, false),
-        // Magic is only produced once IPython syntax is scanned for.
+        // Reserved for IPython magics, which tree-sitter cannot parse and
+        // nothing produces yet.
         Some(Kind::Magic) => (6, true),
         Some(Kind::Comment) => {
             return Style {
