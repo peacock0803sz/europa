@@ -11,7 +11,6 @@ use std::ops::Range;
 const PYTHON_CELL_MAGICS: [&str; 4] = ["time", "timeit", "capture", "prun"];
 
 /// What the scan of a cell found.
-#[allow(dead_code)]
 pub(crate) struct Magics {
     /// Byte ranges to decorate as magics, in ascending order, never
     /// overlapping, and never reaching over a line feed.
@@ -44,7 +43,6 @@ enum Context {
 ///
 /// Nothing in the source can make this fail: a string or bracket that is not
 /// closed lasts to the end of the source.
-#[allow(dead_code)]
 pub(crate) fn scan(source: &str) -> Magics {
     let bytes = source.as_bytes();
     let mut ranges = Vec::new();

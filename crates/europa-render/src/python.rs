@@ -35,9 +35,8 @@ pub(crate) enum Kind {
     FStringSyntax,
     /// A replacement field of an f-string, which is Python code again.
     Embedded,
-    /// Reserved for IPython magics and shell escapes, which tree-sitter
-    /// cannot parse, so nothing produces it yet.
-    #[expect(dead_code)]
+    /// IPython magics and shell escapes, which tree-sitter cannot parse, so
+    /// the scan in `ipython` finds them and the query never captures them.
     Magic,
 }
 

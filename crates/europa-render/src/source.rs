@@ -1,7 +1,10 @@
 //! Display lines of the source of a cell.
 
+use std::ops::Range;
+
 use europa_core::{Color, RenderOptions, SourceLanguage, Style, StyledLine, StyledSpan};
 
+use crate::ipython;
 use crate::python::{self, Kind};
 use crate::wrap;
 
@@ -117,19 +120,62 @@ fn control_picture(c: char) -> char {
     }
 }
 
-/// The source cut into pieces of one decoration each, by Python syntax.
+/// The source cut into pieces of one decoration each, by Python syntax and
+/// IPython magics.
+///
+/// Only the part of the source that is Python is highlighted, with its magics
+/// masked, and then the magics are decorated on top. What is neither Python
+/// nor a magic, such as the body of `%%bash`, has no decoration.
 fn python_runs(source: &str) -> Vec<(&str, Style)> {
-    let mut runs = Vec::new();
-    for (range, kind) in python::highlight(source) {
+    let magics = ipython::scan(source);
+    let python = magics.python.clone();
+
+    let mut cuts: Vec<(Range<usize>, Style)> = Vec::new();
+    cuts.push((0..python.start, Style::default()));
+    for (range, kind) in python::highlight(&magics.masked[python.clone()]) {
+        cuts.push((
+            range.start + python.start..range.end + python.start,
+            style(kind),
+        ));
+    }
+    cuts.push((python.end..source.len(), Style::default()));
+
+    let mut runs: Vec<(Range<usize>, Style)> = Vec::new();
+    let mut next_magic = 0;
+    for (range, base) in cuts {
+        let mut at = range.start;
+        while at < range.end {
+            while next_magic < magics.ranges.len() && magics.ranges[next_magic].end <= at {
+                next_magic += 1;
+            }
+            let (end, decoration) = match magics.ranges.get(next_magic) {
+                Some(magic) if magic.start <= at => {
+                    (magic.end.min(range.end), style(Some(Kind::Magic)))
+                }
+                Some(magic) if magic.start < range.end => (magic.start, base),
+                _ => (range.end, base),
+            };
+            match runs.last_mut() {
+                Some((last, last_style)) if *last_style == decoration && last.end == at => {
+                    last.end = end;
+                }
+                _ => runs.push((at..end, decoration)),
+            }
+            at = end;
+        }
+    }
+
+    let mut pieces = Vec::new();
+    for (range, style) in runs {
         // The ranges cover the source, so a range that does not fall on
-        // characters means that the highlighter is wrong. Showing the source
-        // whole is better than losing some of it.
+        // characters means that a range is wrong. Showing the source whole is
+        // better than losing some of it.
         let Some(text) = source.get(range) else {
             return vec![(source, Style::default())];
         };
-        runs.push((text, style(kind)));
+        pieces.push((text, style));
     }
-    runs
+    pieces
 }
 
 /// The decoration of a kind of token.
@@ -148,8 +194,7 @@ fn style(kind: Option<Kind>) -> Style {
         Some(Kind::FunctionBuiltin) => (4, false),
         Some(Kind::Decorator) => (3, true),
         Some(Kind::FStringSyntax) => (3, false),
-        // Reserved for IPython magics, which tree-sitter cannot parse and
-        // nothing produces yet.
+        // IPython syntax found by the scan in `ipython`.
         Some(Kind::Magic) => (6, true),
         Some(Kind::Comment) => {
             return Style {
