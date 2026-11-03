@@ -259,9 +259,9 @@ pub fn source_lines(lines: &[StyledLine]) -> Vec<String> {
 
 /// The style of each character of the first `needle` in the display lines.
 ///
-/// The lines are joined with `\n` before the search. Characters without
-/// decoration join their neighbours in one span, so the spans cannot say
-/// where a decoration starts; this tells it character by character.
+/// The lines are joined with `\n` before the search. Neighbouring characters
+/// of one decoration share a span, so the spans cannot say where a token
+/// starts; this tells the decoration character by character.
 pub fn styles_of(lines: &[StyledLine], needle: &str) -> Vec<Style> {
     let mut chars: Vec<(char, Style)> = Vec::new();
     for (index, line) in lines.iter().enumerate() {
