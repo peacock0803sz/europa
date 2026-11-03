@@ -100,3 +100,192 @@ fn background_and_repetition_do_not_change_the_result() {
         render_source(source, SourceLanguage::Plain, &opts(80))
     );
 }
+
+const BASE: Style = Style {
+    fg: None,
+    bg: None,
+    bold: false,
+    dim: false,
+    italic: false,
+    underline: false,
+    reverse: false,
+    strikethrough: false,
+};
+
+const KEYWORD: Style = fg(5, false);
+const CONSTANT: Style = fg(5, true);
+const STRING: Style = fg(2, false);
+const ESCAPE: Style = fg(2, true);
+const COMMENT: Style = Style { dim: true, ..BASE };
+const NUMBER: Style = fg(6, false);
+const DEFINITION: Style = fg(4, true);
+const BUILTIN: Style = fg(4, false);
+const DECORATOR: Style = fg(3, true);
+const FSTRING: Style = fg(3, false);
+const MAGIC: Style = fg(6, true);
+const CONTROL: Style = fg(1, true);
+const PLAIN: Style = BASE;
+
+const fn fg(index: u8, bold: bool) -> Style {
+    Style {
+        fg: Some(Color::Indexed(index)),
+        bold,
+        ..BASE
+    }
+}
+
+fn python(source: &str) -> Vec<europa_core::StyledLine> {
+    let lines = render_source(source, SourceLanguage::Python, &opts(80));
+    assert_source_lines_are_well_formed(&lines);
+    lines
+}
+
+/// Check that every character of `needle`, where it first occurs, has `style`.
+#[track_caller]
+fn assert_styled(lines: &[europa_core::StyledLine], needle: &str, style: Style) {
+    let styles = styles_of(lines, needle);
+    assert!(
+        styles.iter().all(|found| *found == style),
+        "{needle:?} is {styles:?}, not {style:?}"
+    );
+}
+
+#[test]
+fn keywords_numbers_comments_and_definitions() {
+    let lines = python("def f(x):\n    return x + 1  # inc");
+    assert_styled(&lines, "def", KEYWORD);
+    assert_styled(&lines, "return", KEYWORD);
+    assert_styled(&lines, "1", NUMBER);
+    assert_styled(&lines, "# inc", COMMENT);
+    assert_eq!(styles_of(&lines, "f(x)")[0], DEFINITION);
+    assert_styled(&lines, "(x)", PLAIN);
+    assert_styled(&lines, "x + ", PLAIN);
+}
+
+#[test]
+fn strings_include_prefixes_and_quotes() {
+    for source in [
+        "'single'",
+        "\"double\"",
+        "b\"x\"",
+        "rb'x'",
+        "r\"\\d\"",
+        "r\"\\n\"",
+    ] {
+        assert_styled(&python(source), source, STRING);
+    }
+    let lines = python("\"\"\"triple\nquoted\"\"\"");
+    assert_styled(&lines, "\"\"\"triple", STRING);
+    assert_styled(&lines, "quoted\"\"\"", STRING);
+}
+
+#[test]
+fn escapes_are_bold_in_strings() {
+    let lines = python("\"a\\nb\"");
+    assert_styled(&lines, "\\n", ESCAPE);
+    assert_styled(&lines, "\"a", STRING);
+}
+
+#[test]
+fn builtin_constants() {
+    for source in ["True", "False", "None"] {
+        assert_styled(&python(source), source, CONSTANT);
+    }
+}
+
+#[test]
+fn decorators_are_marked_without_their_arguments() {
+    assert_styled(&python("@decorator"), "@decorator", DECORATOR);
+    assert_styled(&python("@functools.cache"), "@functools.cache", DECORATOR);
+    let lines = python("@lru_cache(maxsize=2)\ndef g(): pass");
+    assert_styled(&lines, "@lru_cache", DECORATOR);
+    assert_styled(&lines, "maxsize=", PLAIN);
+    assert_styled(&lines, "2", NUMBER);
+}
+
+#[test]
+fn builtin_calls_and_plain_names() {
+    assert_styled(&python("import os"), "import", KEYWORD);
+    let lines = python("print(len(x))");
+    assert_styled(&lines, "print", BUILTIN);
+    assert_styled(&lines, "len", BUILTIN);
+    assert_styled(&lines, "x", PLAIN);
+    assert_styled(&python("f(x)"), "f(x)", PLAIN);
+}
+
+#[test]
+fn class_names_are_definitions() {
+    assert_styled(&python("class A:\n    pass"), "A", DEFINITION);
+}
+
+#[test]
+fn word_keywords() {
+    for source in ["and", "or", "in", "is", "is not", "not in"] {
+        assert_styled(&python(&format!("x = a {source} b")), source, KEYWORD);
+    }
+    assert_styled(&python("async def f(): await g()"), "async", KEYWORD);
+    assert_styled(&python("async def f(): await g()"), "await", KEYWORD);
+    assert_styled(&python("f = lambda: 1"), "lambda", KEYWORD);
+    assert_styled(&python("def f(): yield 1"), "yield", KEYWORD);
+    assert_styled(&python("x = not y"), "not", KEYWORD);
+}
+
+#[test]
+fn print_as_a_name_is_plain() {
+    assert_styled(&python("print = 1"), "print", PLAIN);
+}
+
+#[test]
+fn soft_keywords_depend_on_position() {
+    let lines = python("match x:\n    case 1:\n        pass");
+    assert_styled(&lines, "match", KEYWORD);
+    assert_styled(&lines, "case", KEYWORD);
+    assert_styled(&python("match = 1"), "match", PLAIN);
+    let lines = python("type Point = tuple[int, int]");
+    assert_styled(&lines, "type", KEYWORD);
+    assert_styled(&python("type(x)"), "type", BUILTIN);
+}
+
+#[test]
+fn docstrings_are_strings() {
+    assert_styled(
+        &python("def f():\n    \"\"\"Doc.\"\"\"\n"),
+        "\"\"\"Doc.\"\"\"",
+        STRING,
+    );
+}
+
+#[test]
+fn the_decorations_of_all_kinds_differ() {
+    let all = [
+        KEYWORD, CONSTANT, STRING, ESCAPE, COMMENT, NUMBER, DEFINITION, BUILTIN, DECORATOR,
+        FSTRING, MAGIC, CONTROL,
+    ];
+    for (index, style) in all.iter().enumerate() {
+        assert!(!all[index + 1..].contains(style), "{style:?} is not unique");
+    }
+}
+
+#[test]
+fn wrapped_lines_keep_the_decoration() {
+    let lines = render_source("x = \"0123456789abc\"", SourceLanguage::Python, &opts(10));
+    assert_eq!(lines.len(), 2);
+    assert_styled(&lines, "abc\"", STRING);
+    let lines = render_source("\"\"\"a\nb\"\"\"", SourceLanguage::Python, &opts(2));
+    let text = source_lines(&lines);
+    for line in &lines {
+        assert!(
+            line.spans.iter().all(|span| span.style == STRING),
+            "{text:?}"
+        );
+    }
+}
+
+#[test]
+fn control_characters_inside_strings_keep_their_own_decoration() {
+    let lines = python("\"\u{1b}[31mred\"");
+    assert_eq!(source_lines(&lines), ["\"␛[31mred\""]);
+    assert_styled(&lines, "␛", CONTROL);
+    assert_styled(&lines, "[31mred\"", STRING);
+    assert_styled(&lines, "\"", STRING);
+}

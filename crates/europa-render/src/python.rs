@@ -12,7 +12,6 @@ use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter}
 /// before the source reaches tree-sitter. The pictures for control characters
 /// are not a kind either; they are decorated after the highlighting, in
 /// `source.rs`.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {
     /// Keywords, including those that depend on context.
@@ -38,6 +37,7 @@ pub(crate) enum Kind {
     /// A replacement field of an f-string, which is Python code again.
     Embedded,
     /// IPython magics and shell escapes.
+    #[allow(dead_code)]
     Magic,
 }
 
@@ -74,7 +74,6 @@ const KINDS: [Kind; 11] = [
 /// The configuration of the highlighter, which is built once.
 ///
 /// It is `None` if the query does not build, and then nothing is decorated.
-#[allow(dead_code)]
 fn config() -> Option<&'static HighlightConfiguration> {
     static CONFIG: OnceLock<Option<HighlightConfiguration>> = OnceLock::new();
     CONFIG
@@ -98,7 +97,6 @@ fn config() -> Option<&'static HighlightConfiguration> {
 /// The ranges do not overlap and cover the whole source from the start
 /// without gaps, and neighbours differ in kind. A source that is empty has no
 /// range.
-#[allow(dead_code)]
 pub(crate) fn highlight(source: &str) -> Vec<(Range<usize>, Option<Kind>)> {
     if source.is_empty() {
         return Vec::new();
