@@ -174,6 +174,41 @@ fn a_string_left_open_does_not_hide_the_next_line() {
 }
 
 #[test]
+fn draft_and_edge_cells_keep_every_character() {
+    for source in [
+        "%%timeit", "%%time\n", "%%", "%", "!", "x =", "x = !", "=", "%%bash",
+    ] {
+        render(source);
+    }
+    assert_styled(&render("%%timeit"), "%%timeit", MAGIC);
+}
+
+#[test]
+fn a_magic_can_hold_characters_beyond_ascii() {
+    let lines = render("x = !echo 日本語\ny = 1");
+    assert_styled(&lines, "!echo 日本語", MAGIC);
+    assert_eq!(styles_of(&lines, "y = 1")[4], NUMBER);
+
+    let lines = render("!echo é\nx = 1");
+    assert_styled(&lines, "!echo é", MAGIC);
+    assert_eq!(styles_of(&lines, "x = 1")[4], NUMBER);
+}
+
+#[test]
+fn a_cell_magic_must_start_the_cell() {
+    let lines = render(" %%bash\nx = 1");
+    assert_styled(&lines, "%%bash", MAGIC);
+    assert_eq!(styles_of(&lines, "x = 1")[4], NUMBER);
+}
+
+#[test]
+fn a_magic_ends_before_a_carriage_return_and_line_feed() {
+    let lines = render("%time f()\r\nx = 1");
+    assert_styled(&lines, "%time f()", MAGIC);
+    assert_eq!(styles_of(&lines, "x = 1")[4], NUMBER);
+}
+
+#[test]
 fn a_comment_stays_a_comment() {
     assert_styled(&render("# %time"), "# %time", COMMENT);
 }
