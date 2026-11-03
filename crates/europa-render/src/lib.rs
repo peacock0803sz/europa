@@ -37,7 +37,10 @@ mod blocks;
 mod html;
 mod json;
 mod markdown;
+mod source;
 mod wrap;
+
+pub use source::render_source;
 
 use std::collections::VecDeque;
 use std::num::NonZeroU16;
