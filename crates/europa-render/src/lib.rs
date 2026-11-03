@@ -37,6 +37,7 @@ mod blocks;
 mod html;
 mod json;
 mod markdown;
+mod python;
 mod source;
 mod wrap;
 
