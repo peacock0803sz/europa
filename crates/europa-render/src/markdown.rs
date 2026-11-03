@@ -5,8 +5,8 @@
 
 use std::num::NonZeroU16;
 
-use europa_core::{Background, Style, StyledSpan};
-use pulldown_cmark::{Alignment, Event, Options, Parser, Tag, TagEnd};
+use europa_core::{Background, SourceLanguage, Style, StyledSpan};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 use unicode_width::UnicodeWidthStr;
 
 use crate::blocks::{Blocks, Line};
@@ -49,6 +49,9 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
     let mut html_tags: Vec<String> = Vec::new();
     let mut html_hidden: Option<String> = None;
     let mut hidden_inlines = 0usize;
+    // Text of the Python code block that is open, which is highlighted as a
+    // whole when the block ends.
+    let mut python_code: Option<String> = None;
     let mut table: Option<TableState> = None;
     let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
     for event in Parser::new_ext(text, options) {
@@ -93,7 +96,9 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
         // links is also collected for the target and the notice.
         match &event {
             Event::Text(body) => {
-                if let Some(alt) = image_alt.as_mut() {
+                if let Some(code) = python_code.as_mut() {
+                    code.push_str(body);
+                } else if let Some(alt) = image_alt.as_mut() {
                     alt.push_str(body);
                 } else {
                     buffered.push_str(body);
@@ -150,11 +155,26 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
                 blocks.push_style(|style| style.strikethrough = true);
             }
             Event::End(TagEnd::Strikethrough) => blocks.pop_style(),
-            Event::Start(Tag::CodeBlock(_)) => {
+            Event::Start(Tag::CodeBlock(kind)) => {
                 blocks.gap();
                 blocks.set_fill(Some(crate::code_bg(background)));
+                if let CodeBlockKind::Fenced(info) = &kind {
+                    let name = info.split_whitespace().next().unwrap_or_default();
+                    if SourceLanguage::from_name(name) == SourceLanguage::Python {
+                        python_code = Some(String::new());
+                    }
+                }
             }
             Event::End(TagEnd::CodeBlock) => {
+                if let Some(code) = python_code.take() {
+                    // Controls are removed first, as for any text here.
+                    for spans in crate::source::highlight_lines(&crate::ansi::strip(&code)) {
+                        for span in spans {
+                            blocks.styled_text(&span.text, span.style);
+                        }
+                        blocks.end_line();
+                    }
+                }
                 blocks.flush();
                 blocks.set_fill(None);
                 blocks.gap();

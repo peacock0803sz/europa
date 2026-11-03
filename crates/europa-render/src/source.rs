@@ -65,6 +65,28 @@ pub fn render_source(
     language: SourceLanguage,
     options: &RenderOptions,
 ) -> Vec<StyledLine> {
+    logical_lines(source, language, true)
+        .iter()
+        .flat_map(|runs| wrap::wrap(runs, options.width))
+        .map(|spans| StyledLine { spans, fill: None })
+        .collect()
+}
+
+/// The source as Python split into logical lines with a decoration on each
+/// span, before wrapping.
+///
+/// Control characters are left as they are. The text of Markdown has them
+/// removed before it comes here, so the pictures of `render_source` are not
+/// wanted.
+pub(crate) fn highlight_lines(source: &str) -> Vec<Vec<StyledSpan>> {
+    logical_lines(source, SourceLanguage::Python, false)
+}
+
+/// Cuts the source into logical lines of decorated spans.
+///
+/// With `pictures`, control characters other than the line feed and the tab
+/// become pictures that stand for them.
+fn logical_lines(source: &str, language: SourceLanguage, pictures: bool) -> Vec<Vec<StyledSpan>> {
     let source = source.replace("\r\n", "\n");
     let styled = match language {
         SourceLanguage::Python => python_runs(&source),
@@ -77,7 +99,7 @@ pub fn render_source(
         for c in text.chars() {
             match c {
                 '\n' => logical.push(std::mem::take(&mut current)),
-                c if c.is_control() && c != '\t' => {
+                c if pictures && c.is_control() && c != '\t' => {
                     push_char(&mut current, control_picture(c), CONTROL);
                 }
                 c => push_char(&mut current, c, style),
@@ -88,12 +110,7 @@ pub fn render_source(
     if !source.is_empty() && !source.ends_with('\n') {
         logical.push(current);
     }
-
     logical
-        .iter()
-        .flat_map(|runs| wrap::wrap(runs, options.width))
-        .map(|spans| StyledLine { spans, fill: None })
-        .collect()
 }
 
 /// Adds `c` to the line, joining it to the last span if the style is the same.
