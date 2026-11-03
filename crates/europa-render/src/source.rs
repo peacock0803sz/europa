@@ -21,8 +21,7 @@ const CONTROL: Style = Style {
 ///
 /// Unlike the outputs of a cell, the source is never cut at a limit of lines,
 /// and its lines have no `fill`. The decoration does not depend on the
-/// background of the terminal, and nothing is read or written besides the
-/// arguments.
+/// background of the terminal, and the result depends only on the arguments.
 ///
 /// The steps are:
 ///
@@ -36,13 +35,14 @@ const CONTROL: Style = Style {
 ///
 /// Python is decorated by the kind of token: keywords, built-in constants,
 /// strings, escapes, comments, numbers, the names given at definitions,
-/// calls of built-in functions, decorators and the syntax of f-strings. Each
-/// kind has a foreground color from the first six entries of the 16-color
-/// palette, and some are bold or dim, so the theme of the terminal decides how
-/// they look. No background or other attribute is used.
+/// calls of built-in functions, decorators and the syntax of f-strings. The
+/// colors are 1 to 6 of the 16-color palette, red to cyan, so the theme of the
+/// terminal decides how they look. Comments are dim without a color, the
+/// expressions inside f-strings are not decorated, and some kinds are bold.
+/// Control pictures are bold in color 1. No background is used.
 ///
 /// Pass [`SourceLanguage::Plain`] for raw cells, and for code cells the value
-/// of `Notebook::source_language` in `europa-core`.
+/// of [`europa_core::Notebook::source_language`].
 ///
 /// ```
 /// use std::num::NonZeroU16;
@@ -132,9 +132,9 @@ fn python_runs(source: &str) -> Vec<(&str, Style)> {
 
 /// The decoration of a kind of token.
 ///
-/// Only the first six colors of the palette are used, and no background, so
-/// that the terminal's own theme decides how they look on dark and light
-/// backgrounds alike.
+/// Only colors 1 to 6 of the palette are used, with bold or dim, and no
+/// background, so that the terminal's own theme decides how they look on dark
+/// and light backgrounds alike.
 fn style(kind: Option<Kind>) -> Style {
     let (index, bold) = match kind {
         Some(Kind::Keyword) => (5, false),
