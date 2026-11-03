@@ -570,9 +570,9 @@ impl Notebook {
     ///
     /// The name comes from `metadata.language_info.name`, or, where that is
     /// not a string, from `metadata.kernelspec.language`. A notebook that
-    /// names neither is taken to be Python, because the first release only
-    /// supports ipykernel. Raw cells are never highlighted, whatever this
-    /// returns.
+    /// names neither is taken to be Python, because ipykernel is the default
+    /// kernel and older notebooks leave the language out. Raw cells are never
+    /// highlighted, whatever this returns.
     #[must_use]
     pub fn source_language(&self) -> SourceLanguage {
         let name = |key: &str, field: &str| match self.metadata.get(key) {
