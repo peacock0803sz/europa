@@ -2,6 +2,7 @@
 
 use europa_core::{Color, RenderOptions, SourceLanguage, Style, StyledLine, StyledSpan};
 
+use crate::python::{self, Kind};
 use crate::wrap;
 
 /// Decoration of the pictures that stand for control characters.
@@ -54,8 +55,8 @@ pub fn render_source(
 ) -> Vec<StyledLine> {
     let source = source.replace("\r\n", "\n");
     let styled = match language {
-        // The ranges of Python are not computed yet.
-        SourceLanguage::Python | SourceLanguage::Plain => vec![(source.as_str(), Style::default())],
+        SourceLanguage::Python => python_runs(&source),
+        SourceLanguage::Plain => vec![(source.as_str(), Style::default())],
     };
 
     let mut logical: Vec<Vec<StyledSpan>> = Vec::new();
@@ -104,5 +105,55 @@ fn control_picture(c: char) -> char {
         '\u{7f}' => '\u{2421}',
         c if (c as u32) < 0x20 => char::from_u32(0x2400 + c as u32).unwrap_or('\u{2426}'),
         _ => '\u{2426}',
+    }
+}
+
+/// The source cut into pieces of one decoration each, by Python syntax.
+fn python_runs(source: &str) -> Vec<(&str, Style)> {
+    let mut runs = Vec::new();
+    for (range, kind) in python::highlight(source) {
+        // The ranges cover the source, so a range that does not fall on
+        // characters means that the highlighter is wrong. Showing the source
+        // whole is better than losing some of it.
+        let Some(text) = source.get(range) else {
+            return vec![(source, Style::default())];
+        };
+        runs.push((text, style(kind)));
+    }
+    runs
+}
+
+/// The decoration of a kind of token.
+///
+/// Only the first six colors of the palette are used, and no background, so
+/// that the terminal's own theme decides how they look on dark and light
+/// backgrounds alike.
+fn style(kind: Option<Kind>) -> Style {
+    let (index, bold) = match kind {
+        Some(Kind::Keyword) => (5, false),
+        Some(Kind::ConstantBuiltin) => (5, true),
+        Some(Kind::String) => (2, false),
+        Some(Kind::StringEscape) => (2, true),
+        Some(Kind::Number) => (6, false),
+        Some(Kind::FunctionDefinition) => (4, true),
+        Some(Kind::FunctionBuiltin) => (4, false),
+        Some(Kind::Decorator) => (3, true),
+        Some(Kind::FStringSyntax) => (3, false),
+        // Magic is only produced once IPython syntax is scanned for.
+        Some(Kind::Magic) => (6, true),
+        Some(Kind::Comment) => {
+            return Style {
+                dim: true,
+                ..Style::default()
+            }
+        }
+        // An embedded expression is Python again, so it must not carry the
+        // decoration of the string around it.
+        Some(Kind::Embedded) | None => return Style::default(),
+    };
+    Style {
+        fg: Some(Color::Indexed(index)),
+        bold,
+        ..Style::default()
     }
 }
