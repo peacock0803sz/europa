@@ -41,6 +41,8 @@ snapshot!(markdown_code_dark, "markdown-code-dark");
 snapshot!(markdown_code_light, "markdown-code-light");
 snapshot!(markdown_table, "markdown-table");
 snapshot!(markdown_table_narrow, "markdown-table-narrow");
+snapshot!(markdown_python_dark, "markdown-python-dark");
+snapshot!(markdown_python_light, "markdown-python-light");
 
 macro_rules! source_snapshot {
     ($name:ident, $file:literal) => {
@@ -66,8 +68,11 @@ source_snapshot!(source_dark, "source-dark");
 source_snapshot!(source_light, "source-light");
 source_snapshot!(source_julia, "source-julia");
 source_snapshot!(source_raw, "source-raw");
+source_snapshot!(source_magics, "source-magics");
+source_snapshot!(source_cell_magic_python, "source-cell-magic-python");
+source_snapshot!(source_cell_magic_other, "source-cell-magic-other");
 
-const SOURCE_FIXTURES: [&str; 10] = [
+const SOURCE_FIXTURES: [&str; 13] = [
     "source-keywords",
     "source-strings",
     "source-fstrings",
@@ -78,6 +83,9 @@ const SOURCE_FIXTURES: [&str; 10] = [
     "source-light",
     "source-julia",
     "source-raw",
+    "source-magics",
+    "source-cell-magic-python",
+    "source-cell-magic-other",
 ];
 
 #[test]
@@ -131,7 +139,7 @@ const CUT: [&str; 4] = [
 
 /// Fixtures with rules, lists, tables or indents that change with width, so
 /// unwrapped text differs from wrapped text.
-const WIDTH_VARIES: [&str; 7] = [
+const WIDTH_VARIES: [&str; 9] = [
     "html-sample",
     "mime-select",
     "markdown-sample",
@@ -139,9 +147,11 @@ const WIDTH_VARIES: [&str; 7] = [
     "markdown-code-light",
     "markdown-table",
     "markdown-table-narrow",
+    "markdown-python-dark",
+    "markdown-python-light",
 ];
 
-const FIXTURES: [&str; 24] = [
+const FIXTURES: [&str; 26] = [
     "ansi-styles",
     "escape-removal",
     "stdout-stderr-dark",
@@ -166,6 +176,8 @@ const FIXTURES: [&str; 24] = [
     "markdown-code-light",
     "markdown-table",
     "markdown-table-narrow",
+    "markdown-python-dark",
+    "markdown-python-light",
 ];
 
 #[test]
