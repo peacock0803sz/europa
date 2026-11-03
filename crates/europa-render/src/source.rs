@@ -43,16 +43,17 @@ const CONTROL: Style = Style {
 /// terminal decides how they look. Comments are dim without a color, and some
 /// kinds are bold. A replacement field of an f-string drops the color of the
 /// string around it, and the tokens inside are decorated as Python again, so
-/// the `1` in `f"total: {n + 1}"` is a number. Control pictures are bold in
-/// color 1. No background is used.
+/// the `1` in `f"total: {n + 1}"` is a number. Magics are bold in color 6.
+/// Control pictures are bold in color 1. No background is used.
 ///
 /// IPython syntax is recognized in Python source. A line magic or shell escape
-/// that starts a logical line, or follows the first `=` of one, is decorated
-/// as a magic from its `%` or `!` to the end of the line, and so is the first
-/// line of a cell magic such as `%%timeit`. The lines after `%%time`,
-/// `%%timeit`, `%%capture` and `%%prun` are Python; after any other cell magic
-/// they are left undecorated. A `%` or `!` inside a string, a bracket or a line
-/// continuation is not a magic.
+/// is decorated as a magic from its `%` or `!` to the end of the line when it
+/// starts a statement on a line of its own, outside any bracket, string,
+/// comment or `\` continuation, or when it follows the first assignment `=`
+/// of such a statement outside brackets, which is not `==`, `+=` or a keyword
+/// argument. So is the first line of a cell that starts with `%%`, such as
+/// `%%timeit`. The lines after `%%time`, `%%timeit`, `%%capture` and `%%prun`
+/// are Python; after any other cell magic they are left undecorated.
 ///
 /// Pass [`SourceLanguage::Plain`] for raw cells, and for code cells the value
 /// of [`europa_core::Notebook::source_language`].
@@ -80,17 +81,17 @@ pub fn render_source(
         .collect()
 }
 
-/// The source as Python split into logical lines with a decoration on each
-/// span, before wrapping.
+/// The source as Python cut at each `\n`, not at the ends of Python logical
+/// lines, with a decoration on each span, before wrapping.
 ///
-/// Control characters are left as they are. The text of Markdown has them
-/// removed before it comes here, so the pictures of `render_source` are not
-/// wanted.
+/// Control characters get no pictures, because Markdown, the only caller,
+/// removes them before this.
 pub(crate) fn highlight_lines(source: &str) -> Vec<Vec<StyledSpan>> {
     split_lines(source, SourceLanguage::Python, false)
 }
 
-/// Cuts the source into logical lines of decorated spans.
+/// Cuts the source at each `\n` into lines of decorated spans. These are not
+/// Python logical lines, which go on over brackets and `\` continuations.
 ///
 /// With `pictures`, control characters other than the line feed and the tab
 /// become pictures that stand for them.

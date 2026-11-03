@@ -167,7 +167,8 @@ pub(crate) fn render(text: &str, width: NonZeroU16, background: Background) -> V
             }
             Event::End(TagEnd::CodeBlock) => {
                 if let Some(code) = python_code.take() {
-                    // Controls are removed first, as for any text here.
+                    // Escape sequences are removed first, as for any text
+                    // here, or their bytes would be read as Python.
                     for spans in crate::source::highlight_lines(&crate::ansi::strip(&code)) {
                         for span in spans {
                             blocks.styled_text(&span.text, span.style);

@@ -1,9 +1,9 @@
 //! Finding IPython magics and shell escapes in the source of a cell.
 //!
 //! IPython rewrites them before Python reads the code, so tree-sitter cannot
-//! parse them. They are found here by a scan that follows strings, brackets
-//! and line continuations, because a `%` or a `!` only starts a magic at the
-//! beginning of a logical line or after the first `=` of one.
+//! parse them. They are found here by a scan that follows strings, comments,
+//! brackets and line continuations, because a `%` or a `!` only starts a
+//! magic at the beginning of a logical line or after the first `=` of one.
 
 use std::ops::Range;
 
@@ -13,7 +13,7 @@ const PYTHON_CELL_MAGICS: [&str; 4] = ["time", "timeit", "capture", "prun"];
 /// What the scan of a cell found.
 pub(crate) struct Magics {
     /// Byte ranges to decorate as magics, in ascending order, never
-    /// overlapping, and never reaching over a line feed.
+    /// overlapping, and never containing a line feed.
     pub(crate) ranges: Vec<Range<usize>>,
     /// The bytes to read as Python: the whole source, the lines after a cell
     /// magic whose body is Python, or nothing after any other cell magic. Its
@@ -30,8 +30,8 @@ enum Context {
     /// Code, with the depth of the brackets opened in it. `field` is set for
     /// the replacement field of an f-string, which ends at its closing brace.
     Code { depth: usize, field: bool },
-    /// A string with its quote, whether it is triple-quoted, raw or an
-    /// f-string.
+    /// A string with its quote, whether it is triple-quoted, raw, and an
+    /// f-string or a t-string, which `format` covers both of.
     Str {
         quote: u8,
         triple: bool,
@@ -148,8 +148,9 @@ fn scan_python(bytes: &[u8], within: Range<usize>, ranges: &mut Vec<Range<usize>
                     b'\\' => {
                         let next = bytes.get(i + 1).copied().filter(|_| i + 1 < end);
                         match next {
-                            // A backslash can hide a quote or a backslash
-                            // even in a raw string, and a line feed.
+                            // Even in a raw string, a backslash keeps the
+                            // next quote or backslash from ending the
+                            // string, and joins the next line to this one.
                             Some(b'\\' | b'\'' | b'"') => i += 2,
                             Some(b'\n') => {
                                 at_line_start = true;

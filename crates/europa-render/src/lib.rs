@@ -106,9 +106,10 @@ enum Unit {
 ///    such as an image or an unknown kind, becomes a notice that names what
 ///    it holds instead. A notice is wrapped like other text, so it can take
 ///    more than one line when it is wider than [`RenderOptions::width`].
-///    A fenced code block of Markdown whose info string starts with a name of
-///    Python, such as `python`, `py` or `ipython`, is highlighted by the rules
-///    of [`render_source`] once its escape sequences are removed.
+///    A fenced code block of Markdown whose info string begins with a word
+///    naming Python, such as `python`, `py` or `ipython`, is highlighted by
+///    the rules of [`render_source`] once escape sequences and control
+///    characters are removed.
 /// 2. In the body of a unit, `\r` is resolved the way it is for a received
 ///    stream, so that a progress bar leaves only its last state. Notices skip
 ///    this step.
