@@ -3,7 +3,7 @@ mod common;
 use std::num::NonZeroU16;
 
 use common::{fixture, source_fixture, texts};
-use europa_core::RenderOptions;
+use europa_core::{Cell, RenderOptions, SourceLanguage};
 use europa_render::{render_outputs, render_source};
 
 macro_rules! snapshot {
@@ -109,8 +109,13 @@ fn rendering_a_source_leaves_the_notebook_as_it_was() {
         let json = common::source_notebook_json(&format!("{name}.json"));
         let notebook = europa_core::parse(json.as_bytes()).expect("notebook loads");
         let before = europa_core::serialize(&notebook);
-        let (options, language, source) = source_fixture(&format!("{name}.json"));
-        let _ = render_source(&source, language, &options);
+        let (options, _, _) = source_fixture(&format!("{name}.json"));
+        let (language, source) = match notebook.cells.iter().find(|cell| cell.id() == "c1") {
+            Some(Cell::Code(code)) => (notebook.source_language(), code.source.text()),
+            Some(Cell::Raw(raw)) => (SourceLanguage::Plain, raw.source.text()),
+            _ => panic!("{name}: no code or raw cell c1"),
+        };
+        let _ = render_source(source, language, &options);
         assert_eq!(europa_core::serialize(&notebook), before, "{name}");
     }
 }
