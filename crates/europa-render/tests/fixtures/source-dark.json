@@ -1,0 +1,21 @@
+{
+  "options": {
+    "width": 40,
+    "background": "dark"
+  },
+  "metadata": {
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cell_type": "code",
+  "source": [
+    "@functools.cache\n",
+    "def f(n, d=None):\n",
+    "    \"\"\"Doc \\n\"\"\"\n",
+    "    s = f\"{n!r:>{n}} {d['k']}\"\n",
+    "    return print(n) or True  # done\n",
+    "class A: pass\n",
+    "x = 3.5 if not s else None"
+  ]
+}

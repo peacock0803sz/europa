@@ -3,8 +3,8 @@
 use std::num::{NonZeroU16, NonZeroUsize};
 
 use europa_core::{
-    Background, Cell, Color, JsonMap, Notebook, Output, RenderOptions, RenderedCell, Style,
-    StyledLine,
+    Background, Cell, Color, JsonMap, Notebook, Output, RenderOptions, RenderedCell,
+    SourceLanguage, Style, StyledLine,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -247,4 +247,160 @@ fn ratatui_color(color: Color) -> ratatui::style::Color {
         Color::Indexed(index) => ratatui::style::Color::Indexed(index),
         Color::Rgb(red, green, blue) => ratatui::style::Color::Rgb(red, green, blue),
     }
+}
+
+/// The characters of each display line.
+pub fn source_lines(lines: &[StyledLine]) -> Vec<String> {
+    lines
+        .iter()
+        .map(|line| line.spans.iter().map(|span| span.text.as_str()).collect())
+        .collect()
+}
+
+/// The style of each character of the first `needle` in the display lines.
+///
+/// The lines are joined with `\n` before the search. Neighbouring characters
+/// of one decoration share a span, so the spans cannot say where a token
+/// starts; this tells the decoration character by character.
+pub fn styles_of(lines: &[StyledLine], needle: &str) -> Vec<Style> {
+    let mut chars: Vec<(char, Style)> = Vec::new();
+    for (index, line) in lines.iter().enumerate() {
+        if index > 0 {
+            chars.push(('\n', Style::default()));
+        }
+        for span in &line.spans {
+            chars.extend(span.text.chars().map(|c| (c, span.style)));
+        }
+    }
+    let needle_chars: Vec<char> = needle.chars().collect();
+    let found = chars.windows(needle_chars.len()).position(|window| {
+        window
+            .iter()
+            .map(|(c, _)| *c)
+            .eq(needle_chars.iter().copied())
+    });
+    let Some(start) = found else {
+        panic!("{needle:?} not found in {:?}", source_lines(lines));
+    };
+    chars[start..start + needle_chars.len()]
+        .iter()
+        .map(|(_, style)| *style)
+        .collect()
+}
+
+/// Check that the display lines of a source are well formed.
+///
+/// No span is empty, neighbours differ in decoration, no line has a fill and
+/// no control character is left.
+pub fn assert_source_lines_are_well_formed(lines: &[StyledLine]) {
+    for (index, line) in lines.iter().enumerate() {
+        assert!(line.fill.is_none(), "line {index} has a fill");
+        for span in &line.spans {
+            assert!(!span.text.is_empty(), "line {index} holds an empty span");
+            assert!(
+                !span.text.chars().any(char::is_control),
+                "line {index} holds a control character: {:?}",
+                span.text
+            );
+        }
+        for pair in line.spans.windows(2) {
+            assert!(
+                pair[0].style != pair[1].style,
+                "line {index} holds adjacent spans with the same decoration"
+            );
+        }
+    }
+}
+
+/// What a source fixture file holds.
+#[derive(serde::Deserialize)]
+struct SourceFixture {
+    options: RenderOptions,
+    metadata: Box<serde_json::value::RawValue>,
+    cell_type: String,
+    source: Box<serde_json::value::RawValue>,
+}
+
+/// A notebook in JSON with the single cell `c1` of a source fixture file
+/// `tests/fixtures/{name}`.
+pub fn source_notebook_json(name: &str) -> String {
+    let (_, json) = read_source_fixture(name);
+    json
+}
+
+fn read_source_fixture(name: &str) -> (RenderOptions, String) {
+    let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{path}: {error}"));
+    let fixture: SourceFixture =
+        serde_json::from_str(&text).unwrap_or_else(|error| panic!("{path}: {error}"));
+    let source = fixture.source.get();
+    let cell = match fixture.cell_type.as_str() {
+        "code" => format!(
+            r#"{{"cell_type":"code","id":"c1","metadata":{{}},"source":{source},"outputs":[],"execution_count":null}}"#
+        ),
+        "raw" => format!(r#"{{"cell_type":"raw","id":"c1","metadata":{{}},"source":{source}}}"#),
+        other => panic!("{path}: unsupported cell_type {other:?}"),
+    };
+    let json = format!(
+        r#"{{"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{cell}]}}"#,
+        fixture.metadata.get()
+    );
+    (fixture.options, json)
+}
+
+/// The rendering conditions, the language and the source of the cell `c1` of
+/// the file `tests/fixtures/{name}`.
+pub fn source_fixture(name: &str) -> (RenderOptions, SourceLanguage, String) {
+    let (options, json) = read_source_fixture(name);
+    let notebook = europa_core::parse(json.as_bytes()).expect("fixture notebook loads");
+    let Some(cell) = notebook.cells.iter().find(|cell| cell.id() == "c1") else {
+        panic!("no cell c1");
+    };
+    match cell {
+        Cell::Code(code) => (
+            options,
+            notebook.source_language(),
+            code.source.text().to_owned(),
+        ),
+        Cell::Raw(raw) => (options, SourceLanguage::Plain, raw.source.text().to_owned()),
+        _ => panic!("cell c1 is not a code or raw cell"),
+    }
+}
+
+/// Draw the display lines of a source like [`draw`] does a rendered cell.
+pub fn draw_lines(lines: &[StyledLine], options: &RenderOptions) -> String {
+    let cell = RenderedCell {
+        lines: lines.to_vec(),
+        images: Vec::new(),
+    };
+    draw(&cell, options)
+}
+
+/// What the display lines of `source` hold when put end to end.
+///
+/// A tab becomes spaces up to the next stop of 8 columns, counted from the
+/// start of its line, `\r\n` becomes `\n`, a control character becomes its
+/// picture, and the line breaks go, because wrapping hides where they were.
+pub fn expected_source_text(source: &str) -> String {
+    let mut text = String::new();
+    for line in source.replace("\r\n", "\n").split('\n') {
+        let mut column = 0;
+        for c in line.chars() {
+            if c == '\t' {
+                let spaces = 8 - column % 8;
+                text.extend(std::iter::repeat_n(' ', spaces));
+                column += spaces;
+                continue;
+            }
+            let shown = match c {
+                '\u{7f}' => '\u{2421}',
+                c if (c as u32) < 0x20 => char::from_u32(0x2400 + c as u32).expect("a picture"),
+                c if c.is_control() => '\u{2426}',
+                c => c,
+            };
+            text.push(shown);
+            column += unicode_width::UnicodeWidthChar::width(shown).unwrap_or(0);
+        }
+    }
+    text
 }

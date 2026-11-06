@@ -1,0 +1,16 @@
+{
+  "options": {
+    "width": 40
+  },
+  "metadata": {
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cell_type": "code",
+  "source": [
+    "red = \"\u001b[31mred\"\n",
+    "nul = \"\u0000\"  # \u007f del\n",
+    "c1 = \"\u0085\""
+  ]
+}

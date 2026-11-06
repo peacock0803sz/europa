@@ -1,0 +1,63 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common :: draw_lines(& lines, & options)"
+---
+{"width":20,"max_output_lines":200,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 20, height: 10 },
+    content: [
+        "s = "a string that i",
+        "s longer than the wi",
+        "dth"                ",
+        "# a comment that is ",
+        "longer than the widt",
+        "h                   ",
+        "w = "あいうえおかき ", // hidden by multi-width symbols: [(6, " "), (8, " "), (10, " "), (12, " "), (14, " "), (16, " "), (18, " ")]
+        "くけこさしすせそ"   ", // hidden by multi-width symbols: [(1, " "), (3, " "), (5, " "), (7, " "), (9, " "), (11, " "), (13, " "), (15, " ")]
+        "if s:               ",
+        "        x = 1       ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 4, y: 0, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 4, y: 2, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 3, fg: Reset, bg: Reset, modifier: DIM,
+        x: 1, y: 5, fg: Reset, bg: Reset, modifier: NONE,
+        x: 4, y: 6, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 6, y: 6, fg: Reset, bg: Reset, modifier: NONE,
+        x: 7, y: 6, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 8, y: 6, fg: Reset, bg: Reset, modifier: NONE,
+        x: 9, y: 6, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 10, y: 6, fg: Reset, bg: Reset, modifier: NONE,
+        x: 11, y: 6, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 12, y: 6, fg: Reset, bg: Reset, modifier: NONE,
+        x: 13, y: 6, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 14, y: 6, fg: Reset, bg: Reset, modifier: NONE,
+        x: 15, y: 6, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 16, y: 6, fg: Reset, bg: Reset, modifier: NONE,
+        x: 17, y: 6, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 18, y: 6, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 7, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 1, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 2, y: 7, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 3, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 4, y: 7, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 5, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 6, y: 7, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 7, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 8, y: 7, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 9, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 10, y: 7, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 11, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 12, y: 7, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 13, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 14, y: 7, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 15, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 16, y: 7, fg: Indexed(2), bg: Reset, modifier: NONE,
+        x: 17, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 8, fg: Indexed(5), bg: Reset, modifier: NONE,
+        x: 2, y: 8, fg: Reset, bg: Reset, modifier: NONE,
+        x: 12, y: 9, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 13, y: 9, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}

@@ -1,0 +1,28 @@
+{
+  "options": {
+    "width": 40
+  },
+  "metadata": {
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cell_type": "code",
+  "source": [
+    "f\"total: {n + 1} items\"\n",
+    "f\"{value:.2f}\"\n",
+    "f\"{x!r}\"\n",
+    "f\"{d['key']}\"\n",
+    "f\"{{literal}}\"\n",
+    "f\"{d[\"key\"]}\"\n",
+    "f\"{x:{width}}\"\n",
+    "f\"{f'{y}'}\"\n",
+    "rf\"\\d{n}\"\n",
+    "f\"{x=}\"\n",
+    "f\"{x = !r}\"\n",
+    "f\"\"\"{a +\n",
+    " b}\"\"\"\n",
+    "f\"\"\"{a # c\n",
+    "}\"\"\""
+  ]
+}

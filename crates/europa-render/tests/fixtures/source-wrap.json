@@ -1,0 +1,18 @@
+{
+  "options": {
+    "width": 20
+  },
+  "metadata": {
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cell_type": "code",
+  "source": [
+    "s = \"a string that is longer than the width\"\n",
+    "# a comment that is longer than the width\n",
+    "w = \"あいうえおかきくけこさしすせそ\"\n",
+    "if s:\n",
+    "\tx = 1"
+  ]
+}

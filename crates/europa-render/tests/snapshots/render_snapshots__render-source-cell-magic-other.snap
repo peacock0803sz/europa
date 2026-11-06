@@ -1,0 +1,17 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common :: draw_lines(& lines, & options)"
+---
+{"width":40,"max_output_lines":200,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 40, height: 3 },
+    content: [
+        "%%bash                                  ",
+        "echo $HOME                              ",
+        "for f in *; do echo "$f"; done          ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Indexed(6), bg: Reset, modifier: BOLD,
+        x: 6, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}

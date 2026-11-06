@@ -1,0 +1,28 @@
+{
+  "options": {
+    "width": 40
+  },
+  "metadata": {
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cell_type": "code",
+  "source": [
+    "a = 'single'\n",
+    "b = \"double\"\n",
+    "c = \"\"\"triple\n",
+    "quoted\"\"\"\n",
+    "d = b\"bytes\"\n",
+    "e = r\"\\d+\\n\"\n",
+    "f = rb'raw bytes'\n",
+    "g = \"tab\\t and \\x1b and \\u00e9\"\n",
+    "\n",
+    "def documented():\n",
+    "    \"\"\"Docstring.\n",
+    "\n",
+    "    More text.\n",
+    "    \"\"\"\n",
+    "    return a"
+  ]
+}

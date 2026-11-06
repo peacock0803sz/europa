@@ -2,9 +2,9 @@ mod common;
 
 use std::num::NonZeroU16;
 
-use common::{fixture, texts};
-use europa_core::RenderOptions;
-use europa_render::render_outputs;
+use common::{fixture, source_fixture, texts};
+use europa_core::{Cell, RenderOptions, SourceLanguage};
+use europa_render::{render_outputs, render_source};
 
 macro_rules! snapshot {
     ($name:ident, $file:literal) => {
@@ -41,6 +41,92 @@ snapshot!(markdown_code_dark, "markdown-code-dark");
 snapshot!(markdown_code_light, "markdown-code-light");
 snapshot!(markdown_table, "markdown-table");
 snapshot!(markdown_table_narrow, "markdown-table-narrow");
+snapshot!(markdown_python_dark, "markdown-python-dark");
+snapshot!(markdown_python_light, "markdown-python-light");
+
+macro_rules! source_snapshot {
+    ($name:ident, $file:literal) => {
+        #[test]
+        fn $name() {
+            let (options, language, source) = source_fixture(concat!($file, ".json"));
+            let lines = render_source(&source, language, &options);
+            insta::assert_snapshot!(
+                concat!("render-", $file),
+                common::draw_lines(&lines, &options)
+            );
+        }
+    };
+}
+
+source_snapshot!(source_keywords, "source-keywords");
+source_snapshot!(source_strings, "source-strings");
+source_snapshot!(source_fstrings, "source-fstrings");
+source_snapshot!(source_broken, "source-broken");
+source_snapshot!(source_control, "source-control");
+source_snapshot!(source_wrap, "source-wrap");
+source_snapshot!(source_dark, "source-dark");
+source_snapshot!(source_light, "source-light");
+source_snapshot!(source_julia, "source-julia");
+source_snapshot!(source_raw, "source-raw");
+source_snapshot!(source_magics, "source-magics");
+source_snapshot!(source_cell_magic_python, "source-cell-magic-python");
+source_snapshot!(source_cell_magic_other, "source-cell-magic-other");
+
+const SOURCE_FIXTURES: [&str; 13] = [
+    "source-keywords",
+    "source-strings",
+    "source-fstrings",
+    "source-broken",
+    "source-control",
+    "source-wrap",
+    "source-dark",
+    "source-light",
+    "source-julia",
+    "source-raw",
+    "source-magics",
+    "source-cell-magic-python",
+    "source-cell-magic-other",
+];
+
+#[test]
+fn every_source_fixture_shows_all_its_characters_well_formed() {
+    for name in SOURCE_FIXTURES {
+        let (options, language, source) = source_fixture(&format!("{name}.json"));
+        let lines = render_source(&source, language, &options);
+        common::assert_source_lines_are_well_formed(&lines);
+        assert_eq!(
+            common::source_lines(&lines).concat(),
+            common::expected_source_text(source.trim_end_matches('\n')),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn the_light_fixture_has_the_lines_of_the_dark_one() {
+    let render = |name: &str| {
+        let (options, language, source) = source_fixture(name);
+        render_source(&source, language, &options)
+    };
+    assert_eq!(render("source-dark.json"), render("source-light.json"));
+}
+
+#[test]
+fn rendering_a_source_leaves_the_notebook_as_it_was() {
+    for name in SOURCE_FIXTURES {
+        let json = common::source_notebook_json(&format!("{name}.json"));
+        let notebook = europa_core::parse(json.as_bytes()).expect("notebook loads");
+        let before = europa_core::serialize(&notebook);
+        let (options, _, _) = source_fixture(&format!("{name}.json"));
+        let (language, source) = match notebook.cells.iter().find(|cell| cell.id() == "c1") {
+            Some(Cell::Code(code)) => (notebook.source_language(), code.source.text()),
+            Some(Cell::Raw(raw)) => (SourceLanguage::Plain, raw.source.text()),
+            _ => panic!("{name}: no code or raw cell c1"),
+        };
+        let _ = render_source(source, language, &options);
+        assert_eq!(europa_core::serialize(&notebook), before, "{name}");
+    }
+}
 
 /// Fixtures whose output is longer than their limit, so that a notice stands
 /// in for lines and the text is not the whole output.
@@ -53,7 +139,7 @@ const CUT: [&str; 4] = [
 
 /// Fixtures with rules, lists, tables or indents that change with width, so
 /// unwrapped text differs from wrapped text.
-const WIDTH_VARIES: [&str; 7] = [
+const WIDTH_VARIES: [&str; 9] = [
     "html-sample",
     "mime-select",
     "markdown-sample",
@@ -61,9 +147,11 @@ const WIDTH_VARIES: [&str; 7] = [
     "markdown-code-light",
     "markdown-table",
     "markdown-table-narrow",
+    "markdown-python-dark",
+    "markdown-python-light",
 ];
 
-const FIXTURES: [&str; 24] = [
+const FIXTURES: [&str; 26] = [
     "ansi-styles",
     "escape-removal",
     "stdout-stderr-dark",
@@ -88,6 +176,8 @@ const FIXTURES: [&str; 24] = [
     "markdown-code-light",
     "markdown-table",
     "markdown-table-narrow",
+    "markdown-python-dark",
+    "markdown-python-light",
 ];
 
 #[test]

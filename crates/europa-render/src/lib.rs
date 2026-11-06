@@ -4,6 +4,9 @@
 //! lines for a terminal. The types of the result, such as [`RenderedCell`], are
 //! defined in [`europa_core::render`], where every crate shares them.
 //!
+//! [`render_source`] does the same for the source of a cell, and highlights
+//! Python by the kind of token.
+//!
 //! Lines from stderr, from errors and from code blocks carry a fill, which a
 //! terminal paints to the right edge of the line, so that they stand out
 //! from stdout.
@@ -35,9 +38,14 @@
 mod ansi;
 mod blocks;
 mod html;
+mod ipython;
 mod json;
 mod markdown;
+mod python;
+mod source;
 mod wrap;
+
+pub use source::render_source;
 
 use std::collections::VecDeque;
 use std::num::NonZeroU16;
@@ -98,6 +106,10 @@ enum Unit {
 ///    such as an image or an unknown kind, becomes a notice that names what
 ///    it holds instead. A notice is wrapped like other text, so it can take
 ///    more than one line when it is wider than [`RenderOptions::width`].
+///    A fenced code block of Markdown whose info string begins with a word
+///    naming Python, such as `python`, `py` or `ipython`, is highlighted by
+///    the rules of [`render_source`] once escape sequences and control
+///    characters are removed.
 /// 2. In the body of a unit, `\r` is resolved the way it is for a received
 ///    stream, so that a progress bar leaves only its last state. Notices skip
 ///    this step.

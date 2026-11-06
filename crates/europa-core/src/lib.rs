@@ -155,5 +155,6 @@ pub use normalize::MultilineText;
 pub use notebook::{Cell, Notebook, Output};
 pub use pos::{CellPos, ResolveError};
 pub use render::{
-    Background, Color, ImageSlot, RenderOptions, RenderedCell, Style, StyledLine, StyledSpan,
+    Background, Color, ImageSlot, RenderOptions, RenderedCell, SourceLanguage, Style, StyledLine,
+    StyledSpan,
 };

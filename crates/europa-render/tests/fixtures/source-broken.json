@@ -1,0 +1,18 @@
+{
+  "options": {
+    "width": 40
+  },
+  "metadata": {
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cell_type": "code",
+  "source": [
+    "def f(:\n",
+    "    return 1\n",
+    "len? x = (\n",
+    "\"\"\"never closed\n",
+    "still inside"
+  ]
+}

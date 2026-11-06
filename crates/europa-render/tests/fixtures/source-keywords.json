@@ -1,0 +1,32 @@
+{
+  "options": {
+    "width": 40
+  },
+  "metadata": {
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cell_type": "code",
+  "source": [
+    "import os\n",
+    "\n",
+    "@functools.cache\n",
+    "@lru_cache(maxsize=2)\n",
+    "async def fetch(x, y=None):\n",
+    "    await g()\n",
+    "    return not x in y  # check\n",
+    "\n",
+    "class Point:\n",
+    "    pass\n",
+    "\n",
+    "type Alias = tuple[int, int]\n",
+    "match n:\n",
+    "    case 1:\n",
+    "        print(len(items), True, None)\n",
+    "square = lambda v: v ** 2\n",
+    "def gen():\n",
+    "    yield 3.5\n",
+    "print = 1"
+  ]
+}

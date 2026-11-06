@@ -1,0 +1,14 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common :: draw_lines(& lines, & options)"
+---
+{"width":40,"max_output_lines":200,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 40, height: 1 },
+    content: [
+        "def f(): return 1                       ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}

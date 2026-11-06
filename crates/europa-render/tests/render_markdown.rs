@@ -500,3 +500,132 @@ fn blanks_around_code_have_no_fill() {
     assert_eq!(cell.lines[3].fill, None);
     assert_eq!(cell.lines[4].fill, None);
 }
+
+const CODE_BG: europa_core::Color = europa_core::Color::Indexed(236);
+
+fn fg(index: u8, bold: bool) -> Style {
+    Style {
+        fg: Some(europa_core::Color::Indexed(index)),
+        bold,
+        ..Style::default()
+    }
+}
+
+#[track_caller]
+fn assert_styled(cell: &europa_core::RenderedCell, needle: &str, style: Style) {
+    let styles = common::styles_of(&cell.lines, needle);
+    assert!(
+        styles.iter().all(|found| *found == style),
+        "{needle:?} is {styles:?}, not {style:?}"
+    );
+}
+
+#[test]
+fn python_code_blocks_are_highlighted_over_the_code_background() {
+    let (cell, _) = show("```python\ndef f(): return \"x\"\n```\n");
+    assert_styled(&cell, "def", fg(5, false));
+    assert_styled(&cell, "return", fg(5, false));
+    assert_styled(&cell, "\"x\"", fg(2, false));
+    for line in &cell.lines {
+        if !line.spans.is_empty() {
+            assert_eq!(line.fill, Some(CODE_BG));
+        }
+        assert!(line.spans.iter().all(|span| span.style.bg.is_none()));
+    }
+}
+
+#[test]
+fn the_names_of_python_in_the_info_string() {
+    for info in [
+        "PY",
+        "python3",
+        "ipython",
+        "python {.class}",
+        "python3 title=\"x\"",
+    ] {
+        let (cell, _) = show(&format!("```{info}\ndef f(): pass\n```\n"));
+        assert_styled(&cell, "def", fg(5, false));
+    }
+}
+
+#[test]
+fn other_code_is_not_highlighted() {
+    for markdown in [
+        "```\ndef f(): pass\n```\n",
+        "```bash\ndef f(): pass\n```\n",
+        "    def f(): pass\n",
+    ] {
+        let (cell, _) = show(markdown);
+        assert_styled(&cell, "def", Style::default());
+    }
+    let (cell, _) = show("a `print(1)` b\n");
+    let styles = common::styles_of(&cell.lines, "print");
+    assert!(styles
+        .iter()
+        .all(|style| style.fg != Some(europa_core::Color::Indexed(4))));
+}
+
+#[test]
+fn escape_sequences_are_removed_before_highlighting() {
+    let (cell, texts) = show("```python\nprint(\"\u{1b}[31mx\")\n```\n");
+    assert_eq!(texts.concat(), "print(\"x\")");
+    assert_styled(&cell, "print", fg(4, false));
+    assert_styled(&cell, "\"x\"", fg(2, false));
+}
+
+#[test]
+fn magics_and_broken_code_follow_the_rules_of_the_cell_source() {
+    let (cell, texts) = show("```python\n%timeit f()\ndef f(:\n    return 1\n```\n");
+    assert_styled(&cell, "%timeit f()", fg(6, true));
+    assert_styled(&cell, "def", fg(5, false));
+    assert_styled(&cell, "return", fg(5, false));
+    assert_eq!(texts.concat(), "%timeit f()def f(:    return 1");
+}
+
+#[test]
+fn long_python_lines_keep_their_decoration_and_fill_when_wrapped() {
+    let options = common::opts(20);
+    let (cell, _) = show_with("```python\nx = \"0123456789abcdefghij\"\n```\n", &options);
+    assert!(cell.lines.len() >= 2);
+    assert_styled(&cell, "ghij\"", fg(2, false));
+    for line in &cell.lines {
+        assert_eq!(line.fill, Some(CODE_BG));
+    }
+}
+
+#[test]
+fn a_blank_line_in_python_code_keeps_the_fill() {
+    let (cell, texts) = show("```python\ndef f():\n    pass\n\nx = 1\n```\n");
+    assert_eq!(texts.len(), 4, "{texts:?}");
+    assert!(cell.lines[2].spans.is_empty());
+    assert_eq!(cell.lines[2].fill, Some(CODE_BG));
+}
+
+#[test]
+fn python_code_in_a_list_item_is_indented_like_other_code() {
+    let (cell, texts) = show("- a\n\n  ```python\n  x = 1\n  ```\n");
+    let (_, plain) = show("- a\n\n  ```\n  x = 1\n  ```\n");
+    assert_eq!(texts, plain);
+    let line = cell
+        .lines
+        .iter()
+        .find(|line| line.spans.iter().any(|span| span.text.contains('x')))
+        .expect("code line");
+    assert_eq!(line.fill, Some(CODE_BG));
+    assert!(line.spans[0].text.starts_with(' '));
+    assert_styled(&cell, "1", fg(6, false));
+}
+
+#[test]
+fn html_code_of_python_is_not_highlighted() {
+    let cell = render_outputs(
+        &[common::display(
+            r#"{"text/html":"<pre><code class=\"language-python\">def f(): pass</code></pre>"}"#,
+        )],
+        &common::opts(80),
+    );
+    let styles = common::styles_of(&cell.lines, "def");
+    assert!(styles
+        .iter()
+        .all(|style| style.fg != Some(europa_core::Color::Indexed(5))));
+}

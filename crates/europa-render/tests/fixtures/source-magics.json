@@ -1,0 +1,21 @@
+{
+  "options": { "width": 40 },
+  "metadata": { "language_info": { "name": "python" } },
+  "cell_type": "code",
+  "source": [
+    "%timeit sum(range(10))\n",
+    "!pip list\n",
+    "if ready:\n",
+    "    %time run()\n",
+    "x = %time f()\n",
+    "files = !ls\n",
+    "y = a % b\n",
+    "z = x != !y\n",
+    "s = \"\"\"\n",
+    "%d items\n",
+    "\"\"\"\n",
+    "print(\"%s\"\n",
+    "    % x)\n",
+    "# %time"
+  ]
+}

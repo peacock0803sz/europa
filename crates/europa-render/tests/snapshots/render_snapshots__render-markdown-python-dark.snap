@@ -1,0 +1,40 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common :: draw(& cell, & options)"
+---
+{"width":30,"max_output_lines":200,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 30, height: 8 },
+    content: [
+        "def f(x):                     ",
+        "    return x + 1  # inc       ",
+        "                              ",
+        "print("hi")                   ",
+        "                              ",
+        "def g(): pass                 ",
+        "                              ",
+        "inline print(1) here          ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Indexed(5), bg: Indexed(236), modifier: NONE,
+        x: 3, y: 0, fg: Reset, bg: Indexed(236), modifier: NONE,
+        x: 4, y: 0, fg: Indexed(4), bg: Indexed(236), modifier: BOLD,
+        x: 5, y: 0, fg: Reset, bg: Indexed(236), modifier: NONE,
+        x: 4, y: 1, fg: Indexed(5), bg: Indexed(236), modifier: NONE,
+        x: 10, y: 1, fg: Reset, bg: Indexed(236), modifier: NONE,
+        x: 15, y: 1, fg: Indexed(6), bg: Indexed(236), modifier: NONE,
+        x: 16, y: 1, fg: Reset, bg: Indexed(236), modifier: NONE,
+        x: 18, y: 1, fg: Reset, bg: Indexed(236), modifier: DIM,
+        x: 23, y: 1, fg: Reset, bg: Indexed(236), modifier: NONE,
+        x: 0, y: 2, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 3, fg: Indexed(4), bg: Indexed(236), modifier: NONE,
+        x: 5, y: 3, fg: Reset, bg: Indexed(236), modifier: NONE,
+        x: 6, y: 3, fg: Indexed(2), bg: Indexed(236), modifier: NONE,
+        x: 10, y: 3, fg: Reset, bg: Indexed(236), modifier: NONE,
+        x: 0, y: 4, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 5, fg: Reset, bg: Indexed(236), modifier: NONE,
+        x: 0, y: 6, fg: Reset, bg: Reset, modifier: NONE,
+        x: 7, y: 7, fg: Reset, bg: Indexed(236), modifier: NONE,
+        x: 15, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}
