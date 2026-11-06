@@ -363,8 +363,8 @@ mod tests {
 
     #[test]
     fn a_jpeg_keeps_the_color_of_each_block_within_a_tolerance() {
-        // Blocks line up with the 16 by 16 units of the encoder, so the middle
-        // of a block takes no color from its neighbours.
+        // A 16 by 16 boundary lines up with the MCUs of any subsampling, so the
+        // middle of a block takes no color from its neighbours.
         let top_left = [220, 30, 30];
         let top_right = [30, 220, 30];
         let bottom_left = [30, 30, 220];
@@ -407,8 +407,9 @@ mod tests {
 
     #[test]
     fn a_jpeg_cut_in_its_scan_is_refused() {
-        // The cut has to land in the scan, because one in a header fails there
-        // and never reaches the check of the end marker.
+        // The cut has to land in the scan, because the decoder refuses a JPEG
+        // cut in its headers even without the check of the end marker, so such
+        // a cut would not test the check.
         let image = image::RgbImage::from_fn(128, 128, |x, y| {
             image::Rgb([(x * 2) as u8, (y * 2) as u8, (x * y % 256) as u8])
         });

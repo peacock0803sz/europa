@@ -58,8 +58,7 @@ fn the_sink_gets_the_exact_colors_of_a_png() {
 fn the_sink_gets_the_colors_of_a_jpeg_within_a_tolerance() {
     let (_, sunk) = draw(&[image_output("image/jpeg", common::jpeg(64, 64))], 80);
     let image = &sunk[0].1;
-    // Far from the corners, so that the gradient holds and red differs from
-    // blue by much more than the tolerance.
+    // At these pixels red differs from blue by much more than the tolerance.
     for (x, y, expected) in [(8, 56, [8, 56, 64]), (8, 32, [8, 32, 40])] {
         let actual = common::rgb_at(image, x, y);
         for (got, want) in actual.into_iter().zip(expected) {

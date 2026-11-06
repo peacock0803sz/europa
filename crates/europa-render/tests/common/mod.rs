@@ -452,8 +452,9 @@ pub fn jpeg(width: u32, height: u32) -> Vec<u8> {
 
 /// A JPEG cut halfway between its start of scan and its end marker.
 ///
-/// The image has to be big enough for that, because the cut would fail in a
-/// header otherwise and never reach the check of the end marker.
+/// The image has to be big enough for that, because the decoder refuses a JPEG
+/// cut in its headers even without the check of the end marker, so such a cut
+/// would not test the check.
 pub fn jpeg_cut_in_scan(width: u32, height: u32) -> Vec<u8> {
     let mut bytes = jpeg(width, height);
     let scan = bytes
