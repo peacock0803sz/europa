@@ -72,6 +72,23 @@ fn the_sink_gets_the_colors_of_a_jpeg_within_a_tolerance() {
 }
 
 #[test]
+fn a_partial_alpha_is_mixed_with_white() {
+    let alpha = 128;
+    let over_white = |channel: u32| {
+        u8::try_from((channel * alpha + 255 * (255 - alpha) + 127) / 255).expect("a byte")
+    };
+    let png = common::png_rgba(40, 30, u8::try_from(alpha).expect("a byte"));
+    let (_, sunk) = draw(&[image_output("image/png", png)], 80);
+    let image = &sunk[0].1;
+    for (x, y) in [(0, 0), (39, 0), (0, 29), (20, 10), (39, 29)] {
+        let expected = [over_white(x), over_white(y), over_white(0)];
+        assert_eq!(common::rgb_at(image, x, y), expected, "at {x},{y}");
+    }
+    // The same value worked out by hand, in case the formula above is wrong too.
+    assert_eq!(common::rgb_at(image, 39, 29), [147, 142, 127]);
+}
+
+#[test]
 fn png_wins_over_jpeg_and_over_rich_text() {
     let png = common::b64(&common::png(10, 10));
     let jpeg = common::b64(&common::jpeg(10, 10));
