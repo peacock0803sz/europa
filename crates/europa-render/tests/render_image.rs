@@ -311,3 +311,17 @@ fn a_broken_output_does_not_disturb_the_others() {
         .collect();
     assert_eq!(without_notice, alone);
 }
+
+#[test]
+fn rendering_images_leaves_the_saved_notebook_unchanged() {
+    let png = common::b64(&common::png(30, 20));
+    let text = format!(
+        r#"{{"nbformat":4,"nbformat_minor":5,"metadata":{{}},"cells":[{{"cell_type":"code","id":"c1","metadata":{{}},"source":"","outputs":[{{"output_type":"display_data","data":{{"image/png":"{png}","text/plain":"<Figure>"}},"metadata":{{"image/png":{{"width":1e2}}}}}}],"execution_count":null}}]}}"#
+    );
+    let notebook = europa_core::parse(text.as_bytes()).expect("loads");
+    let before = europa_core::serialize(&notebook);
+    let outputs = common::cell_outputs(&notebook);
+    let _ = render_outputs_with_images(outputs, &common::opts(40), &mut |_, _| {});
+    let after = europa_core::serialize(&notebook);
+    assert_eq!(before, after);
+}

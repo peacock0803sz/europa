@@ -1,0 +1,20 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common::draw_with_images(&cell, options)"
+---
+{"width":40,"max_output_lines":9,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 40, height: 5 },
+    content: [
+        "a                                       ",
+        "b                                       ",
+        "... 12 lines hidden ...                 ",
+        "a                                       ",
+        "b                                       ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 2, fg: Reset, bg: Reset, modifier: DIM,
+        x: 23, y: 2, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}

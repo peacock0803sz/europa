@@ -321,3 +321,95 @@ fn rendering_does_not_change_what_is_saved_for_mime_select() {
     let after = europa_core::serialize(&notebook);
     assert_eq!(before, after);
 }
+
+fn image_snapshot(name: &str, outputs: &[europa_core::Output], options: &RenderOptions) {
+    let cell = render_outputs(outputs, options);
+    insta::assert_snapshot!(name, common::draw_with_images(&cell, options));
+}
+
+fn image_output(mime: &str, bytes: &[u8]) -> europa_core::Output {
+    common::display(&format!(r#"{{"{mime}":"{}"}}"#, common::b64(bytes)))
+}
+
+#[test]
+fn image_mixed() {
+    let outputs = [
+        common::stdout("before\n"),
+        image_output("image/png", &common::png(100, 60)),
+        common::stdout("between\n"),
+        image_output("image/jpeg", &common::jpeg(80, 40)),
+    ];
+    image_snapshot("render-image-mixed", &outputs, &common::opts(40));
+}
+
+#[test]
+fn image_elided() {
+    let text = || common::stdout("a\nb\n");
+    let png = || image_output("image/png", &common::png(100, 100));
+    let outputs = [text(), png(), text(), png(), text()];
+    image_snapshot("render-image-elided", &outputs, &common::limited(40, 9));
+}
+
+#[test]
+fn image_broken() {
+    let png = common::png(10, 10);
+    let outputs = [
+        common::display(r#"{"image/png":"!!!"}"#),
+        image_output("image/png", &png[..png.len() / 2]),
+        image_output("image/png", &common::png_with_size(8001, 8001)),
+        common::stdout("fine\n"),
+    ];
+    image_snapshot("render-image-broken", &outputs, &common::opts(40));
+}
+
+#[test]
+fn image_wide() {
+    let outputs = [image_output("image/png", &common::png(640, 480))];
+    image_snapshot("render-image-wide", &outputs, &common::opts(40));
+}
+
+#[test]
+fn image_tall() {
+    let outputs = [image_output("image/png", &common::png(100, 8000))];
+    image_snapshot("render-image-tall", &outputs, &common::limited(80, 20));
+}
+
+#[test]
+fn image_small() {
+    let outputs = [image_output("image/png", &common::png(3, 3))];
+    image_snapshot("render-image-small", &outputs, &common::opts(1));
+}
+
+#[test]
+fn image_mime() {
+    let png = common::b64(&common::png(20, 20));
+    let jpeg = common::b64(&common::jpeg(20, 20));
+    let outputs = [
+        common::display(&format!(r#"{{"image/png":"{png}","text/plain":"plain"}}"#)),
+        common::display(&format!(r#"{{"image/png":"{png}","image/jpeg":"{jpeg}"}}"#)),
+        common::display(&format!(
+            r#"{{"image/png":"{png}","text/html":"<b>x</b>"}}"#
+        )),
+        common::display(&format!(
+            r#"{{"image/png":"{png}","image/svg+xml":"<svg/>"}}"#
+        )),
+        common::display(&format!(r#"{{"image/jpeg":"{jpeg}"}}"#)),
+    ];
+    image_snapshot("render-image-mime", &outputs, &common::opts(40));
+}
+
+#[test]
+fn image_metadata() {
+    let data = format!(
+        r#"{{"image/png":"{}"}}"#,
+        common::b64(&common::png(128, 96))
+    );
+    let outputs = common::display_with(&data, r#"{"image/png":{"width":64,"height":48}}"#);
+    image_snapshot("render-image-metadata", &outputs, &common::opts(80));
+}
+
+#[test]
+fn image_narrow() {
+    let outputs = [image_output("image/png", &common::png(100, 50))];
+    image_snapshot("render-image-narrow", &outputs, &common::opts(40));
+}

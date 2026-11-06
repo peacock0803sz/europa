@@ -1,0 +1,23 @@
+---
+source: crates/europa-render/tests/render_snapshots.rs
+expression: "common::draw_with_images(&cell, options)"
+---
+{"width":40,"max_output_lines":200,"background":"dark"}
+Buffer {
+    area: Rect { x: 0, y: 0, width: 40, height: 5 },
+    content: [
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}
+image line=0 width=2 height=1 output=0 mime=image/png
+image line=1 width=2 height=1 output=1 mime=image/png
+image line=2 width=2 height=1 output=2 mime=image/png
+image line=3 width=2 height=1 output=3 mime=image/png
+image line=4 width=2 height=1 output=4 mime=image/jpeg
