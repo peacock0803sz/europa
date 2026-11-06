@@ -453,6 +453,25 @@ mod tests {
     }
 
     #[test]
+    fn transparency_is_put_on_white_in_la8_and_rgba16() {
+        // The colors under the alpha are dark, so a pixel that skipped the
+        // compositing cannot pass as white.
+        let gray = image::GrayAlphaImage::from_pixel(2, 2, image::LumaA([10, 0]));
+        let deep: image::ImageBuffer<image::Rgba<u16>, Vec<u16>> =
+            image::ImageBuffer::from_pixel(2, 2, image::Rgba([1000, 2000, 3000, 0]));
+        for (name, bytes) in [
+            ("La8", encode(gray, ImageFormat::Png)),
+            ("Rgba16", encode(deep, ImageFormat::Png)),
+        ] {
+            let decoded = decode(&bytes).expect("decodes");
+            assert_eq!(decoded.rgb.len(), 2 * 2 * 3, "{name}");
+            for pixel in decoded.rgb.chunks(3) {
+                assert_eq!(pixel, [255, 255, 255], "{name}");
+            }
+        }
+    }
+
+    #[test]
     fn the_pixel_limit_is_8000_by_8000() {
         assert!(!exceeds_pixel_limit(8000, 8000));
         assert!(exceeds_pixel_limit(8001, 8000));
