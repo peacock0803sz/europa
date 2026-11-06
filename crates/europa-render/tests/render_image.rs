@@ -231,3 +231,83 @@ fn decode_image_is_none_when_the_outputs_changed() {
     assert!(decode_image(&[], &slot).is_none());
     assert!(decode_image(&[common::stdout("x")], &slot).is_none());
 }
+
+fn notice_of(data: &str) -> Vec<String> {
+    let (cell, _) = draw(&[common::display(data)], 80);
+    assert!(cell.images.is_empty());
+    common::texts(&cell)
+}
+
+#[test]
+fn broken_data_is_named_with_its_reason() {
+    let png = common::png(10, 10);
+    let jpeg = common::jpeg(10, 10);
+    let cases = [
+        r#"{"image/png":"!!!"}"#.to_owned(),
+        format!(
+            r#"{{"image/png":"{}"}}"#,
+            common::b64(&png[..png.len() / 2])
+        ),
+        format!(r#"{{"image/png":"{}"}}"#, common::b64(b"neither")),
+        r#"{"image/png":5}"#.to_owned(),
+    ];
+    for data in cases {
+        assert_eq!(notice_of(&data), ["[image/png: broken]"], "{data}");
+    }
+    let half = common::b64(&jpeg[..jpeg.len() / 2]);
+    assert_eq!(
+        notice_of(&format!(r#"{{"image/jpeg":"{half}"}}"#)),
+        ["[image/jpeg: broken]"]
+    );
+}
+
+#[test]
+fn a_jpeg_with_bytes_after_its_end_is_still_an_image() {
+    let mut jpeg = common::jpeg(10, 10);
+    jpeg.extend_from_slice(b"padding");
+    let (cell, _) = draw(&[image_output("image/jpeg", jpeg)], 80);
+    assert_eq!(cell.images.len(), 1);
+}
+
+#[test]
+fn too_large_images_are_named_with_their_reason() {
+    for (mime, bytes) in [
+        ("image/png", common::png_with_size(8001, 8001)),
+        ("image/png", common::png_with_size(60000, 60000)),
+        ("image/jpeg", common::jpeg_with_size(8001, 8001)),
+    ] {
+        let data = format!(r#"{{"{mime}":"{}"}}"#, common::b64(&bytes));
+        assert_eq!(notice_of(&data), [format!("[{mime}: too large]")]);
+    }
+}
+
+#[test]
+fn a_too_large_image_gives_way_to_the_next_entry() {
+    let big = common::b64(&common::png_with_size(8001, 8001));
+    let data = format!(r#"{{"image/png":"{big}","text/plain":"words"}}"#);
+    assert_eq!(notice_of(&data), ["words"]);
+    let jpeg = common::b64(&common::jpeg(10, 10));
+    let data = format!(r#"{{"image/png":"{big}","image/jpeg":"{jpeg}"}}"#);
+    let (cell, _) = draw(&[common::display(&data)], 80);
+    assert_eq!(cell.images[0].mime, ImageMime::Jpeg);
+}
+
+#[test]
+fn only_png_and_jpeg_get_a_reason() {
+    let data = r#"{"image/png":"!!!","image/gif":"R0lGOD"}"#;
+    assert_eq!(notice_of(data), ["[image/gif, image/png: broken]"]);
+}
+
+#[test]
+fn a_broken_output_does_not_disturb_the_others() {
+    let good = [common::stdout("before\n"), common::plain("after")];
+    let broken = common::display(r#"{"image/png":"!!!"}"#);
+    let mixed = [good[0].clone(), broken, good[1].clone()];
+    let alone = common::texts(&render_outputs(&good, &common::opts(80)));
+    let texts = common::texts(&render_outputs(&mixed, &common::opts(80)));
+    let without_notice: Vec<_> = texts
+        .into_iter()
+        .filter(|line| !line.starts_with("[image/png"))
+        .collect();
+    assert_eq!(without_notice, alone);
+}
