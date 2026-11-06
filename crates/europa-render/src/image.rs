@@ -67,16 +67,23 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<DecodedImage, ImageFailure> {
     let mut image = DynamicImage::from_decoder(decoder).map_err(classify)?;
     image.apply_orientation(orientation);
 
-    let rgba = image.to_rgba8();
-    let (width, height) = rgba.dimensions();
-    let mut rgb = Vec::with_capacity(rgba.as_raw().len() / 4 * 3);
-    for pixel in rgba.pixels() {
-        let alpha = u32::from(pixel[3]);
-        for channel in &pixel.0[..3] {
-            let value = (u32::from(*channel) * alpha + 255 * (255 - alpha) + 127) / 255;
-            rgb.push(u8::try_from(value).expect("a weighted mean of bytes is a byte"));
+    let (width, height) = (image.width(), image.height());
+    // The image is consumed, because keeping it through a conversion holds a
+    // second copy of the pixels at the peak of memory.
+    let rgb = if image.color().has_alpha() {
+        let rgba = image.into_rgba8();
+        let mut rgb = Vec::with_capacity(rgba.as_raw().len() / 4 * 3);
+        for pixel in rgba.pixels() {
+            let alpha = u32::from(pixel[3]);
+            for channel in &pixel.0[..3] {
+                let value = (u32::from(*channel) * alpha + 255 * (255 - alpha) + 127) / 255;
+                rgb.push(u8::try_from(value).expect("a weighted mean of bytes is a byte"));
+            }
         }
-    }
+        rgb
+    } else {
+        image.into_rgb8().into_raw()
+    };
     Ok(DecodedImage { width, height, rgb })
 }
 
