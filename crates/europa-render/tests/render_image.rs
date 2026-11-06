@@ -1,6 +1,6 @@
 mod common;
 
-use europa_core::{DecodedImage, ImageMime, Output, RenderedCell};
+use europa_core::{DecodedImage, ImageMime, ImageSlot, Output, RenderedCell, Style};
 use europa_render::{decode_image, render_outputs, render_outputs_with_images};
 
 fn bundle(entries: &[(&str, Vec<u8>)]) -> String {
@@ -397,16 +397,81 @@ fn only_png_and_jpeg_get_a_reason() {
 
 #[test]
 fn a_broken_output_does_not_disturb_the_others() {
-    let good = [common::stdout("before\n"), common::plain("after")];
-    let broken = common::display(r#"{"image/png":"!!!"}"#);
-    let mixed = [good[0].clone(), broken, good[1].clone()];
-    let alone = common::texts(&render_outputs(&good, &common::opts(80)));
-    let texts = common::texts(&render_outputs(&mixed, &common::opts(80)));
-    let without_notice: Vec<_> = texts
-        .into_iter()
-        .filter(|line| !line.starts_with("[image/png"))
-        .collect();
-    assert_eq!(without_notice, alone);
+    // No two neighbours merge, so what stands between them changes nothing but
+    // the positions.
+    let neighbours = [
+        common::stdout("before\n"),
+        common::stderr("warning\n"),
+        common::error("E", "v", &["tb"]),
+        image_output("image/png", common::png(100, 60)),
+        common::plain("after"),
+    ];
+    let options = common::opts(80);
+    let alone = render_outputs(&neighbours, &options);
+    let dim = Style {
+        dim: true,
+        ..Style::default()
+    };
+    let png = common::png(10, 10);
+    let cases = [
+        (
+            "image/png",
+            png[..png.len() / 2].to_vec(),
+            "[image/png: broken]",
+        ),
+        (
+            "image/png",
+            common::png_with_size(8001, 8001),
+            "[image/png: too large]",
+        ),
+        (
+            "image/jpeg",
+            common::jpeg_cut_in_scan(256, 256),
+            "[image/jpeg: broken]",
+        ),
+    ];
+    for (mime, bytes, notice) in cases {
+        for position in 0..=neighbours.len() {
+            let mut outputs = neighbours.to_vec();
+            outputs.insert(position, image_output(mime, bytes.clone()));
+            let mut cell = render_outputs(&outputs, &options);
+
+            // The notice comes right after the lines of the outputs before it.
+            let at = render_outputs(&neighbours[..position], &options)
+                .lines
+                .len();
+            let removed = cell.lines.remove(at);
+            assert_eq!(common::styled(&removed), [(notice.to_owned(), dim)]);
+            assert_eq!(removed.fill, None);
+            assert_eq!(cell.lines, alone.lines, "{notice} at {position}");
+
+            // The line of a slot moves with the notice, and its output with
+            // the output, so the two are compared apart from the rest.
+            let without_output = |slot: &ImageSlot, line| ImageSlot {
+                line,
+                output: 0,
+                ..*slot
+            };
+            let expected: Vec<ImageSlot> = alone
+                .images
+                .iter()
+                .map(|slot| without_output(slot, slot.line + usize::from(slot.line >= at)))
+                .collect();
+            let actual: Vec<ImageSlot> = cell
+                .images
+                .iter()
+                .map(|slot| without_output(slot, slot.line))
+                .collect();
+            assert_eq!(actual, expected, "{notice} at {position}");
+            let expected: Vec<usize> = alone
+                .images
+                .iter()
+                .map(|slot| slot.output + usize::from(slot.output >= position))
+                .collect();
+            let actual: Vec<usize> = cell.images.iter().map(|slot| slot.output).collect();
+            assert_eq!(actual, expected, "{notice} at {position}");
+        }
+    }
 }
 
 #[test]
