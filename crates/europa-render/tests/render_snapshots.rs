@@ -344,9 +344,15 @@ fn image_mixed() {
 
 #[test]
 fn image_elided() {
-    let text = || common::stdout("a\nb\n");
     let png = || image_output("image/png", &common::png(100, 100));
-    let outputs = [text(), png(), text(), png(), text()];
+    // Three different texts, so that keeping the middle by mistake shows.
+    let outputs = [
+        common::stdout("head1\nhead2\n"),
+        png(),
+        common::stdout("mid1\nmid2\n"),
+        png(),
+        common::stdout("tail1\ntail2\n"),
+    ];
     image_snapshot("render-image-elided", &outputs, &common::limited(40, 9));
 }
 
