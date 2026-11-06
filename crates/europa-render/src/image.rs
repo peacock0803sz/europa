@@ -102,10 +102,12 @@ fn exceeds_pixel_limit(width: u32, height: u32) -> bool {
 /// Whether the JPEG ends the way a complete one does.
 ///
 /// The decoder reads a JPEG that was cut short and fills what is missing
-/// with gray. Escaping makes `FF` in scan data always `FF 00`, so an
-/// `FF D9` after the last start of scan is a real end marker. The thumbnail
-/// in an Exif block has its own markers, but they come before the scan of
-/// the image itself.
+/// with gray, so the end marker is checked here. A data byte `FF` in a scan
+/// is written as `FF 00` and the only markers inside a scan are restarts, so
+/// `FF D9` after a start of scan is a real end marker. Searching from the
+/// last `FF DA` skips the markers of an Exif thumbnail, which come before
+/// the scan of the image. Trailing bytes that hold `FF DA` make a complete
+/// JPEG count as cut short.
 fn jpeg_is_complete(bytes: &[u8]) -> bool {
     let Some(scan) = bytes.windows(2).rposition(|pair| pair == [0xff, 0xda]) else {
         return false;
@@ -157,8 +159,6 @@ pub(crate) fn natural_size(metadata: Option<&JsonValue>, pixels: (u32, u32)) -> 
 /// The image is shrunk to fit the width and the line limit, never enlarged.
 pub(crate) fn slot_size(natural: (f64, f64), options: &RenderOptions) -> (u16, u16) {
     let columns = f64::from(options.width.get());
-    // Precision beyond a few digits does not matter for a line limit.
-    #[allow(clippy::cast_precision_loss)]
     let limit = options.max_output_lines.get() as f64;
     let cell_width = f64::from(options.cell_pixels.width.get());
     let cell_height = f64::from(options.cell_pixels.height.get());
@@ -181,10 +181,7 @@ fn fit(cells: f64, most: f64) -> u16 {
     let rounded = (cells - 1e-9).ceil();
     let rounded = if rounded.is_nan() { 1.0 } else { rounded };
     // Between 1 and a u16 value, so the cast cannot lose anything.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    {
-        rounded.max(1.0).min(most) as u16
-    }
+    rounded.max(1.0).min(most) as u16
 }
 
 #[cfg(test)]

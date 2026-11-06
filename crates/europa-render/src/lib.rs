@@ -82,7 +82,7 @@ pub(crate) fn code_bg(background: Background) -> Color {
     }
 }
 
-/// Text that is rendered as a whole.
+/// A part of the outputs that is rendered as a whole.
 enum Unit {
     /// Text of an output, which can hold escape sequences and carriage returns.
     Body {
@@ -116,8 +116,9 @@ struct PendingImage {
 ///    `image/png` or `image/jpeg` entry that reads and decodes is chosen
 ///    before any other, and becomes room for an image: empty lines, with an
 ///    [`ImageSlot`] that says where. One that does not read, or is over 64
-///    million pixels, gives way to the next entry and is named with its
-///    reason if nothing else can be shown. Otherwise the
+///    million pixels, gives way to the next entry. The notice names it with
+///    its reason when the bundle ends in a notice, and a blank entry that was
+///    chosen gives neither a line nor a notice. Otherwise the
 ///    choice is `text/markdown`, then `application/json`, then `text/plain`,
 ///    then `text/html`, skipping a `text/plain` that only names its object
 ///    while `text/html` is usable. Streams, tracebacks and `text/plain`
@@ -160,11 +161,10 @@ pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCe
 
 /// Like [`render_outputs`], and hands the decoded images to `sink`.
 ///
-/// `sink` gets the `source` of each image and its pixels, in the order of the
-/// outputs, including images that are left out because they are too far from
-/// the ends of a long output. The result does not depend on `sink`. Decoding
-/// takes time, so a caller should keep the result and not call this again
-/// every frame.
+/// `sink` gets the `source` and the pixels of each image that decodes, in the
+/// order of the outputs, even when the line limit leaves its slot out of the
+/// result. The result does not depend on `sink`. Decoding takes time, so a
+/// caller should keep the result and not call this again every frame.
 #[must_use]
 pub fn render_outputs_with_images(
     outputs: &[Output],
@@ -551,9 +551,9 @@ fn is_default_repr(text: &str) -> bool {
         })
 }
 
-/// The logical lines of Markdown, JSON or HTML in a MIME bundle, its plain
-/// text as a body, or a notice that names its types when it has nothing to
-/// show.
+/// The image slot of a PNG or JPEG in a MIME bundle, whose pixels go to `sink`,
+/// or else the logical lines of its Markdown, JSON or HTML, its plain text as a
+/// body, or a notice that names its types when it has nothing to show.
 fn bundle_unit(
     data: &JsonMap,
     metadata: &JsonMap,
