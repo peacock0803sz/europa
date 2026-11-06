@@ -554,6 +554,14 @@ pub fn display_with(data: &str, metadata: &str) -> Vec<Output> {
     cell_outputs(&notebook(&json)).to_vec()
 }
 
+/// Execute result holding the MIME bundle `data` and the metadata `metadata`.
+pub fn result_with(data: &str, metadata: &str) -> Vec<Output> {
+    let json = format!(
+        r#"[{{"output_type":"execute_result","data":{data},"metadata":{metadata},"execution_count":1}}]"#
+    );
+    cell_outputs(&notebook(&json)).to_vec()
+}
+
 /// Like [`draw`], with one line per image slot after it.
 ///
 /// The `source` of a slot is a hash, so it stays out of the snapshots.

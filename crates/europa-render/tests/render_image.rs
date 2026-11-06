@@ -172,6 +172,15 @@ fn metadata_sets_the_size_of_the_slot() {
 }
 
 #[test]
+fn metadata_of_an_execute_result_sets_the_size_of_a_jpeg_slot() {
+    let data = bundle(&[("image/jpeg", common::jpeg(1280, 960))]);
+    let outputs = common::result_with(&data, r#"{"image/jpeg":{"width":640,"height":480}}"#);
+    let (cell, _) = draw(&outputs, 80);
+    assert_eq!(cell.images[0].mime, ImageMime::Jpeg);
+    assert_eq!((cell.images[0].width, cell.images[0].height), (64, 24));
+}
+
+#[test]
 fn the_orientation_of_a_jpeg_turns_the_slot() {
     let bytes = common::jpeg_with_orientation(40, 30, 6);
     let (cell, _) = draw(&[image_output("image/jpeg", bytes)], 80);
