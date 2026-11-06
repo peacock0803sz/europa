@@ -281,6 +281,26 @@ fn decode_image_returns_what_the_sink_got() {
 }
 
 #[test]
+fn decode_image_finds_the_image_in_every_kind_of_output() {
+    let outputs = [
+        common::stdout("before\n"),
+        image_output("image/png", common::png(30, 20)),
+        common::result(&bundle(&[("image/png", common::png(20, 10))])),
+        image_output("image/jpeg", common::jpeg(16, 16)),
+        common::result(&bundle(&[("image/jpeg", common::jpeg(24, 8))])),
+    ];
+    let (cell, sunk) = draw(&outputs, 80);
+    assert_eq!(cell.images.len(), 4);
+    assert_eq!(sunk.len(), 4);
+    for (index, (slot, (source, image))) in cell.images.iter().zip(&sunk).enumerate() {
+        assert_eq!(slot.output, index + 1);
+        assert_eq!(slot.source, *source);
+        let decoded = decode_image(&outputs, slot);
+        assert_eq!(decoded.as_ref(), Some(image), "output {}", slot.output);
+    }
+}
+
+#[test]
 fn decode_image_is_none_when_the_outputs_changed() {
     let outputs = [image_output("image/png", common::png(30, 20))];
     let (cell, _) = draw(&outputs, 80);
