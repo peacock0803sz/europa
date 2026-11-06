@@ -450,6 +450,23 @@ pub fn jpeg(width: u32, height: u32) -> Vec<u8> {
     bytes
 }
 
+/// A JPEG cut halfway between its start of scan and its end marker.
+///
+/// The image has to be big enough for that, because the cut would fail in a
+/// header otherwise and never reach the check of the end marker.
+pub fn jpeg_cut_in_scan(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = jpeg(width, height);
+    let scan = bytes
+        .windows(2)
+        .rposition(|pair| pair == [0xff, 0xda])
+        .expect("the encoder writes a start of scan");
+    let end = bytes.len() - 2;
+    assert_eq!(bytes[end..], [0xff, 0xd9]);
+    assert!(end - scan > 1000, "the scan is only {} bytes", end - scan);
+    bytes.truncate((scan + end) / 2);
+    bytes
+}
+
 /// The color of the pixel at `x`, `y`.
 pub fn rgb_at(image: &DecodedImage, x: u32, y: u32) -> [u8; 3] {
     let start = ((y * image.width + x) * 3) as usize;

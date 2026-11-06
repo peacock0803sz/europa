@@ -310,6 +310,15 @@ fn broken_data_is_named_with_its_reason() {
 }
 
 #[test]
+fn a_jpeg_cut_in_its_scan_is_named_broken() {
+    let cut = common::b64(&common::jpeg_cut_in_scan(256, 256));
+    assert_eq!(
+        notice_of(&format!(r#"{{"image/jpeg":"{cut}"}}"#)),
+        ["[image/jpeg: broken]"]
+    );
+}
+
+#[test]
 fn a_jpeg_with_bytes_after_its_end_is_still_an_image() {
     let mut jpeg = common::jpeg(10, 10);
     jpeg.extend_from_slice(b"padding");

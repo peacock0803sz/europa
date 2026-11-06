@@ -401,6 +401,26 @@ mod tests {
     }
 
     #[test]
+    fn a_jpeg_cut_in_its_scan_is_refused() {
+        // The cut has to land in the scan, because one in a header fails there
+        // and never reaches the check of the end marker.
+        let image = image::RgbImage::from_fn(128, 128, |x, y| {
+            image::Rgb([(x * 2) as u8, (y * 2) as u8, (x * y % 256) as u8])
+        });
+        let bytes = encode(image, ImageFormat::Jpeg);
+        let scan = bytes
+            .windows(2)
+            .rposition(|pair| pair == [0xff, 0xda])
+            .expect("start of scan");
+        let end = bytes.len() - 2;
+        assert_eq!(bytes[end..], [0xff, 0xd9]);
+        assert!(end - scan > 1000, "the scan is only {} bytes", end - scan);
+        let cut = &bytes[..(scan + end) / 2];
+        assert!(!jpeg_is_complete(cut));
+        assert_eq!(decode(cut), Err(ImageFailure::Broken));
+    }
+
+    #[test]
     fn bytes_after_the_end_of_a_jpeg_are_ignored() {
         let mut bytes = jpeg();
         bytes.extend_from_slice(b"trailing");
