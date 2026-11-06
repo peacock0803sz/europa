@@ -119,11 +119,18 @@ impl ImageMime {
     /// The MIME type as it is written in a notebook.
     #[must_use]
     pub fn as_str(self) -> &'static str {
-        todo!()
+        match self {
+            ImageMime::Png => "image/png",
+            ImageMime::Jpeg => "image/jpeg",
+        }
     }
 }
 
 /// Room that a rendered cell keeps for an image.
+///
+/// Slots do not overlap and are sorted by `line`. The lines
+/// `lines[line..line + height]` are empty, so a terminal draws the image over
+/// them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImageSlot {
     /// Index in [`RenderedCell::lines`] of the line where the image starts.
@@ -142,6 +149,9 @@ pub struct ImageSlot {
 }
 
 /// An image decoded to 8-bit RGB.
+///
+/// `rgb` is `width * height * 3` bytes long, and transparency is already
+/// composited onto white.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DecodedImage {
     /// Width in pixels, after the orientation is applied.
@@ -154,7 +164,8 @@ pub struct DecodedImage {
 
 /// How the terminal graphics protocol is chosen.
 ///
-/// The values of `render.image_protocol` in the configuration.
+/// The values of `render.image_protocol` in the configuration, as the design
+/// document describes them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ImageProtocolChoice {
@@ -175,10 +186,11 @@ pub enum ImageProtocolChoice {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderedCell {
     /// Display lines from top to bottom. There are at most
-    /// [`RenderOptions::max_output_lines`] of them.
+    /// [`RenderOptions::max_output_lines`] of them, and fewer when an image
+    /// slot on the border of the omitted part was dropped whole.
     #[serde(default)]
     pub lines: Vec<StyledLine>,
-    /// Room for images. Always empty until images are rendered.
+    /// Room for the images of PNG and JPEG outputs.
     #[serde(default)]
     pub images: Vec<ImageSlot>,
 }
@@ -247,8 +259,18 @@ pub struct RenderOptions {
     #[serde(default)]
     pub background: Background,
     /// The size of a cell in pixels.
-    #[serde(default = "default_cell_pixels")]
+    // Left out at the default because every existing snapshot starts with
+    // the JSON of its options, and writing it would change all of them.
+    #[serde(
+        default = "default_cell_pixels",
+        skip_serializing_if = "is_default_cell_pixels"
+    )]
     pub cell_pixels: CellPixels,
+}
+
+/// serde calls skip predicates with a reference.
+fn is_default_cell_pixels(value: &CellPixels) -> bool {
+    *value == CellPixels::DEFAULT
 }
 
 /// serde needs a function for a default that is not a `Default` value.
