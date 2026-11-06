@@ -1,9 +1,6 @@
 //! Reading images from outputs: base64, decoding and the size of the room
 //! an image takes in a rendered cell.
 
-// Nothing uses these yet; the allowance goes when the renderer does.
-#![allow(dead_code)]
-
 use std::io::Cursor;
 
 use europa_core::{DecodedImage, JsonValue, RenderOptions};
