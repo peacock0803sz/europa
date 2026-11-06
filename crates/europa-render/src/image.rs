@@ -337,6 +337,58 @@ mod tests {
         }
     }
 
+    fn rgb_at(image: &DecodedImage, x: u32, y: u32) -> [u8; 3] {
+        let start = ((y * image.width + x) * 3) as usize;
+        [image.rgb[start], image.rgb[start + 1], image.rgb[start + 2]]
+    }
+
+    #[test]
+    fn a_png_keeps_the_exact_color_of_each_pixel() {
+        let image = decode(&png()).expect("decodes");
+        for (x, y, expected) in [
+            (0, 0, [0, 0, 7]),
+            (15, 0, [150, 0, 7]),
+            (0, 11, [0, 110, 7]),
+            (3, 7, [30, 70, 7]),
+            (15, 11, [150, 110, 7]),
+        ] {
+            assert_eq!(rgb_at(&image, x, y), expected, "at {x},{y}");
+        }
+    }
+
+    #[test]
+    fn a_jpeg_keeps_the_color_of_each_block_within_a_tolerance() {
+        // Blocks line up with the 16 by 16 units of the encoder, so the middle
+        // of a block takes no color from its neighbours.
+        let top_left = [220, 30, 30];
+        let top_right = [30, 220, 30];
+        let bottom_left = [30, 30, 220];
+        let bottom_right = [220, 220, 30];
+        let blocks = image::RgbImage::from_fn(32, 32, |x, y| {
+            image::Rgb(match (x < 16, y < 16) {
+                (true, true) => top_left,
+                (false, true) => top_right,
+                (true, false) => bottom_left,
+                (false, false) => bottom_right,
+            })
+        });
+        let image = decode(&encode(blocks, ImageFormat::Jpeg)).expect("decodes");
+        for (x, y, expected) in [
+            (8, 8, top_left),
+            (24, 8, top_right),
+            (8, 24, bottom_left),
+            (24, 24, bottom_right),
+        ] {
+            let actual = rgb_at(&image, x, y);
+            for (got, want) in actual.into_iter().zip(expected) {
+                assert!(
+                    got.abs_diff(want) <= 16,
+                    "at {x},{y}: {actual:?} is not near {expected:?}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn broken_data_is_refused() {
         let png = png();

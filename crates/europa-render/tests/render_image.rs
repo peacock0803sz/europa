@@ -41,6 +41,37 @@ fn a_png_makes_one_slot_and_hides_the_plain_text() {
 }
 
 #[test]
+fn the_sink_gets_the_exact_colors_of_a_png() {
+    let (_, sunk) = draw(&[image_output("image/png", common::png(40, 30))], 80);
+    let image = &sunk[0].1;
+    for (x, y, expected) in [
+        (0, 0, [0, 0, 0]),
+        (39, 0, [39, 0, 39]),
+        (5, 20, [5, 20, 25]),
+        (39, 29, [39, 29, 68]),
+    ] {
+        assert_eq!(common::rgb_at(image, x, y), expected, "at {x},{y}");
+    }
+}
+
+#[test]
+fn the_sink_gets_the_colors_of_a_jpeg_within_a_tolerance() {
+    let (_, sunk) = draw(&[image_output("image/jpeg", common::jpeg(64, 64))], 80);
+    let image = &sunk[0].1;
+    // Far from the corners, so that the gradient holds and red differs from
+    // blue by much more than the tolerance.
+    for (x, y, expected) in [(8, 56, [8, 56, 64]), (8, 32, [8, 32, 40])] {
+        let actual = common::rgb_at(image, x, y);
+        for (got, want) in actual.into_iter().zip(expected) {
+            assert!(
+                got.abs_diff(want) <= 12,
+                "at {x},{y}: {actual:?} is not near {expected:?}"
+            );
+        }
+    }
+}
+
+#[test]
 fn png_wins_over_jpeg_and_over_rich_text() {
     let png = common::b64(&common::png(10, 10));
     let jpeg = common::b64(&common::jpeg(10, 10));

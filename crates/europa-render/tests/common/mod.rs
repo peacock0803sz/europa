@@ -3,7 +3,7 @@
 use std::num::{NonZeroU16, NonZeroUsize};
 
 use europa_core::{
-    Background, Cell, Color, JsonMap, Notebook, Output, RenderOptions, RenderedCell,
+    Background, Cell, Color, DecodedImage, JsonMap, Notebook, Output, RenderOptions, RenderedCell,
     SourceLanguage, Style, StyledLine,
 };
 use unicode_width::UnicodeWidthStr;
@@ -448,6 +448,12 @@ pub fn jpeg(width: u32, height: u32) -> Vec<u8> {
         )
         .expect("jpeg encodes");
     bytes
+}
+
+/// The color of the pixel at `x`, `y`.
+pub fn rgb_at(image: &DecodedImage, x: u32, y: u32) -> [u8; 3] {
+    let start = ((y * image.width + x) * 3) as usize;
+    [image.rgb[start], image.rgb[start + 1], image.rgb[start + 2]]
 }
 
 /// CRC-32 as PNG chunks use it.
