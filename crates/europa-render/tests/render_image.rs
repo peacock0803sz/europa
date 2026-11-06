@@ -212,6 +212,17 @@ fn two_slots_do_not_overlap() {
 }
 
 #[test]
+fn a_slot_counts_outputs_rather_than_merged_streams() {
+    let outputs = [
+        common::stdout("a\n"),
+        common::stdout("b\n"),
+        image_output("image/png", common::png(100, 60)),
+    ];
+    let (cell, _) = draw(&outputs, 80);
+    assert_eq!(cell.images[0].output, 2);
+}
+
+#[test]
 fn equal_arguments_give_equal_results_whatever_the_sink_does() {
     let outputs = [image_output("image/png", common::png(100, 60))];
     let (first, _) = draw(&outputs, 80);
