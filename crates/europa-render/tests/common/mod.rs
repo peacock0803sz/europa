@@ -491,8 +491,8 @@ fn crc32(bytes: &[u8]) -> u32 {
 
 /// A PNG whose header says `width` by `height`, with data for one pixel.
 ///
-/// The header is the only part that is right, which is all a size limit
-/// looks at.
+/// Only the header matches the size asked for, which is all a size limit looks
+/// at.
 pub fn png_with_size(width: u32, height: u32) -> Vec<u8> {
     let mut bytes = png(1, 1);
     bytes[16..20].copy_from_slice(&width.to_be_bytes());

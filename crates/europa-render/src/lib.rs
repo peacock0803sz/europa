@@ -153,7 +153,8 @@ struct PendingImage {
 ///
 /// The function does no IO and reads nothing but its arguments, so equal
 /// arguments give equal results. It never changes `outputs`. The result has at
-/// most [`RenderOptions::max_output_lines`] lines.
+/// most [`RenderOptions::max_output_lines`] lines. Decoding takes time, so a
+/// caller should keep the result and not call this again every frame.
 #[must_use]
 pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCell {
     render_outputs_with_images(outputs, options, &mut |_, _| {})
@@ -216,7 +217,8 @@ pub fn render_outputs_with_images(
 ///
 /// Returns `None` when the outputs are no longer the ones the slot was made
 /// from: the output is missing or holds no such image, or its data no longer
-/// hashes to `slot.source`.
+/// hashes to `slot.source`. It also returns `None` for data that no longer
+/// decodes.
 #[must_use]
 pub fn decode_image(outputs: &[Output], slot: &ImageSlot) -> Option<DecodedImage> {
     let data = match outputs.get(slot.output)? {

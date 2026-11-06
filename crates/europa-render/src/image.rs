@@ -58,7 +58,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<DecodedImage, ImageFailure> {
     reader.limits(limits);
     let mut decoder = reader.into_decoder().map_err(classify)?;
     // The size is known from the header, so a huge image is refused before
-    // any memory is spent on it.
+    // its pixels are allocated.
     let (width, height) = decoder.dimensions();
     if exceeds_pixel_limit(width, height) {
         return Err(ImageFailure::TooLarge);
@@ -115,7 +115,8 @@ fn jpeg_is_complete(bytes: &[u8]) -> bool {
     bytes[scan..].windows(2).any(|pair| pair == [0xff, 0xd9])
 }
 
-/// FNV-1a, 64 bits, of the decoded bytes. A key for caching decoded images.
+/// FNV-1a, 64 bits, of the bytes after base64 decoding. A key for caching
+/// decoded images.
 pub(crate) fn source_hash(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in bytes {

@@ -135,9 +135,9 @@ impl ImageMime {
 pub struct ImageSlot {
     /// Index in [`RenderedCell::lines`] of the line where the image starts.
     pub line: usize,
-    /// Columns to keep.
+    /// Columns to keep, from 1 to [`RenderOptions::width`].
     pub width: u16,
-    /// Lines to keep.
+    /// Lines to keep, from 1 to [`RenderOptions::max_output_lines`].
     pub height: u16,
     /// Index in the outputs given to the renderer of the output that holds
     /// the image.
@@ -154,9 +154,9 @@ pub struct ImageSlot {
 /// composited onto white.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DecodedImage {
-    /// Width in pixels, after the orientation is applied.
+    /// Width in pixels, after the orientation is applied. At least 1.
     pub width: u32,
-    /// Height in pixels, after the orientation is applied.
+    /// Height in pixels, after the orientation is applied. At least 1.
     pub height: u32,
     /// Pixels as RGB, `width * height * 3` bytes.
     pub rgb: Vec<u8>,
@@ -164,8 +164,7 @@ pub struct DecodedImage {
 
 /// How the terminal graphics protocol is chosen.
 ///
-/// The values of `render.image_protocol` in the configuration, as the design
-/// document describes them.
+/// The values of the `render.image_protocol` setting.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ImageProtocolChoice {
@@ -186,11 +185,12 @@ pub enum ImageProtocolChoice {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderedCell {
     /// Display lines from top to bottom. There are at most
-    /// [`RenderOptions::max_output_lines`] of them, and fewer when an image
-    /// slot on the border of the omitted part was dropped whole.
+    /// [`RenderOptions::max_output_lines`] of them, and possibly fewer when an
+    /// image slot on the border of the omitted part was dropped whole.
     #[serde(default)]
     pub lines: Vec<StyledLine>,
-    /// Room for the images of PNG and JPEG outputs.
+    /// Room for the images that were read and kept, in the order of
+    /// [`RenderedCell::lines`].
     #[serde(default)]
     pub images: Vec<ImageSlot>,
 }
@@ -288,8 +288,8 @@ impl RenderOptions {
     pub const DEFAULT_MAX_OUTPUT_LINES: NonZeroUsize =
         NonZeroUsize::new(200).expect("200 is not zero");
 
-    /// Options for an area `width` columns wide, with the default line limit
-    /// and a dark background.
+    /// Options for an area `width` columns wide, with the default line limit,
+    /// the default cell size and a dark background.
     #[must_use]
     pub fn new(width: NonZeroU16) -> Self {
         Self {
