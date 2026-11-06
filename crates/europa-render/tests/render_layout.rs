@@ -297,7 +297,7 @@ fn shown(outputs: &[Output]) -> Vec<String> {
 #[test]
 fn an_image_is_named_by_its_type_and_its_data_is_not_shown() {
     let cell = render_outputs(&display(r#"{"image/png":"iVBORw0KGgo="}"#), &opts(80));
-    assert_eq!(texts(&cell), ["[image/png]"]);
+    assert_eq!(texts(&cell), ["[image/png: broken]"]);
     assert!(!texts(&cell).concat().contains("iVBOR"));
 }
 
@@ -314,7 +314,7 @@ fn all_the_types_a_result_has_are_named_in_order() {
     let result = outputs(
         r#"[{"output_type":"execute_result","data":{"text/html":1,"image/png":"iVBORw0KGgo="},"metadata":{},"execution_count":3}]"#,
     );
-    assert_eq!(shown(&result), ["[image/png, text/html]"]);
+    assert_eq!(shown(&result), ["[image/png: broken, text/html]"]);
 }
 
 #[test]
@@ -326,7 +326,7 @@ fn a_bundle_without_types_is_named_as_empty() {
 fn plain_text_that_is_not_text_is_named_like_any_other_type() {
     assert_eq!(
         shown(&display(r#"{"image/png":"x","text/plain":42}"#)),
-        ["[image/png, text/plain]"]
+        ["[image/png: broken, text/plain]"]
     );
     assert_eq!(
         shown(&display(r#"{"text/plain":["a",1]}"#)),
@@ -374,11 +374,11 @@ fn a_notice_is_dim_and_not_filled_even_between_stderr_outputs() {
     list.extend(display(r#"{"image/png":"x"}"#));
     list.push(stderr("f\n"));
     let cell = render_outputs(&list, &opts(80));
-    assert_eq!(texts(&cell), ["e", "[image/png]", "f"]);
+    assert_eq!(texts(&cell), ["e", "[image/png: broken]", "f"]);
     assert_eq!(
         styled(&cell.lines[1]),
         [(
-            "[image/png]".to_owned(),
+            "[image/png: broken]".to_owned(),
             Style {
                 dim: true,
                 ..Style::default()
@@ -395,7 +395,7 @@ fn a_notice_wider_than_the_area_wraps_and_counts_against_the_limit() {
         r#"[{"output_type":"execute_result","data":{"image/png":"x","text/html":1},"metadata":{},"execution_count":1}]"#,
     );
     let wrapped = render_outputs(&result, &opts(10));
-    assert_eq!(texts(&wrapped), ["[image/png", ", text/htm", "l]"]);
+    assert_eq!(texts(&wrapped), ["[image/png", ": broken, ", "text/html]"]);
     let cut = render_outputs(&result, &limited(10, 2));
-    assert_eq!(texts(&cut), ["... 2 line", "l]"]);
+    assert_eq!(texts(&cut), ["... 2 line", "text/html]"]);
 }

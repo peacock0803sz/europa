@@ -58,6 +58,8 @@ use europa_core::{
 };
 use unicode_width::UnicodeWidthStr;
 
+use crate::image::ImageFailure;
+
 // Palette entries rather than RGB, because some terminals cannot show 24-bit
 // colors and neither ratatui nor crossterm reduces them.
 const DARK_FILL: Color = Color::Indexed(52);
@@ -551,15 +553,21 @@ fn bundle_unit(
 ) -> Unit {
     // An image that reads is shown whatever else the bundle holds. One that
     // does not read gives way to the next entry.
+    let mut failures: Vec<(ImageMime, ImageFailure)> = Vec::new();
     for mime in [ImageMime::Png, ImageMime::Jpeg] {
         let Some(value) = data.get(mime.as_str()) else {
             continue;
         };
-        let Ok(bytes) = image::read_value(value) else {
-            continue;
-        };
-        let Ok(decoded) = image::decode(&bytes) else {
-            continue;
+        let read = image::read_value(value).and_then(|bytes| {
+            let decoded = image::decode(&bytes)?;
+            Ok((bytes, decoded))
+        });
+        let (bytes, decoded) = match read {
+            Ok(read) => read,
+            Err(failure) => {
+                failures.push((mime, failure));
+                continue;
+            }
         };
         let natural =
             image::natural_size(metadata.get(mime.as_str()), (decoded.width, decoded.height));
@@ -585,7 +593,7 @@ fn bundle_unit(
             html::render(&text, options.width, options.background),
             text.trim().is_empty(),
         ),
-        Selected::None => return types_notice(data),
+        Selected::None => return types_notice(data, &failures),
     };
     // An empty entry shows nothing on purpose.
     if !lines.is_empty() || blank {
@@ -596,16 +604,31 @@ fn bundle_unit(
     // object or the types stand in.
     match text_of(data, "text/plain") {
         Some(text) if !is_default_repr(&text) => Unit::Body { text, fill: false },
-        _ => types_notice(data),
+        _ => types_notice(data, &failures),
     }
 }
 
 /// The notice that names the types of a MIME bundle.
-fn types_notice(data: &JsonMap) -> Unit {
+///
+/// A PNG or JPEG entry that was refused is followed by the reason.
+fn types_notice(data: &JsonMap, failures: &[(ImageMime, ImageFailure)]) -> Unit {
     if data.is_empty() {
         return Unit::Notice("[no data]".to_owned());
     }
-    let types: Vec<&str> = data.keys().map(String::as_str).collect();
+    let types: Vec<String> = data
+        .keys()
+        .map(|name| {
+            let failure = failures
+                .iter()
+                .find(|(mime, _)| mime.as_str() == name)
+                .map(|(_, failure)| failure);
+            match failure {
+                Some(ImageFailure::Broken) => format!("{name}: broken"),
+                Some(ImageFailure::TooLarge) => format!("{name}: too large"),
+                None => name.clone(),
+            }
+        })
+        .collect();
     Unit::Notice(format!("[{}]", types.join(", ")))
 }
 
