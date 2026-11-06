@@ -7,6 +7,10 @@
 //! [`render_source`] does the same for the source of a cell, and highlights
 //! Python by the kind of token.
 //!
+//! A PNG or JPEG output becomes room for an image, which a terminal draws
+//! over empty lines. [`render_outputs_with_images`] also hands over the
+//! decoded pixels, and [`decode_image`] decodes one again later.
+//!
 //! Lines from stderr, from errors and from code blocks carry a fill, which a
 //! terminal paints to the right edge of the line, so that they stand out
 //! from stdout.
@@ -108,7 +112,12 @@ struct PendingImage {
 /// The outputs are taken in order and go through these steps:
 ///
 /// 1. Consecutive streams of one name, the chosen MIME of a display data or
-///    execute result, and the traceback of an error each become a unit. The
+///    execute result, and the traceback of an error each become a unit. An
+///    `image/png` or `image/jpeg` entry that reads and decodes is chosen
+///    before any other, and becomes room for an image: empty lines, with an
+///    [`ImageSlot`] that says where. One that does not read, or is over 64
+///    million pixels, gives way to the next entry and is named with its
+///    reason if nothing else can be shown. Otherwise the
 ///    choice is `text/markdown`, then `application/json`, then `text/plain`,
 ///    then `text/html`, skipping a `text/plain` that only names its object
 ///    while `text/html` is usable. Streams, tracebacks and `text/plain`
@@ -117,7 +126,7 @@ struct PendingImage {
 ///    instead of read, and skip steps 2 and 3. When a non-blank entry gives
 ///    no line, `text/plain` that is not such a name, or a notice, stands in.
 ///    A blank entry gives no line. An output with nothing to draw,
-///    such as an image or an unknown kind, becomes a notice that names what
+///    such as an unknown kind or an image that cannot be shown, becomes a notice that names what
 ///    it holds instead. A notice is wrapped like other text, so it can take
 ///    more than one line when it is wider than [`RenderOptions::width`].
 ///    A fenced code block of Markdown whose info string begins with a word
@@ -134,15 +143,16 @@ struct PendingImage {
 ///    [`RenderOptions::width`] columns, counting grapheme clusters by their
 ///    width. The lines of stderr, of errors and of code blocks get a fill for
 ///    [`RenderOptions::background`].
-/// 5. When there are more lines than [`RenderOptions::max_output_lines`], the
-///    beginning and the end are kept and one line that counts the hidden
-///    lines replaces the middle.
-/// 6. The lines are returned without image slots.
+/// 5. Room for an image counts toward [`RenderOptions::max_output_lines`].
+///    When there are more lines than the limit, the beginning and the end are
+///    kept and one line that counts the hidden lines replaces the middle. An
+///    image that the cut falls inside of is left out whole, so the result can
+///    have fewer lines than the limit.
+/// 6. The lines are returned with the slots of the images that were kept.
 ///
 /// The function does no IO and reads nothing but its arguments, so equal
 /// arguments give equal results. It never changes `outputs`. The result has at
-/// most [`RenderOptions::max_output_lines`] lines, and its `images` is empty
-/// for now.
+/// most [`RenderOptions::max_output_lines`] lines.
 #[must_use]
 pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCell {
     render_outputs_with_images(outputs, options, &mut |_, _| {})
