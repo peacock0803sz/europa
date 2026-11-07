@@ -397,6 +397,35 @@ fn a_too_large_image_gives_way_to_the_next_entry() {
 }
 
 #[test]
+fn a_blank_entry_does_not_hide_an_image_that_could_not_be_shown() {
+    for data in [
+        r#"{"image/png":"!!!","text/plain":""}"#,
+        r#"{"image/png":"!!!","text/markdown":""}"#,
+        r#"{"image/png":"!!!","text/html":"  "}"#,
+    ] {
+        let texts = notice_of(data);
+        assert_eq!(texts.len(), 1, "{data}");
+        assert!(texts[0].contains("image/png: broken"), "{data}: {texts:?}");
+    }
+    let big = common::b64(&common::png_with_size(8001, 8001));
+    let texts = notice_of(&format!(r#"{{"image/png":"{big}","text/plain":" "}}"#));
+    assert_eq!(texts, ["[image/png: too large, text/plain]"]);
+}
+
+#[test]
+fn text_stands_in_when_the_chosen_entry_is_blank_and_the_image_is_broken() {
+    let data = r#"{"image/png":"!!!","text/markdown":"","text/plain":"words"}"#;
+    assert_eq!(notice_of(data), ["words"]);
+}
+
+#[test]
+fn a_blank_entry_without_a_failed_image_still_shows_nothing() {
+    for data in [r#"{"text/plain":""}"#, r#"{"text/markdown":""}"#] {
+        assert!(notice_of(data).is_empty(), "{data}");
+    }
+}
+
+#[test]
 fn only_png_and_jpeg_get_a_reason() {
     let data = r#"{"image/png":"!!!","image/gif":"R0lGOD"}"#;
     assert_eq!(notice_of(data), ["[image/gif, image/png: broken]"]);

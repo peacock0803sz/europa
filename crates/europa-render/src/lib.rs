@@ -117,9 +117,8 @@ struct PendingImage {
 ///    before any other, and becomes room for an image: empty lines, with an
 ///    [`ImageSlot`] that says where. One that does not read, or is over 64
 ///    million pixels, gives way to the next entry. The notice names it with
-///    its reason when the bundle ends in a notice, and a blank entry that was
-///    chosen gives neither a line nor a notice. Otherwise the
-///    choice is `text/markdown`, then `application/json`, then `text/plain`,
+///    its reason when the bundle ends in a notice, which it also does when
+///    the next entry is blank. Otherwise the choice is `text/markdown`, then `application/json`, then `text/plain`,
 ///    then `text/html`, skipping a `text/plain` that only names its object
 ///    while `text/html` is usable. Streams, tracebacks and `text/plain`
 ///    become a unit with a body. Markdown, JSON and HTML become indented
@@ -594,12 +593,15 @@ fn bundle_unit(
             source,
         });
     }
+    // Text with nothing in it would leave no sign that an image was refused.
+    let hides_failure = |text: &str| !failures.is_empty() && text.trim().is_empty();
     let (lines, blank) = match select(data) {
         Selected::Markdown(text) => (
             markdown::render(&text, options.width, options.background),
             text.trim().is_empty(),
         ),
         Selected::Json(value) => (json::render(value), false),
+        Selected::Plain(text) if hides_failure(&text) => return types_notice(data, &failures),
         Selected::Plain(text) => return Unit::Body { text, fill: false },
         Selected::Html(text) => (
             html::render(&text, options.width, options.background),
@@ -607,15 +609,17 @@ fn bundle_unit(
         ),
         Selected::None => return types_notice(data, &failures),
     };
-    // An empty entry shows nothing on purpose.
-    if !lines.is_empty() || blank {
+    // An empty entry shows nothing on purpose, unless an image was refused.
+    if !lines.is_empty() || (blank && failures.is_empty()) {
         return Unit::Blocks(lines);
     }
     // A rich entry whose content renders to nothing, such as HTML that only
     // holds a script, would leave no trace, so plain text that shows the
     // object or the types stand in.
     match text_of(data, "text/plain") {
-        Some(text) if !is_default_repr(&text) => Unit::Body { text, fill: false },
+        Some(text) if !is_default_repr(&text) && !hides_failure(&text) => {
+            Unit::Body { text, fill: false }
+        }
         _ => types_notice(data, &failures),
     }
 }
