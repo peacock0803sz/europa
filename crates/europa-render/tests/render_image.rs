@@ -426,6 +426,29 @@ fn a_blank_entry_without_a_failed_image_still_shows_nothing() {
 }
 
 #[test]
+fn a_default_repr_does_not_hide_an_image_that_could_not_be_shown() {
+    let repr = "<IPython.core.display.Image object>";
+    let data = format!(r#"{{"image/png":"!!!","text/plain":"{repr}"}}"#);
+    assert_eq!(notice_of(&data), ["[image/png: broken, text/plain]"]);
+    let big = common::b64(&common::png_with_size(8001, 8001));
+    let data = format!(r#"{{"image/png":"{big}","text/plain":"{repr}"}}"#);
+    assert_eq!(notice_of(&data), ["[image/png: too large, text/plain]"]);
+}
+
+#[test]
+fn a_repr_that_shows_something_still_stands_in_for_a_broken_image() {
+    let repr = "<Figure size 640x480 with 1 Axes>";
+    let data = format!(r#"{{"image/png":"!!!","text/plain":"{repr}"}}"#);
+    assert_eq!(notice_of(&data), [repr]);
+}
+
+#[test]
+fn a_default_repr_without_a_failed_image_is_still_shown() {
+    let repr = "<IPython.core.display.Image object>";
+    assert_eq!(notice_of(&format!(r#"{{"text/plain":"{repr}"}}"#)), [repr]);
+}
+
+#[test]
 fn only_png_and_jpeg_get_a_reason() {
     let data = r#"{"image/png":"!!!","image/gif":"R0lGOD"}"#;
     assert_eq!(notice_of(data), ["[image/gif, image/png: broken]"]);

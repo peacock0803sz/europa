@@ -118,7 +118,8 @@ struct PendingImage {
 ///    [`ImageSlot`] that says where. One that does not read, or is over 64
 ///    million pixels, gives way to the next entry. The notice names it with
 ///    its reason when the bundle ends in a notice, which it also does when
-///    the next entry is blank. Otherwise the choice is `text/markdown`, then `application/json`, then `text/plain`,
+///    the next entry is blank or is `text/plain` that only names its object.
+///    Otherwise the choice is `text/markdown`, then `application/json`, then `text/plain`,
 ///    then `text/html`, skipping a `text/plain` that only names its object
 ///    while `text/html` is usable. Streams, tracebacks and `text/plain`
 ///    become a unit with a body. Markdown, JSON and HTML become indented
@@ -593,8 +594,11 @@ fn bundle_unit(
             source,
         });
     }
-    // Text with nothing in it would leave no sign that an image was refused.
-    let hides_failure = |text: &str| !failures.is_empty() && text.trim().is_empty();
+    // Text with nothing in it, or that only names its object, would leave no
+    // sign that an image was refused. `IPython.display.Image` writes such a
+    // name next to every image.
+    let hides_failure =
+        |text: &str| !failures.is_empty() && (text.trim().is_empty() || is_default_repr(text));
     let (lines, blank) = match select(data) {
         Selected::Markdown(text) => (
             markdown::render(&text, options.width, options.background),
