@@ -8,7 +8,7 @@ use ratatui_image::picker::ProtocolType;
 
 use super::common::{
     describe, draw_frame, first_slot, image_output_with, jpeg_output, jpeg_solid, png, png_output,
-    png_transparent, render, renderer,
+    png_solid, png_transparent, render, renderer,
 };
 use crate::image_cache::DEFAULT_LIMIT;
 use crate::image_protocol::ColorDepth;
@@ -147,7 +147,7 @@ fn a_slot_that_only_partly_fits_is_drawn_only_where_it_is_visible() {
     let buffer = draw_frame(&mut renderer, &outputs, &slot, area, -2, (20, 10));
     for y in 0..10u16 {
         for x in 0..20u16 {
-            let inside = y >= 2 && y < 7 && x < 10;
+            let inside = (2..7).contains(&y) && x < 10;
             let marked = buffer[(x, y)].symbol() == "x";
             assert_eq!(marked, !inside, "cell ({x}, {y})");
         }
@@ -244,11 +244,11 @@ fn inserting_a_source_again_keeps_what_was_encoded() {
 #[test]
 fn the_cache_stays_within_its_limit_and_drops_the_oldest_image() {
     let outputs = [
-        png_output(&png(100, 100)),
-        png_output(&png(101, 100)),
-        png_output(&png(102, 100)),
+        png_output(&png_solid(100, 100, [200, 0, 0])),
+        png_output(&png_solid(100, 100, [0, 200, 0])),
+        png_output(&png_solid(100, 100, [0, 0, 200])),
     ];
-    // Room for about one image with its encoding.
+    // Room for one image with its encoding, which takes 90000 bytes.
     let mut renderer = renderer(
         ProtocolType::Halfblocks,
         ColorDepth::TrueColor,

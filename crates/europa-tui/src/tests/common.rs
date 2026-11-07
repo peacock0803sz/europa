@@ -135,3 +135,9 @@ pub(crate) fn draw_frame(
 pub(crate) fn describe(buffer: &Buffer) -> String {
     format!("{buffer:?}").replace(", underline: Reset", "")
 }
+
+/// A PNG of one color, so that images of one size can still differ.
+pub(crate) fn png_solid(width: u32, height: u32, color: [u8; 3]) -> Vec<u8> {
+    let image = image::RgbImage::from_pixel(width, height, image::Rgb(color));
+    encode(image, image::ImageFormat::Png)
+}
