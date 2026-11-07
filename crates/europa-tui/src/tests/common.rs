@@ -3,14 +3,18 @@
 use std::num::{NonZeroU16, NonZeroUsize};
 
 use europa_core::{Cell, CellPixels, ImageSlot, Output, RenderOptions, RenderedCell};
+use image::DynamicImage;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::layout::Size;
 use ratatui::Terminal;
-use ratatui_image::picker::ProtocolType;
+use ratatui_image::errors::Errors;
+use ratatui_image::picker::{Picker, ProtocolType};
+use ratatui_image::sliced::SlicedProtocol;
 
 use crate::image_protocol::ColorDepth;
-use crate::image_view::{ImageRenderer, RatatuiEncoder};
+use crate::image_view::{Encoder, ImageRenderer, RatatuiEncoder};
 
 /// A PNG whose color follows from the coordinates.
 pub(crate) fn png(width: u32, height: u32) -> Vec<u8> {
@@ -203,4 +207,61 @@ pub(crate) fn describe_protocol_frame(buffer: &Buffer) -> String {
         text.push_str(&format!("kitty rows {}\n", rows.join(" ")));
     }
     text
+}
+
+/// An encoder that never succeeds.
+pub(crate) struct FailingEncoder;
+
+impl Encoder for FailingEncoder {
+    fn encode(&self, _: &Picker, _: DynamicImage, _: Size) -> Result<SlicedProtocol, Errors> {
+        Err(Errors::NoFontSize)
+    }
+}
+
+/// An encoder that only succeeds for half-blocks, like a protocol that
+/// cannot be encoded on this machine.
+pub(crate) struct HalfblockOnly;
+
+impl Encoder for HalfblockOnly {
+    fn encode(
+        &self,
+        picker: &Picker,
+        image: DynamicImage,
+        size: Size,
+    ) -> Result<SlicedProtocol, Errors> {
+        if picker.protocol_type() == ProtocolType::Halfblocks {
+            RatatuiEncoder.encode(picker, image, size)
+        } else {
+            Err(Errors::NoFontSize)
+        }
+    }
+}
+
+/// An encoder that fails for slots of one width, and encodes the others.
+pub(crate) struct FailsForColumns(pub(crate) u16);
+
+impl Encoder for FailsForColumns {
+    fn encode(
+        &self,
+        picker: &Picker,
+        image: DynamicImage,
+        size: Size,
+    ) -> Result<SlicedProtocol, Errors> {
+        if size.width == self.0 {
+            Err(Errors::NoFontSize)
+        } else {
+            RatatuiEncoder.encode(picker, image, size)
+        }
+    }
+}
+
+/// A renderer for `protocol` with an encoder of the test.
+pub(crate) fn renderer_with(protocol: ProtocolType, encoder: Box<dyn Encoder>) -> ImageRenderer {
+    ImageRenderer::with_parts(
+        protocol,
+        CellPixels::DEFAULT,
+        ColorDepth::TrueColor,
+        crate::image_cache::DEFAULT_LIMIT,
+        encoder,
+    )
 }

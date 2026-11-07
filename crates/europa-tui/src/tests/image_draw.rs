@@ -876,3 +876,208 @@ fn clearing_the_screen_empties_it_and_makes_the_next_frame_draw_everything() {
         .backend()
         .assert_buffer_lines(["abc     ", "def     "]);
 }
+
+fn small_png() -> Vec<europa_core::Output> {
+    vec![png_output(&png(100, 100))]
+}
+
+fn is_drawn(buffer: &Buffer, x: u16, y: u16) -> bool {
+    buffer[(x, y)].symbol() != "x"
+}
+
+#[test]
+fn a_protocol_that_fails_is_drawn_with_half_blocks() {
+    let outputs = small_png();
+    for protocol in [
+        ProtocolType::Kitty,
+        ProtocolType::Sixel,
+        ProtocolType::Iterm2,
+    ] {
+        let mut renderer =
+            super::common::renderer_with(protocol, Box::new(super::common::HalfblockOnly));
+        let slot = first_slot(&mut renderer, &outputs);
+        let buffer = draw_frame(
+            &mut renderer,
+            &outputs,
+            &slot,
+            Rect::new(0, 0, 12, 7),
+            0,
+            (12, 7),
+        );
+        let text = describe_protocol_frame(&buffer);
+        assert!(!text.contains(['K', 'S', 'I']), "{protocol:?}\n{text}");
+        for y in 0..5 {
+            assert!(is_drawn(&buffer, 0, y), "{protocol:?} line {y}");
+            assert!("▀▄ █".contains(buffer[(0, y)].symbol()), "{protocol:?}");
+        }
+    }
+}
+
+#[test]
+fn when_half_blocks_fail_too_a_notice_is_drawn_and_the_outside_is_left_alone() {
+    let outputs = small_png();
+    let mut renderer = super::common::renderer_with(
+        ProtocolType::Halfblocks,
+        Box::new(super::common::FailingEncoder),
+    );
+    let slot = first_slot(&mut renderer, &outputs);
+    let buffer = draw_frame(
+        &mut renderer,
+        &outputs,
+        &slot,
+        Rect::new(0, 0, 12, 7),
+        0,
+        (12, 7),
+    );
+    let first: String = (0..10)
+        .map(|x| buffer[(x, 0)].symbol().to_owned())
+        .collect();
+    assert_eq!(first, "[image/png");
+    assert_eq!(buffer[(0, 0)].modifier, ratatui::style::Modifier::DIM);
+    let marked = marked_screen(12, 7);
+    for y in 0..7u16 {
+        for x in 0..12u16 {
+            let inside_notice = y == 0 && x < 10;
+            if !inside_notice {
+                assert_eq!(buffer[(x, y)], marked[(x, y)], "({x}, {y})");
+            }
+        }
+    }
+    insta::assert_snapshot!("fallback-notice", describe(&buffer));
+}
+
+#[test]
+fn the_notice_is_in_the_first_visible_line_when_the_slot_starts_above() {
+    let outputs = vec![png_output(&png(100, 280))];
+    let mut renderer = super::common::renderer_with(
+        ProtocolType::Halfblocks,
+        Box::new(super::common::FailingEncoder),
+    );
+    let slot = first_slot(&mut renderer, &outputs);
+    let buffer = draw_frame(
+        &mut renderer,
+        &outputs,
+        &slot,
+        Rect::new(0, 2, 20, 5),
+        -6,
+        (20, 10),
+    );
+    let line: String = (0..10)
+        .map(|x| buffer[(x, 2)].symbol().to_owned())
+        .collect();
+    assert!(line.starts_with("[image/png"), "{line:?}");
+    assert_eq!(buffer[(0, 3)].symbol(), "x");
+}
+
+#[test]
+fn another_image_in_the_cell_is_not_affected_by_a_failure() {
+    let outputs = vec![png_output(&png(100, 100)), png_output(&png(50, 60))];
+    let mut renderer = super::common::renderer_with(
+        ProtocolType::Halfblocks,
+        Box::new(super::common::FailsForColumns(10)),
+    );
+    let cell = render(&mut renderer, &outputs, 80, 200);
+    let [failing, fine] = [cell.images[0], cell.images[1]];
+    assert_eq!((failing.width, fine.width), (10, 5));
+    let area = Rect::new(0, 0, 12, 7);
+    let broken = draw_frame(&mut renderer, &outputs, &failing, area, 0, (12, 7));
+    assert!(
+        String::from_iter((0..10).map(|x| broken[(x, 0)].symbol().to_owned()))
+            .starts_with("[image")
+    );
+    let shown = draw_frame(&mut renderer, &outputs, &fine, area, 0, (12, 7));
+    assert!(is_drawn(&shown, 0, 0));
+    assert!(
+        !String::from_iter((0..5).map(|x| shown[(x, 0)].symbol().to_owned())).starts_with("[image")
+    );
+}
+
+#[test]
+fn a_failure_is_not_tried_again_under_the_same_conditions() {
+    let outputs = small_png();
+    let mut renderer =
+        super::common::renderer_with(ProtocolType::Sixel, Box::new(super::common::FailingEncoder));
+    let slot = first_slot(&mut renderer, &outputs);
+    let area = Rect::new(0, 0, 12, 7);
+    draw_frame(&mut renderer, &outputs, &slot, area, 0, (12, 7));
+    let first = renderer.stats();
+    assert_eq!(first.encodes, 1);
+    for top in [0, 1, -1] {
+        draw_frame(&mut renderer, &outputs, &slot, area, top, (12, 7));
+    }
+    assert_eq!(renderer.stats(), first);
+}
+
+fn placement_of(slot: &europa_core::ImageSlot) -> crate::image_view::Placement {
+    crate::image_view::Placement {
+        source: slot.source,
+        x: 0,
+        y: 0,
+        width: slot.width,
+        height: slot.height,
+    }
+}
+
+#[test]
+fn after_a_write_failure_what_was_visible_is_drawn_with_half_blocks_even_at_another_width() {
+    let outputs = small_png();
+    let mut renderer = renderer(ProtocolType::Sixel, ColorDepth::TrueColor, DEFAULT_LIMIT);
+    let slot = first_slot(&mut renderer, &outputs);
+    let area = Rect::new(0, 0, 12, 7);
+    let before = draw_frame(&mut renderer, &outputs, &slot, area, 0, (12, 7));
+    assert!(describe_protocol_frame(&before).contains('S'));
+    renderer.placements_changed(&[placement_of(&slot)]);
+    renderer.fall_back_visible();
+    let after = draw_frame(&mut renderer, &outputs, &slot, area, 0, (12, 7));
+    assert!(!describe_protocol_frame(&after).contains('S'));
+    assert!("▀▄ █".contains(after[(0, 0)].symbol()));
+    insta::assert_snapshot!("fallback-halfblock", describe(&after));
+
+    let narrower = render(&mut renderer, &outputs, 5, 200).images[0];
+    assert_ne!(narrower.width, slot.width);
+    let again = draw_frame(&mut renderer, &outputs, &narrower, area, 0, (12, 7));
+    assert!(!describe_protocol_frame(&again).contains('S'));
+}
+
+#[test]
+fn an_image_that_was_not_passed_to_the_last_call_keeps_its_protocol() {
+    let outputs = vec![png_output(&png(100, 100)), png_output(&png(50, 60))];
+    let mut renderer = renderer(ProtocolType::Sixel, ColorDepth::TrueColor, DEFAULT_LIMIT);
+    let cell = render(&mut renderer, &outputs, 80, 200);
+    renderer.placements_changed(&[placement_of(&cell.images[0])]);
+    renderer.fall_back_visible();
+    let area = Rect::new(0, 0, 12, 7);
+    let kept = draw_frame(&mut renderer, &outputs, &cell.images[1], area, 0, (12, 7));
+    assert!(describe_protocol_frame(&kept).contains('S'));
+}
+
+#[test]
+fn a_frame_that_was_not_flushed_is_replaced_by_half_blocks_after_clearing() {
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+
+    let outputs = small_png();
+    let mut renderer = renderer(ProtocolType::Sixel, ColorDepth::TrueColor, DEFAULT_LIMIT);
+    let slot = first_slot(&mut renderer, &outputs);
+    let area = Rect::new(0, 0, 12, 7);
+    let mut terminal = Terminal::new(TestBackend::new(12, 7)).expect("terminal");
+
+    // A frame whose write fails: it is drawn, and never flushed or swapped.
+    renderer.placements_changed(&[placement_of(&slot)]);
+    renderer.draw(terminal.get_frame().buffer_mut(), area, &outputs, &slot, 0);
+
+    renderer.fall_back_visible();
+    crate::image_view::clear_screen(&mut terminal).expect("clears");
+    terminal
+        .draw(|frame| renderer.draw(frame.buffer_mut(), area, &outputs, &slot, 0))
+        .expect("draws");
+    let screen = terminal.backend().buffer();
+    for y in 0..5 {
+        assert!(
+            "▀▄ █".contains(screen[(0, y)].symbol()),
+            "line {y}: {:?}",
+            screen[(0, y)]
+        );
+        assert_ne!(screen[(0, y)].fg, ratatui::style::Color::Reset, "line {y}");
+    }
+}

@@ -496,3 +496,16 @@ pub(crate) fn clear_screen<B: Backend>(terminal: &mut Terminal<B>) -> Result<(),
     terminal.swap_buffers();
     Ok(())
 }
+
+impl ImageRenderer {
+    /// Switches the images that were passed to the last call of
+    /// [`ImageRenderer::placements_changed`] to half-blocks, for when writing
+    /// a frame failed.
+    ///
+    /// The failure does not say which image caused it, so every image that
+    /// was on screen is switched. Call [`clear_screen`] after this and draw
+    /// the frame again. An image that was not on screen keeps its protocol.
+    pub(crate) fn fall_back_visible(&mut self) {
+        todo!()
+    }
+}
