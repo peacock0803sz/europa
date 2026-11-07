@@ -798,3 +798,81 @@ fn kitty_draws_a_slot_of_more_than_297_columns_as_half_blocks() {
     assert!(!describe_protocol_frame(&drawn).contains('K'));
     assert_eq!(drawn, expected);
 }
+
+fn placement(source: u64, y: u16) -> crate::image_view::Placement {
+    crate::image_view::Placement {
+        source,
+        x: 0,
+        y,
+        width: 10,
+        height: 3,
+    }
+}
+
+#[test]
+fn sixel_and_iterm2_ask_for_a_clear_when_the_placements_differ() {
+    for protocol in [ProtocolType::Sixel, ProtocolType::Iterm2] {
+        let mut renderer = renderer(protocol, ColorDepth::TrueColor, DEFAULT_LIMIT);
+        assert!(
+            !renderer.placements_changed(&[]),
+            "{protocol:?} nothing at first"
+        );
+        assert!(
+            renderer.placements_changed(&[placement(1, 0)]),
+            "{protocol:?} a new image"
+        );
+        assert!(
+            !renderer.placements_changed(&[placement(1, 0)]),
+            "{protocol:?} the same"
+        );
+        assert!(
+            renderer.placements_changed(&[placement(1, 2)]),
+            "{protocol:?} moved"
+        );
+        assert!(
+            renderer.placements_changed(&[placement(2, 2)]),
+            "{protocol:?} another image"
+        );
+        assert!(renderer.placements_changed(&[]), "{protocol:?} gone");
+    }
+}
+
+#[test]
+fn kitty_and_half_blocks_never_ask_for_a_clear() {
+    for protocol in [ProtocolType::Kitty, ProtocolType::Halfblocks] {
+        let mut renderer = renderer(protocol, ColorDepth::TrueColor, DEFAULT_LIMIT);
+        for placements in [vec![], vec![placement(1, 0)], vec![placement(1, 2)], vec![]] {
+            assert!(!renderer.placements_changed(&placements), "{protocol:?}");
+        }
+    }
+}
+
+#[test]
+fn clearing_the_screen_empties_it_and_makes_the_next_frame_draw_everything() {
+    use ratatui::backend::TestBackend;
+    use ratatui::widgets::Paragraph;
+    use ratatui::Terminal;
+
+    let mut terminal = Terminal::new(TestBackend::new(8, 2)).expect("terminal");
+    let draw = |terminal: &mut Terminal<TestBackend>| {
+        terminal
+            .draw(|frame| frame.render_widget(Paragraph::new("abc\ndef"), frame.area()))
+            .expect("draws");
+    };
+    draw(&mut terminal);
+    terminal
+        .backend()
+        .assert_buffer_lines(["abc     ", "def     "]);
+
+    crate::image_view::clear_screen(&mut terminal).expect("clears");
+    terminal
+        .backend()
+        .assert_buffer_lines(["        ", "        "]);
+
+    // The same frame as before is drawn in full, where a difference from the
+    // buffer of the last frame would have drawn nothing.
+    draw(&mut terminal);
+    terminal
+        .backend()
+        .assert_buffer_lines(["abc     ", "def     "]);
+}

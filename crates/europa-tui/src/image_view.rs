@@ -5,9 +5,11 @@ use std::io::IsTerminal;
 use europa_core::{CellPixels, DecodedImage, ImageProtocolChoice, ImageSlot, Output};
 use image::imageops::FilterType;
 use image::{DynamicImage, RgbImage};
+use ratatui::backend::{Backend, ClearType};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Rect, Size};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::Terminal;
 use ratatui_image::errors::Errors;
 use ratatui_image::picker::{Picker, ProtocolType};
 use ratatui_image::sliced::{SignedPosition, SlicedImage, SlicedProtocol};
@@ -456,4 +458,30 @@ fn draw_notice(buf: &mut Buffer, area: Rect, slot: &ImageSlot, top: i32) {
         width,
         Style::new().add_modifier(Modifier::DIM),
     );
+}
+
+impl ImageRenderer {
+    /// Saves where the images are on this frame, and says whether the screen
+    /// has to be cleared before they are drawn.
+    ///
+    /// Call this once for every frame, before drawing, with the placements of
+    /// every visible image. An image of Sixel or iTerm2 is not part of the
+    /// cells, so the terminal keeps it after the cells under it are drawn
+    /// over, and it is only gone when the screen is cleared. Kitty and
+    /// half-blocks are made of cells and need no clearing. When this returns
+    /// `true`, call [`clear_screen`] and then draw.
+    pub(crate) fn placements_changed(&mut self, placements: &[Placement]) -> bool {
+        todo!()
+    }
+}
+
+/// Empties the screen and both buffers, so that the next frame draws every
+/// cell again.
+///
+/// `Terminal::clear` asks the terminal for the position of the cursor, and a
+/// terminal that does not answer makes that wait for two seconds, which would
+/// stop scrolling every time an image moves. The cursor is hidden at every
+/// frame, so its position does not need to be kept.
+pub(crate) fn clear_screen<B: Backend>(terminal: &mut Terminal<B>) -> Result<(), B::Error> {
+    todo!()
 }
