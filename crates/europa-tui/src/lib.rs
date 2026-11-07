@@ -7,3 +7,5 @@
 // wired in, and the first drafts of some functions do not use their
 // arguments. The allowance goes with that wiring.
 #![allow(dead_code, unused_variables)]
+
+mod image_cache;
