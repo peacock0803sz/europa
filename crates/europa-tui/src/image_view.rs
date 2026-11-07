@@ -471,7 +471,15 @@ impl ImageRenderer {
     /// half-blocks are made of cells and need no clearing. When this returns
     /// `true`, call [`clear_screen`] and then draw.
     pub(crate) fn placements_changed(&mut self, placements: &[Placement]) -> bool {
-        todo!()
+        let changed = self.last_placements != placements;
+        // Kept for every protocol, because a failed write is answered by
+        // switching the images that were on screen, whatever drew them.
+        self.last_placements = placements.to_vec();
+        changed
+            && matches!(
+                self.picker.protocol_type(),
+                ProtocolType::Sixel | ProtocolType::Iterm2
+            )
     }
 }
 
@@ -483,5 +491,8 @@ impl ImageRenderer {
 /// stop scrolling every time an image moves. The cursor is hidden at every
 /// frame, so its position does not need to be kept.
 pub(crate) fn clear_screen<B: Backend>(terminal: &mut Terminal<B>) -> Result<(), B::Error> {
-    todo!()
+    terminal.current_buffer_mut().reset();
+    terminal.backend_mut().clear_region(ClearType::All)?;
+    terminal.swap_buffers();
+    Ok(())
 }
