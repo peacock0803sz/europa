@@ -366,6 +366,14 @@ fn a_jpeg_with_bytes_after_its_end_is_still_an_image() {
 }
 
 #[test]
+fn a_jpeg_with_a_start_of_scan_after_its_end_is_still_an_image() {
+    let mut jpeg = common::jpeg(10, 10);
+    jpeg.extend_from_slice(&[0xff, 0xda, 0, 0]);
+    let (cell, _) = draw(&[image_output("image/jpeg", jpeg)], 80);
+    assert_eq!(cell.images.len(), 1);
+}
+
+#[test]
 fn too_large_images_are_named_with_their_reason() {
     for (mime, bytes) in [
         ("image/png", common::png_with_size(8001, 8001)),

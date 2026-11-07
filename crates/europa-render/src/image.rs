@@ -104,15 +104,33 @@ fn exceeds_pixel_limit(width: u32, height: u32) -> bool {
 /// The decoder reads a JPEG that was cut short and fills what is missing
 /// with gray, so the end marker is checked here. A data byte `FF` in a scan
 /// is written as `FF 00` and the only markers inside a scan are restarts, so
-/// `FF D9` after a start of scan is a real end marker. Searching from the
-/// last `FF DA` skips the markers of an Exif thumbnail, which come before
-/// the scan of the image. Trailing bytes that hold `FF DA` make a complete
-/// JPEG count as cut short.
+/// `FF D9` after a start of scan is a real end marker. The search starts at
+/// the first scan of the image itself, because an Exif thumbnail holds
+/// markers of its own before it, and because the end marker comes before
+/// anything joined to the end of the file.
 fn jpeg_is_complete(bytes: &[u8]) -> bool {
-    let Some(scan) = bytes.windows(2).rposition(|pair| pair == [0xff, 0xda]) else {
+    let Some(scan) = first_scan(bytes) else {
         return false;
     };
     bytes[scan..].windows(2).any(|pair| pair == [0xff, 0xd9])
+}
+
+/// Where the first start of scan is, found by stepping over the segments
+/// before it so that nothing inside them can pass for a marker.
+fn first_scan(bytes: &[u8]) -> Option<usize> {
+    let mut at = 2;
+    loop {
+        match *bytes.get(at..at + 2)? {
+            [0xff, 0xda] => return Some(at),
+            // A marker can be preceded by any number of fill bytes.
+            [0xff, 0xff] => at += 1,
+            [0xff, _] => {
+                let length = bytes.get(at + 2..at + 4)?;
+                at += 2 + usize::from(u16::from_be_bytes([length[0], length[1]]));
+            }
+            _ => return None,
+        }
+    }
 }
 
 /// FNV-1a, 64 bits, of the bytes after base64 decoding. A key for caching
@@ -485,6 +503,30 @@ mod tests {
         let mut padded = jpeg;
         padded.extend_from_slice(b"junk");
         assert!(jpeg_is_complete(&padded));
+    }
+
+    #[test]
+    fn a_start_of_scan_in_trailing_bytes_does_not_make_a_jpeg_incomplete() {
+        let mut bytes = jpeg();
+        bytes.extend_from_slice(&[0x01, 0x02, 0xff, 0xda, 0x03, 0x04]);
+        assert!(jpeg_is_complete(&bytes));
+        assert!(decode(&bytes).is_ok());
+    }
+
+    #[test]
+    fn the_markers_of_a_thumbnail_do_not_make_a_cut_jpeg_complete() {
+        // The block is laid out like a thumbnail, with a start of scan and an
+        // end marker, and a search of the raw bytes would find both.
+        let image = image::RgbImage::from_fn(128, 128, |x, y| {
+            image::Rgb([(x * 2) as u8, (y * 2) as u8, (x * y % 256) as u8])
+        });
+        let mut bytes = encode(image, ImageFormat::Jpeg);
+        let thumbnail = [0xff, 0xe1, 0, 8, 0xff, 0xda, 0, 0xff, 0xd9, 0];
+        bytes.splice(2..2, thumbnail);
+        assert!(jpeg_is_complete(&bytes));
+        let cut = &bytes[..bytes.len() - 2];
+        assert!(!jpeg_is_complete(cut));
+        assert_eq!(decode(cut), Err(ImageFailure::Broken));
     }
 
     #[test]
