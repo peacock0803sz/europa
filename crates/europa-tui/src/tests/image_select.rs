@@ -184,3 +184,58 @@ fn a_window_that_does_not_tell_gives_no_cell_size() {
         assert_eq!(cell_pixels_from(columns, rows, width, height), None);
     }
 }
+
+#[test]
+fn a_named_protocol_is_planned_as_a_query_that_forces_it() {
+    for (choice, protocol) in [
+        (ImageProtocolChoice::Kitty, ProtocolType::Kitty),
+        (ImageProtocolChoice::Sixel, ProtocolType::Sixel),
+        (ImageProtocolChoice::Iterm2, ProtocolType::Iterm2),
+    ] {
+        assert_eq!(
+            plan_selection(choice, true),
+            Selection::Query {
+                force: Some(protocol)
+            }
+        );
+        assert_eq!(plan_selection(choice, false), Selection::Halfblock);
+    }
+}
+
+fn forced(protocol: ProtocolType) -> Selection {
+    Selection::Query {
+        force: Some(protocol),
+    }
+}
+
+#[test]
+fn a_named_protocol_wins_over_what_the_terminal_supports() {
+    assert_eq!(
+        forced(ProtocolType::Sixel).resolve(probe(ProtocolType::Kitty, Some(cell(9, 18))), None),
+        (ProtocolType::Sixel, cell(9, 18))
+    );
+    assert_eq!(
+        forced(ProtocolType::Kitty).resolve(probe(ProtocolType::Sixel, Some(cell(9, 18))), None),
+        (ProtocolType::Kitty, cell(9, 18))
+    );
+    assert_eq!(
+        forced(ProtocolType::Iterm2).resolve(probe(ProtocolType::Kitty, Some(cell(9, 18))), None),
+        (ProtocolType::Iterm2, cell(9, 18))
+    );
+}
+
+#[test]
+fn a_named_protocol_survives_a_failed_query_when_the_window_is_known() {
+    assert_eq!(
+        forced(ProtocolType::Sixel).resolve(None, Some(cell(8, 16))),
+        (ProtocolType::Sixel, cell(8, 16))
+    );
+}
+
+#[test]
+fn a_named_protocol_still_needs_a_cell_size() {
+    assert_eq!(
+        forced(ProtocolType::Sixel).resolve(probe(ProtocolType::Halfblocks, None), None),
+        (ProtocolType::Halfblocks, CellPixels::DEFAULT)
+    );
+}
