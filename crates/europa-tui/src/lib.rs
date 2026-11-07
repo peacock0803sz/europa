@@ -8,6 +8,7 @@
 // arguments. The allowance goes with that wiring.
 #![allow(dead_code, unused_variables)]
 
+mod cell_view;
 mod image_cache;
 mod image_protocol;
 mod image_view;

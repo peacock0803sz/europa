@@ -141,3 +141,8 @@ pub(crate) fn png_solid(width: u32, height: u32, color: [u8; 3]) -> Vec<u8> {
     let image = image::RgbImage::from_pixel(width, height, image::Rgb(color));
     encode(image, image::ImageFormat::Png)
 }
+
+/// A stdout output with `text`.
+pub(crate) fn stdout(text: &str) -> Output {
+    Output::new_stream("stdout", text)
+}

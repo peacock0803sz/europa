@@ -426,3 +426,104 @@ fn a_new_cell_size_from_the_window_is_taken_once() {
     assert_eq!(renderer.cell_pixels(), cell(8, 16));
     assert!(!renderer.apply_window(Some(cell(8, 16))));
 }
+
+/// A cell of a line of text, an image and a line of text, with the renderer
+/// that has the pixels of its image.
+fn text_and_image() -> (
+    crate::image_view::ImageRenderer,
+    Vec<europa_core::Output>,
+    europa_core::RenderedCell,
+) {
+    let outputs = vec![
+        super::common::stdout("before\n"),
+        png_output(&png(100, 60)),
+        super::common::stdout("after\n"),
+    ];
+    let mut renderer = renderer(
+        ProtocolType::Halfblocks,
+        ColorDepth::TrueColor,
+        DEFAULT_LIMIT,
+    );
+    let cell = render(&mut renderer, &outputs, 20, 200);
+    (renderer, outputs, cell)
+}
+
+fn marked_screen(width: u16, height: u16) -> Buffer {
+    let mut buffer = Buffer::empty(Rect::new(0, 0, width, height));
+    for cell in &mut buffer.content {
+        cell.set_symbol("x");
+    }
+    buffer
+}
+
+#[test]
+fn text_and_an_image_are_drawn_in_one_cell() {
+    let (mut renderer, outputs, cell) = text_and_image();
+    let area = Rect::new(0, 0, 20, 5);
+    let mut buffer = marked_screen(20, 6);
+    crate::cell_view::draw_cell(&mut buffer, area, &cell, &outputs, 0, &mut renderer);
+    insta::assert_snapshot!("halfblock-with-text", describe(&buffer));
+}
+
+#[test]
+fn what_is_outside_the_slots_is_the_same_with_or_without_the_images() {
+    let (mut renderer, outputs, cell) = text_and_image();
+    let area = Rect::new(0, 0, 20, 5);
+    let mut with = marked_screen(20, 6);
+    crate::cell_view::draw_cell(&mut with, area, &cell, &outputs, 0, &mut renderer);
+    let mut without = marked_screen(20, 6);
+    let bare = europa_core::RenderedCell {
+        images: Vec::new(),
+        ..cell.clone()
+    };
+    crate::cell_view::draw_cell(&mut without, area, &bare, &outputs, 0, &mut renderer);
+
+    let slot = cell.images[0];
+    let mut differing = 0;
+    for y in 0..6u16 {
+        for x in 0..20u16 {
+            let inside = (1..4).contains(&y) && x < slot.width;
+            if inside {
+                differing += usize::from(with[(x, y)] != without[(x, y)]);
+            } else {
+                assert_eq!(with[(x, y)], without[(x, y)], "cell ({x}, {y})");
+            }
+        }
+    }
+    assert!(differing > 0, "the image was not drawn");
+}
+
+#[test]
+fn lines_scrolled_out_of_the_area_are_not_drawn() {
+    let (mut renderer, outputs, cell) = text_and_image();
+    let area = Rect::new(0, 0, 20, 2);
+    let mut buffer = marked_screen(20, 3);
+    crate::cell_view::draw_cell(&mut buffer, area, &cell, &outputs, 3, &mut renderer);
+    let text: String = (0..20)
+        .map(|x| buffer[(x, 1)].symbol().to_owned())
+        .collect();
+    assert!(text.starts_with("after"), "{text:?}");
+    assert_eq!(buffer[(0, 2)].symbol(), "x");
+}
+
+#[test]
+fn the_visible_placements_follow_the_scroll() {
+    let (renderer, _, cell) = text_and_image();
+    let source = cell.images[0].source;
+    let area = Rect::new(2, 3, 20, 2);
+    let placement = |y, height| crate::image_view::Placement {
+        source,
+        x: 2,
+        y,
+        width: 10,
+        height,
+    };
+    let at = |scroll| crate::cell_view::visible_placements(area, &cell, scroll);
+    // The slot is the lines 1 to 3 of the cell, and the area shows two lines.
+    assert_eq!(at(0), vec![placement(4, 1)]);
+    assert_eq!(at(1), vec![placement(3, 2)]);
+    assert_eq!(at(2), vec![placement(3, 2)]);
+    assert_eq!(at(3), vec![placement(3, 1)]);
+    assert_eq!(at(4), vec![]);
+    drop(renderer);
+}
