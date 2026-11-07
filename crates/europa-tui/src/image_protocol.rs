@@ -1,6 +1,8 @@
 //! Choosing how images are drawn: the protocol, the size of a cell and the
 //! number of colors.
 
+use std::num::NonZeroU16;
+
 use europa_core::{CellPixels, ImageProtocolChoice};
 use ratatui_image::picker::{Capability, ProtocolType};
 
@@ -40,7 +42,17 @@ pub(crate) enum Selection {
 /// A choice of half-blocks and a session that is not interactive both skip
 /// the query, because it would leave bytes in the input or in the output.
 pub(crate) fn plan_selection(choice: ImageProtocolChoice, interactive: bool) -> Selection {
-    todo!()
+    if !interactive {
+        return Selection::Halfblock;
+    }
+    let force = match choice {
+        ImageProtocolChoice::Halfblock => return Selection::Halfblock,
+        ImageProtocolChoice::Auto => None,
+        ImageProtocolChoice::Kitty => Some(ProtocolType::Kitty),
+        ImageProtocolChoice::Sixel => Some(ProtocolType::Sixel),
+        ImageProtocolChoice::Iterm2 => Some(ProtocolType::Iterm2),
+    };
+    Selection::Query { force }
 }
 
 impl Selection {
@@ -55,18 +67,50 @@ impl Selection {
         probe: Option<Probe>,
         window: Option<CellPixels>,
     ) -> (ProtocolType, CellPixels) {
-        todo!()
+        let (probe, protocol) = match self {
+            // The query is not looked at at all, so that a choice of half-blocks
+            // gives the same sizes whatever the terminal could have answered.
+            Selection::Halfblock => (None, ProtocolType::Halfblocks),
+            Selection::Query { force } => {
+                let found = probe.map(|probe| probe.protocol);
+                (probe, force.or(found).unwrap_or(ProtocolType::Halfblocks))
+            }
+        };
+        let measured = probe.and_then(|probe| probe.cell_pixels).or(window);
+        // A protocol that draws in pixels needs the real size of a cell, or
+        // images spill out of their slots.
+        let protocol = match measured {
+            None => ProtocolType::Halfblocks,
+            Some(_) => protocol,
+        };
+        (protocol, measured.unwrap_or(CellPixels::DEFAULT))
     }
 }
 
 /// Turns what the picker found into a [`Probe`].
 pub(crate) fn probe_from(protocol: ProtocolType, capabilities: &[Capability]) -> Probe {
-    todo!()
+    let cell_pixels = capabilities.iter().find_map(|capability| match capability {
+        Capability::CellSize(Some((width, height))) => Some(CellPixels {
+            width: NonZeroU16::new(*width)?,
+            height: NonZeroU16::new(*height)?,
+        }),
+        _ => None,
+    });
+    Probe {
+        protocol,
+        cell_pixels,
+    }
 }
 
 /// How many colors the environment says the terminal shows.
 pub(crate) fn color_depth(get: impl Fn(&str) -> Option<String>) -> ColorDepth {
-    todo!()
+    let direct = get("COLORTERM").is_some_and(|value| value == "truecolor" || value == "24bit")
+        || get("TERM").is_some_and(|value| value.ends_with("-direct"));
+    if direct {
+        ColorDepth::TrueColor
+    } else {
+        ColorDepth::Indexed256
+    }
 }
 
 /// The size of a cell from the size of the window in columns, lines and
@@ -77,5 +121,11 @@ pub(crate) fn cell_pixels_from(
     width: u16,
     height: u16,
 ) -> Option<CellPixels> {
-    todo!()
+    if columns == 0 || rows == 0 {
+        return None;
+    }
+    Some(CellPixels {
+        width: NonZeroU16::new(width / columns)?,
+        height: NonZeroU16::new(height / rows)?,
+    })
 }
