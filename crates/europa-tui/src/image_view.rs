@@ -286,11 +286,20 @@ impl ImageRenderer {
             self.stats.decodes += 1;
             self.cache.insert(slot.source, image);
         }
+        // Kitty numbers the lines and the columns of a slot with a table that
+        // has 297 entries, and what is beyond it is drawn at the wrong place
+        // or not at all.
+        let protocol_type = match self.picker.protocol_type() {
+            ProtocolType::Kitty if slot.width > KITTY_LIMIT || slot.height > KITTY_LIMIT => {
+                ProtocolType::Halfblocks
+            }
+            other => other,
+        };
         let key = EncodeKey {
             columns: slot.width,
             rows: slot.height,
             cell_pixels: self.cell_pixels,
-            protocol: self.picker.protocol_type(),
+            protocol: protocol_type,
         };
         if self.cache.encoded(slot.source, &key).is_none() {
             let Some(pixels) = self.cache.pixels(slot.source) else {
@@ -299,9 +308,15 @@ impl ImageRenderer {
             };
             let image = fit_to_slot(&pixels, slot.width, slot.height, self.cell_pixels);
             self.stats.encodes += 1;
+            let picker = if protocol_type == self.picker.protocol_type() {
+                None
+            } else {
+                Some(build_picker(self.cell_pixels, protocol_type))
+            };
+            let picker = picker.as_ref().unwrap_or(&self.picker);
             match self
                 .encoder
-                .encode(&self.picker, image, Size::new(slot.width, slot.height))
+                .encode(picker, image, Size::new(slot.width, slot.height))
             {
                 Ok(protocol) => {
                     self.cache
@@ -319,13 +334,7 @@ impl ImageRenderer {
             draw_notice(buf, area, slot, top);
             return;
         };
-        // A slot can be wider than the area for a moment after the terminal
-        // shrank, and the widget only clips what it is given.
-        ratatui::widgets::Widget::render(
-            SlicedImage::new(protocol, SignedPosition::from((0, position))),
-            area,
-            buf,
-        );
+        draw_sliced(buf, area, slot, top, position, protocol);
         if self.color_depth == ColorDepth::Indexed256
             && matches!(protocol, SlicedProtocol::Halfblocks(_))
         {
@@ -343,6 +352,59 @@ impl ImageRenderer {
     #[cfg(test)]
     pub(crate) fn cached_bytes(&self) -> usize {
         self.cache.total_bytes()
+    }
+}
+
+/// The most lines or columns of a slot that Kitty can number.
+const KITTY_LIMIT: u16 = 297;
+
+/// Draws what is visible of an encoded slot, the way its protocol needs.
+///
+/// A slot can be wider than the area for a moment after the terminal
+/// shrank, so the width is cut to the area.
+fn draw_sliced(
+    buf: &mut Buffer,
+    area: Rect,
+    slot: &ImageSlot,
+    top: i32,
+    position: i16,
+    protocol: &SlicedProtocol,
+) {
+    let (columns, lines) = visible(area, slot, top);
+    let skip = usize::try_from(-top).unwrap_or(0);
+    let shown = usize::from(lines.end.saturating_sub(lines.start));
+    let drop = usize::from(slot.height).saturating_sub(skip + shown);
+    let rect = Rect::new(
+        columns.start,
+        lines.start,
+        columns.end.saturating_sub(columns.start),
+        lines.end.saturating_sub(lines.start),
+    );
+    match protocol {
+        // The widget of the crate draws min(skip, drop) lines of iTerm2 and
+        // Sixel outside of the area when a slot sticks out on both sides,
+        // which is what scrolling through a tall image does, so those two are
+        // drawn here from the parts that the crate keeps.
+        SlicedProtocol::Sliced(rows) => {
+            debug_assert_eq!(rows.len(), usize::from(slot.height));
+            let visible_rows = rows.iter().skip(skip).take(shown);
+            for (line, row) in (rect.y..).zip(visible_rows) {
+                let line_area = Rect::new(rect.x, line, rect.width, 1);
+                ratatui::widgets::Widget::render(ratatui_image::Image::new(row), line_area, buf);
+            }
+        }
+        SlicedProtocol::Sixel(sixel) => {
+            sixel
+                .borrow_dependent()
+                .render(rect, buf, skip, skip + drop);
+        }
+        SlicedProtocol::Kitty(_) | SlicedProtocol::Halfblocks(_) => {
+            ratatui::widgets::Widget::render(
+                SlicedImage::new(protocol, SignedPosition::from((0, position))),
+                area,
+                buf,
+            );
+        }
     }
 }
 
