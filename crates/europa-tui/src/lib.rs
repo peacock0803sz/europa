@@ -12,5 +12,6 @@ mod cell_view;
 mod image_cache;
 mod image_protocol;
 mod image_view;
+mod probe;
 #[cfg(test)]
 mod tests;
