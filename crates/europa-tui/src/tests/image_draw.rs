@@ -7,8 +7,8 @@ use ratatui::style::Color;
 use ratatui_image::picker::ProtocolType;
 
 use super::common::{
-    describe, draw_frame, first_slot, image_output_with, jpeg_output, jpeg_solid, png, png_output,
-    png_solid, png_transparent, render, renderer,
+    describe, describe_protocol_frame, draw_frame, first_slot, image_output_with, jpeg_output,
+    jpeg_solid, png, png_output, png_solid, png_transparent, render, renderer,
 };
 use crate::image_cache::DEFAULT_LIMIT;
 use crate::image_protocol::ColorDepth;
@@ -526,4 +526,275 @@ fn the_visible_placements_follow_the_scroll() {
     assert_eq!(at(3), vec![placement(3, 1)]);
     assert_eq!(at(4), vec![]);
     drop(renderer);
+}
+
+const PROTOCOLS: [ProtocolType; 4] = [
+    ProtocolType::Kitty,
+    ProtocolType::Sixel,
+    ProtocolType::Iterm2,
+    ProtocolType::Halfblocks,
+];
+
+/// How a slot of 10 columns and 14 lines is cut by an area of 5 lines at
+/// `top`: the first and the last line that show, and how many show.
+const CUTS: [(i32, usize, usize); 6] = [
+    (0, 0, 5),
+    (3, 0, 2),
+    (-12, 12, 2),
+    (-2, 2, 5),
+    (5, 0, 0),
+    (-14, 0, 0),
+];
+
+fn tall() -> (Vec<europa_core::Output>, Vec<u8>) {
+    (vec![png_output(&png(100, 280))], Vec::new())
+}
+
+/// The frame of `top` on a screen of 20 by 10 with an area of 5 lines.
+fn cut_frame(protocol: ProtocolType, top: i32) -> Buffer {
+    let (outputs, _) = tall();
+    let mut renderer = renderer(protocol, ColorDepth::TrueColor, DEFAULT_LIMIT);
+    let slot = first_slot(&mut renderer, &outputs);
+    draw_frame(
+        &mut renderer,
+        &outputs,
+        &slot,
+        Rect::new(0, 2, 20, 5),
+        top,
+        (20, 10),
+    )
+}
+
+/// The frame of the whole slot, on a screen that holds all of it.
+fn whole_frame(protocol: ProtocolType) -> Buffer {
+    let (outputs, _) = tall();
+    let mut renderer = renderer(protocol, ColorDepth::TrueColor, DEFAULT_LIMIT);
+    let slot = first_slot(&mut renderer, &outputs);
+    draw_frame(
+        &mut renderer,
+        &outputs,
+        &slot,
+        Rect::new(0, 2, 20, 14),
+        0,
+        (20, 18),
+    )
+}
+
+#[test]
+fn nothing_outside_the_visible_part_changes_whatever_the_protocol() {
+    for protocol in PROTOCOLS {
+        for (top, first, shown) in CUTS {
+            let buffer = cut_frame(protocol, top);
+            let marked = marked_screen(20, 10);
+            for y in 0..10u16 {
+                for x in 0..20u16 {
+                    let from = 2 + top.max(0) as u16;
+                    let visible = x < 10 && y >= from && usize::from(y - from) < shown;
+                    if !visible {
+                        assert_eq!(
+                            buffer[(x, y)],
+                            marked[(x, y)],
+                            "{protocol:?}, top {top}, cell ({x}, {y})"
+                        );
+                    }
+                }
+            }
+            let _ = first;
+        }
+    }
+}
+
+#[test]
+fn a_slot_that_is_out_of_the_area_draws_nothing() {
+    for protocol in PROTOCOLS {
+        for top in [5, -14] {
+            assert_eq!(
+                cut_frame(protocol, top),
+                marked_screen(20, 10),
+                "{protocol:?}, {top}"
+            );
+        }
+    }
+}
+
+#[test]
+fn half_blocks_leave_out_only_the_lines_that_are_cut() {
+    let whole = whole_frame(ProtocolType::Halfblocks);
+    for (top, first, shown) in CUTS {
+        let buffer = cut_frame(ProtocolType::Halfblocks, top);
+        for line in 0..shown {
+            for x in 0..10u16 {
+                let shown_at = 2 + top.max(0) as u16 + u16::try_from(line).expect("small");
+                let seen = &buffer[(x, shown_at)];
+                let all = &whole[(x, 2 + u16::try_from(first + line).expect("small"))];
+                assert_eq!(seen, all, "top {top}, line {line}, column {x}");
+            }
+        }
+    }
+}
+
+#[test]
+fn sixel_keeps_the_bands_of_the_visible_lines_only() {
+    for (top, _, shown) in CUTS {
+        let text = describe_protocol_frame(&cut_frame(ProtocolType::Sixel, top));
+        if shown == 0 {
+            assert!(!text.contains("sixel bands"), "top {top}: {text}");
+            continue;
+        }
+        let bands: usize = text
+            .lines()
+            .find_map(|line| line.strip_prefix("sixel bands ["))
+            .and_then(|rest| rest.trim_end_matches(']').parse().ok())
+            .unwrap_or_else(|| panic!("top {top}: {text}"));
+        let rows = shown * 20;
+        assert!(
+            (rows - 20) < bands * 6 && bands * 6 <= rows,
+            "top {top}: {bands} bands for {shown} lines"
+        );
+    }
+}
+
+#[test]
+fn iterm2_has_one_image_per_visible_line() {
+    for (top, _, shown) in CUTS {
+        let text = describe_protocol_frame(&cut_frame(ProtocolType::Iterm2, top));
+        let count = text.chars().filter(|c| *c == 'I').count();
+        assert_eq!(count, shown, "top {top}\n{text}");
+        for (y, line) in text.lines().enumerate() {
+            let from = 2 + top.max(0) as usize;
+            let expected = usize::from((from..from + shown).contains(&y));
+            assert_eq!(
+                line.chars().filter(|c| *c == 'I').count(),
+                expected,
+                "top {top}\n{text}"
+            );
+        }
+    }
+}
+
+#[test]
+fn kitty_covers_the_visible_part_and_numbers_the_lines_of_the_slot() {
+    let whole = describe_protocol_frame(&whole_frame(ProtocolType::Kitty));
+    let all_rows: Vec<&str> = whole
+        .lines()
+        .find_map(|line| line.strip_prefix("kitty rows "))
+        .expect("rows")
+        .split(' ')
+        .collect();
+    for (top, first, shown) in CUTS {
+        let text = describe_protocol_frame(&cut_frame(ProtocolType::Kitty, top));
+        let placeholders = text.chars().filter(|c| *c == 'K').count();
+        assert_eq!(placeholders, 10 * shown, "top {top}\n{text}");
+        if shown == 0 {
+            continue;
+        }
+        let rows: Vec<&str> = text
+            .lines()
+            .find_map(|line| line.strip_prefix("kitty rows "))
+            .expect("rows")
+            .split(' ')
+            .collect();
+        assert_eq!(rows, all_rows[first..first + shown], "top {top}");
+    }
+}
+
+#[test]
+fn a_slot_of_one_line_area_is_drawn_by_every_protocol() {
+    for protocol in PROTOCOLS {
+        let (outputs, _) = tall();
+        let mut renderer = renderer(protocol, ColorDepth::TrueColor, DEFAULT_LIMIT);
+        let slot = first_slot(&mut renderer, &outputs);
+        let area = Rect::new(0, 4, 20, 1);
+        let buffer = draw_frame(&mut renderer, &outputs, &slot, area, -5, (20, 10));
+        let marked = marked_screen(20, 10);
+        for y in (0..10u16).filter(|y| *y != 4) {
+            for x in 0..20u16 {
+                assert_eq!(buffer[(x, y)], marked[(x, y)], "{protocol:?} ({x}, {y})");
+            }
+        }
+    }
+}
+
+#[test]
+fn an_area_narrower_than_the_slot_does_not_panic_or_spill() {
+    for protocol in PROTOCOLS {
+        let (outputs, _) = tall();
+        let mut renderer = renderer(protocol, ColorDepth::TrueColor, DEFAULT_LIMIT);
+        let slot = first_slot(&mut renderer, &outputs);
+        let area = Rect::new(0, 2, 6, 5);
+        for top in [0, -2, 3] {
+            let buffer = draw_frame(&mut renderer, &outputs, &slot, area, top, (20, 10));
+            let marked = marked_screen(20, 10);
+            for y in 0..10u16 {
+                for x in 0..20u16 {
+                    let inside = x < 6 && (2..7).contains(&y);
+                    if !inside {
+                        assert_eq!(
+                            buffer[(x, y)],
+                            marked[(x, y)],
+                            "{protocol:?}, top {top}, ({x}, {y})"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_frames_of_each_protocol_are_pinned() {
+    for (protocol, name) in [
+        (ProtocolType::Kitty, "protocol-kitty"),
+        (ProtocolType::Sixel, "protocol-sixel"),
+        (ProtocolType::Iterm2, "protocol-iterm2"),
+    ] {
+        let frames: Vec<String> = [-2, -12, 3, -14]
+            .iter()
+            .map(|top| {
+                format!(
+                    "top {top}\n{}",
+                    describe_protocol_frame(&cut_frame(protocol, *top))
+                )
+            })
+            .collect();
+        insta::assert_snapshot!(name, frames.join("\n"));
+    }
+}
+
+#[test]
+fn kitty_draws_a_slot_of_more_than_297_lines_as_half_blocks() {
+    let outputs = [png_output(&png(100, 6000))];
+    let mut kitty = renderer(ProtocolType::Kitty, ColorDepth::TrueColor, DEFAULT_LIMIT);
+    let slot = render(&mut kitty, &outputs, 80, 300).images[0];
+    assert!(slot.height > 297);
+    let area = Rect::new(0, 0, 20, 8);
+    let drawn = draw_frame(&mut kitty, &outputs, &slot, area, 0, (20, 8));
+    let mut blocks = renderer(
+        ProtocolType::Halfblocks,
+        ColorDepth::TrueColor,
+        DEFAULT_LIMIT,
+    );
+    let slot = render(&mut blocks, &outputs, 80, 300).images[0];
+    let expected = draw_frame(&mut blocks, &outputs, &slot, area, 0, (20, 8));
+    assert!(!describe_protocol_frame(&drawn).contains('K'));
+    assert_eq!(drawn, expected);
+}
+
+#[test]
+fn kitty_draws_a_slot_of_more_than_297_columns_as_half_blocks() {
+    let outputs = [png_output(&png(3000, 20))];
+    let mut kitty = renderer(ProtocolType::Kitty, ColorDepth::TrueColor, DEFAULT_LIMIT);
+    let slot = render(&mut kitty, &outputs, 300, 200).images[0];
+    assert!(slot.width > 297);
+    let area = Rect::new(0, 0, 300, 2);
+    let drawn = draw_frame(&mut kitty, &outputs, &slot, area, 0, (300, 2));
+    let mut blocks = renderer(
+        ProtocolType::Halfblocks,
+        ColorDepth::TrueColor,
+        DEFAULT_LIMIT,
+    );
+    let slot = render(&mut blocks, &outputs, 300, 200).images[0];
+    let expected = draw_frame(&mut blocks, &outputs, &slot, area, 0, (300, 2));
+    assert!(!describe_protocol_frame(&drawn).contains('K'));
+    assert_eq!(drawn, expected);
 }

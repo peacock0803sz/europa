@@ -146,3 +146,61 @@ pub(crate) fn png_solid(width: u32, height: u32, color: [u8; 3]) -> Vec<u8> {
 pub(crate) fn stdout(text: &str) -> Output {
     Output::new_stream("stdout", text)
 }
+
+/// What the cells of a frame hold, as one character each, for comparing and
+/// for snapshots of the protocols whose data is long and not the same twice.
+///
+/// `I` is a cell with the data of iTerm2, `K` one with a Kitty placeholder,
+/// `S` one with Sixel data, `-` a cell that is skipped, `x` the mark and `.`
+/// anything else, tested in that order, because the wrapper of tmux can
+/// surround the data of iTerm2 with an escape that Sixel data starts with.
+/// The count of Sixel bands, and the row of the first column of each line of
+/// Kitty placeholders, follow the lines, because the ids and the data are
+/// different every time.
+pub(crate) fn describe_protocol_frame(buffer: &Buffer) -> String {
+    use ratatui::buffer::CellDiffOption;
+
+    const PLACEHOLDER: char = '\u{10EEEE}';
+    let area = buffer.area;
+    let mut text = String::new();
+    let mut bands = Vec::new();
+    let mut rows = Vec::new();
+    for y in area.top()..area.bottom() {
+        let mut first_placeholder = None;
+        for x in area.left()..area.right() {
+            let cell = &buffer[(x, y)];
+            let symbol = cell.symbol();
+            text.push(if symbol.contains("]1337;File") {
+                'I'
+            } else if symbol.contains(PLACEHOLDER) {
+                if first_placeholder.is_none() {
+                    // The first cell of an image also carries the sequence that sends it,
+                    // so the row is the character after the placeholder, not the second.
+                    let mut chars = symbol.chars().skip_while(|c| *c != PLACEHOLDER);
+                    first_placeholder = chars.nth(1).map(|row| row as u32);
+                }
+                'K'
+            } else if symbol.contains("\u{1b}P") {
+                bands.push(symbol.matches('-').count());
+                'S'
+            } else if cell.diff_option == CellDiffOption::Skip {
+                '-'
+            } else if symbol == "x" {
+                'x'
+            } else {
+                '.'
+            });
+        }
+        if let Some(row) = first_placeholder {
+            rows.push(format!("{row:X}"));
+        }
+        text.push('\n');
+    }
+    if !bands.is_empty() {
+        text.push_str(&format!("sixel bands {bands:?}\n"));
+    }
+    if !rows.is_empty() {
+        text.push_str(&format!("kitty rows {}\n", rows.join(" ")));
+    }
+    text
+}
