@@ -63,13 +63,13 @@ impl Encoder for RatatuiEncoder {
 }
 
 /// A picker for a protocol and a cell size that were decided elsewhere.
-fn build_picker(cell_pixels: CellPixels, protocol: ProtocolType) -> Picker {
+pub(crate) fn build_picker(cell_pixels: CellPixels, protocol: ProtocolType) -> Picker {
     todo!()
 }
 
 /// Puts the image at the top left of a white image the size of the slot,
 /// shrinking or enlarging it only when its size is not that of the slot.
-fn fit_to_slot(
+pub(crate) fn fit_to_slot(
     image: &DecodedImage,
     columns: u16,
     rows: u16,
@@ -79,7 +79,7 @@ fn fit_to_slot(
 }
 
 /// The color of the 256-color palette nearest to the given one.
-fn nearest_256(r: u8, g: u8, b: u8) -> u8 {
+pub(crate) fn nearest_256(r: u8, g: u8, b: u8) -> u8 {
     todo!()
 }
 
