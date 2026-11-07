@@ -9,3 +9,7 @@
 #![allow(dead_code, unused_variables)]
 
 mod image_cache;
+mod image_protocol;
+mod image_view;
+#[cfg(test)]
+mod tests;
