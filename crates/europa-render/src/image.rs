@@ -505,6 +505,58 @@ mod tests {
         assert!(jpeg_is_complete(&padded));
     }
 
+    fn png_chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let length = u32::try_from(data.len()).expect("small");
+        let mut chunk = length.to_be_bytes().to_vec();
+        chunk.extend_from_slice(kind);
+        chunk.extend_from_slice(data);
+        let crc = crc32(&chunk[4..]);
+        chunk.extend_from_slice(&crc.to_be_bytes());
+        chunk
+    }
+
+    /// The compressed pixels of a PNG, which holds them in one chunk here.
+    fn png_idat(bytes: &[u8]) -> &[u8] {
+        let at = bytes
+            .windows(4)
+            .position(|window| window == b"IDAT")
+            .expect("has pixels");
+        let length = u32::from_be_bytes(bytes[at - 4..at].try_into().expect("four bytes"));
+        &bytes[at + 4..at + 4 + length as usize]
+    }
+
+    fn frame_control(sequence: u32, width: u32, height: u32) -> Vec<u8> {
+        let mut data = sequence.to_be_bytes().to_vec();
+        data.extend_from_slice(&width.to_be_bytes());
+        data.extend_from_slice(&height.to_be_bytes());
+        // At the origin, shown for a tenth of a second, without blending.
+        data.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 10, 0, 0]);
+        png_chunk(b"fcTL", &data)
+    }
+
+    #[test]
+    fn an_animated_png_gives_its_first_frame() {
+        let solid = |color| image::RgbImage::from_pixel(2, 2, image::Rgb(color));
+        let first = encode(solid([200, 10, 10]), ImageFormat::Png);
+        let second = encode(solid([10, 10, 200]), ImageFormat::Png);
+
+        // The signature and the header of a PNG take the first 33 bytes.
+        let mut animated = first[..33].to_vec();
+        let frames = [2u32.to_be_bytes(), 0u32.to_be_bytes()].concat();
+        animated.extend(png_chunk(b"acTL", &frames));
+        animated.extend(frame_control(0, 2, 2));
+        animated.extend(png_chunk(b"IDAT", png_idat(&first)));
+        animated.extend(frame_control(1, 2, 2));
+        let mut frame = 2u32.to_be_bytes().to_vec();
+        frame.extend_from_slice(png_idat(&second));
+        animated.extend(png_chunk(b"fdAT", &frame));
+        animated.extend(png_chunk(b"IEND", &[]));
+
+        let decoded = decode(&animated).expect("decodes");
+        assert_eq!((decoded.width, decoded.height), (2, 2));
+        assert!(decoded.rgb.chunks(3).all(|pixel| pixel == [200, 10, 10]));
+    }
+
     #[test]
     fn a_start_of_scan_in_trailing_bytes_does_not_make_a_jpeg_incomplete() {
         let mut bytes = jpeg();
