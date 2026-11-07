@@ -1,0 +1,20 @@
+---
+source: crates/europa-tui/src/tests/image_draw.rs
+expression: describe(&buffer)
+---
+Buffer {
+    area: Rect { x: 0, y: 0, width: 12, height: 7 },
+    content: [
+        "[image/pngxx",
+        "xxxxxxxxxxxx",
+        "xxxxxxxxxxxx",
+        "xxxxxxxxxxxx",
+        "xxxxxxxxxxxx",
+        "xxxxxxxxxxxx",
+        "xxxxxxxxxxxx",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: DIM,
+        x: 10, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}

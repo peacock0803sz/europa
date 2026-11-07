@@ -292,6 +292,7 @@ impl ImageRenderer {
         // has 297 entries, and what is beyond it is drawn at the wrong place
         // or not at all.
         let protocol_type = match self.picker.protocol_type() {
+            _ if self.cache.is_forced_halfblock(slot.source) => ProtocolType::Halfblocks,
             ProtocolType::Kitty if slot.width > KITTY_LIMIT || slot.height > KITTY_LIMIT => {
                 ProtocolType::Halfblocks
             }
@@ -310,27 +311,24 @@ impl ImageRenderer {
             };
             let image = fit_to_slot(&pixels, slot.width, slot.height, self.cell_pixels);
             self.stats.encodes += 1;
-            let picker = if protocol_type == self.picker.protocol_type() {
-                None
-            } else {
-                Some(build_picker(self.cell_pixels, protocol_type))
-            };
-            let picker = picker.as_ref().unwrap_or(&self.picker);
-            match self
+            let size = Size::new(slot.width, slot.height);
+            let picker = build_picker(self.cell_pixels, protocol_type);
+            let encoded = self
                 .encoder
-                .encode(picker, image, Size::new(slot.width, slot.height))
-            {
-                Ok(protocol) => {
-                    self.cache
-                        .store_encoded(slot.source, key.clone(), Encoded::Ready(protocol));
-                }
-                // The fall back for a failure is added with the handling of
-                // failures; here it is a notice.
-                Err(_) => {
-                    draw_notice(buf, area, slot, top);
-                    return;
-                }
-            }
+                .encode(&picker, image.clone(), size)
+                .or_else(|_| {
+                    // Half-blocks need nothing from the terminal, so they
+                    // are the way out when the protocol cannot be encoded.
+                    let blocks = build_picker(self.cell_pixels, ProtocolType::Halfblocks);
+                    self.encoder.encode(&blocks, image, size)
+                });
+            // A failure is kept under the same key, so it is not tried again
+            // every frame, and is tried again when the key changes. A panic
+            // in the encoder is not caught: the panic hook has already put
+            // the terminal back by the time it could be, and nothing could
+            // be drawn after that.
+            let encoded = encoded.map_or(Encoded::Failed, Encoded::Ready);
+            self.cache.store_encoded(slot.source, key.clone(), encoded);
         }
         let Some(Encoded::Ready(protocol)) = self.cache.encoded(slot.source, &key) else {
             draw_notice(buf, area, slot, top);
@@ -506,6 +504,8 @@ impl ImageRenderer {
     /// was on screen is switched. Call [`clear_screen`] after this and draw
     /// the frame again. An image that was not on screen keeps its protocol.
     pub(crate) fn fall_back_visible(&mut self) {
-        todo!()
+        for placement in &self.last_placements {
+            self.cache.force_halfblock(placement.source);
+        }
     }
 }
