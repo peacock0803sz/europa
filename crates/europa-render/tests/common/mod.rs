@@ -199,10 +199,15 @@ pub fn draw(cell: &RenderedCell, options: &RenderOptions) -> String {
             }
         })
         .expect("draws");
+    // Building the whole workspace turns on the `underline-color` feature of
+    // `ratatui-crossterm`, which makes the debug output of a cell carry
+    // `underline: Reset`. `Style` has no underline color, so the field says
+    // nothing, and it would make the snapshots depend on which crates are
+    // built together.
+    let buffer = format!("{:?}", terminal.backend().buffer()).replace(", underline: Reset", "");
     format!(
-        "{}\n{:?}",
-        serde_json::to_string(options).expect("serializes"),
-        terminal.backend().buffer()
+        "{}\n{buffer}",
+        serde_json::to_string(options).expect("serializes")
     )
 }
 
