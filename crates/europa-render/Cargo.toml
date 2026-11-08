@@ -13,7 +13,7 @@ tree-sitter = "0.27.1"
 tree-sitter-highlight = "0.27.1"
 tree-sitter-python = "0.25.0"
 unicode-segmentation = "1.13.3"
-unicode-width = "0.2.2"
+unicode-width = "0.2.3"
 
 [dev-dependencies]
 insta = "1.49.0"
