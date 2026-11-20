@@ -84,28 +84,113 @@ pub struct StyledLine {
     pub fill: Option<Color>,
 }
 
+/// The size of one terminal cell in pixels.
+///
+/// Used to turn the pixel size of an image into columns and lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CellPixels {
+    /// Width of a cell in pixels.
+    pub width: NonZeroU16,
+    /// Height of a cell in pixels.
+    pub height: NonZeroU16,
+}
+
+impl CellPixels {
+    /// The size assumed when the terminal does not report one.
+    pub const DEFAULT: CellPixels = CellPixels {
+        width: NonZeroU16::new(10).expect("10 is not zero"),
+        height: NonZeroU16::new(20).expect("20 is not zero"),
+    };
+}
+
+/// Which `image/*` entry of an output holds an image.
+///
+/// The format of the data is found from its content, not from this value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageMime {
+    /// The `image/png` entry.
+    Png,
+    /// The `image/jpeg` entry.
+    Jpeg,
+}
+
+impl ImageMime {
+    /// The MIME type as it is written in a notebook.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ImageMime::Png => "image/png",
+            ImageMime::Jpeg => "image/jpeg",
+        }
+    }
+}
+
 /// Room that a rendered cell keeps for an image.
 ///
-/// Images are not rendered yet, so [`RenderedCell::images`] stays empty, and
-/// the fields may change when they are.
+/// Slots do not overlap and are sorted by `line`. The lines
+/// `lines[line..line + height]` are empty, so a terminal draws the image over
+/// them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImageSlot {
     /// Index in [`RenderedCell::lines`] of the line where the image starts.
     pub line: usize,
-    /// Columns to keep.
+    /// Columns to keep, from 1 to [`RenderOptions::width`].
     pub width: u16,
-    /// Lines to keep.
+    /// Lines to keep, from 1 to [`RenderOptions::max_output_lines`].
     pub height: u16,
+    /// Index in the outputs given to the renderer of the output that holds
+    /// the image.
+    pub output: usize,
+    /// The entry of that output that holds the image.
+    pub mime: ImageMime,
+    /// FNV-1a 64-bit hash of the decoded base64 bytes, a key for caching.
+    pub source: u64,
+}
+
+/// An image decoded to 8-bit RGB.
+///
+/// `rgb` is `width * height * 3` bytes long, and transparency is already
+/// composited onto white.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecodedImage {
+    /// Width in pixels, after the orientation is applied. At least 1.
+    pub width: u32,
+    /// Height in pixels, after the orientation is applied. At least 1.
+    pub height: u32,
+    /// Pixels as RGB, `width * height * 3` bytes.
+    pub rgb: Vec<u8>,
+}
+
+/// How the terminal graphics protocol is chosen.
+///
+/// The values of the `render.image_protocol` setting.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageProtocolChoice {
+    /// Detect the protocol from the terminal.
+    #[default]
+    Auto,
+    /// The Kitty graphics protocol.
+    Kitty,
+    /// Sixel.
+    Sixel,
+    /// The iTerm2 inline image protocol.
+    Iterm2,
+    /// Half-block characters, which work in any terminal.
+    Halfblock,
 }
 
 /// The display lines of one cell's outputs, ready for a terminal to draw.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderedCell {
     /// Display lines from top to bottom. There are at most
-    /// [`RenderOptions::max_output_lines`] of them.
+    /// [`RenderOptions::max_output_lines`] of them, and possibly fewer when an
+    /// image slot on the border of the omitted part was dropped whole.
     #[serde(default)]
     pub lines: Vec<StyledLine>,
-    /// Room for images. Always empty until images are rendered.
+    /// Room for the images that were read and kept, in the order of
+    /// [`RenderedCell::lines`].
     #[serde(default)]
     pub images: Vec<ImageSlot>,
 }
@@ -173,6 +258,19 @@ pub struct RenderOptions {
     /// The background that colors are chosen for.
     #[serde(default)]
     pub background: Background,
+    /// The size of a cell in pixels.
+    // Left out at the default because every existing snapshot starts with
+    // the JSON of its options, and writing it would change all of them.
+    #[serde(
+        default = "default_cell_pixels",
+        skip_serializing_if = "is_default_cell_pixels"
+    )]
+    pub cell_pixels: CellPixels,
+}
+
+/// serde calls skip predicates with a reference.
+fn is_default_cell_pixels(value: &CellPixels) -> bool {
+    *value == CellPixels::DEFAULT
 }
 
 /// serde needs a function for a default that is not a `Default` value.
@@ -180,19 +278,25 @@ fn default_max_output_lines() -> NonZeroUsize {
     RenderOptions::DEFAULT_MAX_OUTPUT_LINES
 }
 
+/// serde needs a function for a default that is not a `Default` value.
+fn default_cell_pixels() -> CellPixels {
+    CellPixels::DEFAULT
+}
+
 impl RenderOptions {
     /// The default for [`RenderOptions::max_output_lines`].
     pub const DEFAULT_MAX_OUTPUT_LINES: NonZeroUsize =
         NonZeroUsize::new(200).expect("200 is not zero");
 
-    /// Options for an area `width` columns wide, with the default line limit
-    /// and a dark background.
+    /// Options for an area `width` columns wide, with the default line limit,
+    /// the default cell size and a dark background.
     #[must_use]
     pub fn new(width: NonZeroU16) -> Self {
         Self {
             width,
             max_output_lines: Self::DEFAULT_MAX_OUTPUT_LINES,
             background: Background::Dark,
+            cell_pixels: CellPixels::DEFAULT,
         }
     }
 }

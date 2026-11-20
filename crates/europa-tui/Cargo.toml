@@ -10,7 +10,14 @@ name = "europa"
 path = "src/main.rs"
 
 [dependencies]
+base64-simd = "0.8.0"
 europa-core = { path = "../europa-core" }
 europa-kernel = { path = "../europa-kernel" }
 europa-lsp = { path = "../europa-lsp" }
 europa-render = { path = "../europa-render" }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
+ratatui-image = { version = "11.1.0", default-features = false, features = ["crossterm"] }
+
+[dev-dependencies]
+insta = "1.49.0"

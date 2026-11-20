@@ -1,7 +1,8 @@
 use std::num::NonZeroU16;
 
 use europa_core::{
-    Background, Color, ImageSlot, RenderOptions, RenderedCell, Style, StyledLine, StyledSpan,
+    Background, CellPixels, Color, DecodedImage, ImageMime, ImageProtocolChoice, ImageSlot,
+    RenderOptions, RenderedCell, Style, StyledLine, StyledSpan,
 };
 use serde::Serialize;
 
@@ -120,8 +121,79 @@ fn a_rendered_cell_reads_back_as_written() {
             line: 0,
             width: 4,
             height: 2,
+            output: 0,
+            mime: ImageMime::Png,
+            source: 1,
         }],
     };
     let read: RenderedCell = serde_json::from_str(&json(&cell)).expect("reads");
     assert_eq!(read, cell);
+}
+
+#[test]
+fn cell_pixels_default_to_10_by_20_and_are_left_out_of_the_json() {
+    let options = RenderOptions::new(width(20));
+    assert_eq!(options.cell_pixels, CellPixels::DEFAULT);
+    assert_eq!(CellPixels::DEFAULT.width.get(), 10);
+    assert_eq!(CellPixels::DEFAULT.height.get(), 20);
+    assert!(!json(&options).contains("cell_pixels"));
+    let read: RenderOptions = serde_json::from_str(r#"{"width":20}"#).expect("reads");
+    assert_eq!(read.cell_pixels, CellPixels::DEFAULT);
+}
+
+#[test]
+fn non_default_cell_pixels_are_written_and_read_back() {
+    let mut options = RenderOptions::new(width(20));
+    options.cell_pixels = CellPixels {
+        width: NonZeroU16::new(20).expect("non-zero"),
+        height: NonZeroU16::new(40).expect("non-zero"),
+    };
+    let text = json(&options);
+    assert!(text.contains("cell_pixels"));
+    let read: RenderOptions = serde_json::from_str(&text).expect("reads");
+    assert_eq!(read, options);
+}
+
+#[test]
+fn zero_cell_pixels_are_rejected() {
+    let read = serde_json::from_str::<RenderOptions>(
+        r#"{"width":20,"cell_pixels":{"width":0,"height":20}}"#,
+    );
+    assert!(read.is_err());
+}
+
+#[test]
+fn image_mime_is_written_in_snake_case_and_names_its_type() {
+    assert_eq!(json(&ImageMime::Png), "\"png\"");
+    assert_eq!(json(&ImageMime::Jpeg), "\"jpeg\"");
+    assert_eq!(ImageMime::Png.as_str(), "image/png");
+    assert_eq!(ImageMime::Jpeg.as_str(), "image/jpeg");
+}
+
+#[test]
+fn image_protocol_choice_round_trips_and_defaults_to_auto() {
+    let names = [
+        (ImageProtocolChoice::Auto, "auto"),
+        (ImageProtocolChoice::Kitty, "kitty"),
+        (ImageProtocolChoice::Sixel, "sixel"),
+        (ImageProtocolChoice::Iterm2, "iterm2"),
+        (ImageProtocolChoice::Halfblock, "halfblock"),
+    ];
+    for (choice, name) in names {
+        assert_eq!(json(&choice), format!("\"{name}\""));
+        let read: ImageProtocolChoice = serde_json::from_str(&json(&choice)).expect("reads");
+        assert_eq!(read, choice);
+    }
+    assert_eq!(ImageProtocolChoice::default(), ImageProtocolChoice::Auto);
+}
+
+#[test]
+fn a_decoded_image_round_trips() {
+    let image = DecodedImage {
+        width: 1,
+        height: 2,
+        rgb: vec![1, 2, 3, 4, 5, 6],
+    };
+    let read: DecodedImage = serde_json::from_str(&json(&image)).expect("reads");
+    assert_eq!(read, image);
 }

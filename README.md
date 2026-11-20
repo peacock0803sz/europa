@@ -19,3 +19,36 @@ Building needs a C compiler (gcc or clang), because the syntax highlighting
 links the C code of tree-sitter and its Python grammar statically into the
 binary. Nothing besides the binary is needed at run time. The devShell of
 `nix develop` includes a C compiler.
+
+## Images
+
+PNG and JPEG outputs are shown inline, in the place where they were produced.
+The terminal is asked which graphics protocol it supports (Kitty, Sixel or
+iTerm2), and the answer is used when there is one. Terminals that do not
+support any, or that do not answer, get half-block characters, which work
+everywhere and need no query. Choosing half-blocks by hand skips the query
+too, as does a session whose input or output is not a terminal.
+
+An image that cannot be read, or that is over 64 million pixels, is named in a
+line of its own with the reason, for example `[image/png: broken]`, and the
+outputs around it are drawn as usual. If a protocol fails while drawing, the
+image is drawn with half-blocks instead.
+
+Inside tmux, `allow-passthrough` is turned on for the pane when the picker is
+created, because Kitty, Sixel and iTerm2 images reach the terminal through it.
+This also happens when the tests run inside tmux.
+
+A terminal that counts characters of ambiguous width as two columns can shift
+the columns of an image drawn with half-blocks, because the half-block
+characters are of ambiguous width.
+
+To look at each protocol on a real terminal, build the probe and open the
+sample notebook it writes:
+
+```sh
+cargo build --release -p europa-tui --example image_probe
+target/release/examples/image_probe --write-sample sample.ipynb
+target/release/examples/image_probe sample.ipynb --protocol halfblock
+```
+
+`j` and `k` scroll and `q` quits. Without `--protocol` the terminal decides.

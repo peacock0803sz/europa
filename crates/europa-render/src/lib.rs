@@ -7,6 +7,10 @@
 //! [`render_source`] does the same for the source of a cell, and highlights
 //! Python by the kind of token.
 //!
+//! A PNG or JPEG output becomes room for an image, which a terminal draws
+//! over empty lines. [`render_outputs_with_images`] also hands over the
+//! decoded pixels, and [`decode_image`] decodes one again later.
+//!
 //! Lines from stderr, from errors and from code blocks carry a fill, which a
 //! terminal paints to the right edge of the line, so that they stand out
 //! from stdout.
@@ -38,6 +42,7 @@
 mod ansi;
 mod blocks;
 mod html;
+mod image;
 mod ipython;
 mod json;
 mod markdown;
@@ -52,10 +57,12 @@ use std::num::NonZeroU16;
 
 use europa_core::notebook::{ErrorOutput, UnknownOutput};
 use europa_core::{
-    resolve_carriage_returns, Background, Color, JsonMap, JsonValue, Output, RenderOptions,
-    RenderedCell, Style, StyledLine, StyledSpan,
+    resolve_carriage_returns, Background, Color, DecodedImage, ImageMime, ImageSlot, JsonMap,
+    JsonValue, Output, RenderOptions, RenderedCell, Style, StyledLine, StyledSpan,
 };
 use unicode_width::UnicodeWidthStr;
+
+use crate::image::ImageFailure;
 
 // Palette entries rather than RGB, because some terminals cannot show 24-bit
 // colors and neither ratatui nor crossterm reduces them.
@@ -75,7 +82,7 @@ pub(crate) fn code_bg(background: Background) -> Color {
     }
 }
 
-/// Text that is rendered as a whole.
+/// A part of the outputs that is rendered as a whole.
 enum Unit {
     /// Text of an output, which can hold escape sequences and carriage returns.
     Body {
@@ -87,6 +94,17 @@ enum Unit {
     Notice(String),
     /// Logical lines from a rich output, already styled and indented.
     Blocks(Vec<blocks::Line>),
+    /// Room for an image that was read and decoded.
+    Image(PendingImage),
+}
+
+/// An image that waits for its place among the lines.
+struct PendingImage {
+    width: u16,
+    height: u16,
+    output: usize,
+    mime: ImageMime,
+    source: u64,
 }
 
 /// Render the outputs of a code cell as styled display lines.
@@ -94,8 +112,14 @@ enum Unit {
 /// The outputs are taken in order and go through these steps:
 ///
 /// 1. Consecutive streams of one name, the chosen MIME of a display data or
-///    execute result, and the traceback of an error each become a unit. The
-///    choice is `text/markdown`, then `application/json`, then `text/plain`,
+///    execute result, and the traceback of an error each become a unit. An
+///    `image/png` or `image/jpeg` entry that reads and decodes is chosen
+///    before any other, and becomes room for an image: empty lines, with an
+///    [`ImageSlot`] that says where. One that does not read, or is over 64
+///    million pixels, gives way to the next entry. The notice names it with
+///    its reason when the bundle ends in a notice, which it also does when
+///    the next entry is blank or is `text/plain` that only names its object.
+///    Otherwise the choice is `text/markdown`, then `application/json`, then `text/plain`,
 ///    then `text/html`, skipping a `text/plain` that only names its object
 ///    while `text/html` is usable. Streams, tracebacks and `text/plain`
 ///    become a unit with a body. Markdown, JSON and HTML become indented
@@ -103,7 +127,7 @@ enum Unit {
 ///    instead of read, and skip steps 2 and 3. When a non-blank entry gives
 ///    no line, `text/plain` that is not such a name, or a notice, stands in.
 ///    A blank entry gives no line. An output with nothing to draw,
-///    such as an image or an unknown kind, becomes a notice that names what
+///    such as an unknown kind or an image that cannot be shown, becomes a notice that names what
 ///    it holds instead. A notice is wrapped like other text, so it can take
 ///    more than one line when it is wider than [`RenderOptions::width`].
 ///    A fenced code block of Markdown whose info string begins with a word
@@ -120,23 +144,40 @@ enum Unit {
 ///    [`RenderOptions::width`] columns, counting grapheme clusters by their
 ///    width. The lines of stderr, of errors and of code blocks get a fill for
 ///    [`RenderOptions::background`].
-/// 5. When there are more lines than [`RenderOptions::max_output_lines`], the
-///    beginning and the end are kept and one line that counts the hidden
-///    lines replaces the middle.
-/// 6. The lines are returned without image slots.
+/// 5. Room for an image counts toward [`RenderOptions::max_output_lines`].
+///    When there are more lines than the limit, the beginning and the end are
+///    kept and one line that counts the hidden lines replaces the middle. An
+///    image that the cut falls inside of is left out whole, so the result can
+///    have fewer lines than the limit.
+/// 6. The lines are returned with the slots of the images that were kept.
 ///
 /// The function does no IO and reads nothing but its arguments, so equal
 /// arguments give equal results. It never changes `outputs`. The result has at
-/// most [`RenderOptions::max_output_lines`] lines, and its `images` is empty
-/// for now.
+/// most [`RenderOptions::max_output_lines`] lines. Decoding takes time, so a
+/// caller should keep the result and not call this again every frame.
 #[must_use]
 pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCell {
+    render_outputs_with_images(outputs, options, &mut |_, _| {})
+}
+
+/// Like [`render_outputs`], and hands the decoded images to `sink`.
+///
+/// `sink` gets the `source` and the pixels of each image that decodes, in the
+/// order of the outputs, even when the line limit leaves its slot out of the
+/// result. The result does not depend on `sink`. Decoding takes time, so a
+/// caller should keep the result and not call this again every frame.
+#[must_use]
+pub fn render_outputs_with_images(
+    outputs: &[Output],
+    options: &RenderOptions,
+    sink: &mut dyn FnMut(u64, DecodedImage),
+) -> RenderedCell {
     let fill = match options.background {
         Background::Dark => DARK_FILL,
         Background::Light => LIGHT_FILL,
     };
     let mut collector = Collector::new(options);
-    for unit in units(outputs, options) {
+    for unit in units(outputs, options, sink) {
         match unit {
             Unit::Blocks(lines) => {
                 for line in &lines {
@@ -156,6 +197,7 @@ pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCe
                     }
                 }
             }
+            Unit::Image(image) => collector.push_image(image),
             // The names in a notice come from the file and can hold escape
             // sequences, so a notice is read like any other text.
             Unit::Notice(text) => {
@@ -167,10 +209,28 @@ pub fn render_outputs(outputs: &[Output], options: &RenderOptions) -> RenderedCe
             }
         }
     }
-    RenderedCell {
-        lines: collector.finish(),
-        images: Vec::new(),
+    let (lines, images) = collector.finish();
+    RenderedCell { lines, images }
+}
+
+/// Decodes the image that `slot` stands for in `outputs`.
+///
+/// Returns `None` when the outputs are no longer the ones the slot was made
+/// from: the output is missing or holds no such image, or its data no longer
+/// hashes to `slot.source`. It also returns `None` for data that no longer
+/// decodes.
+#[must_use]
+pub fn decode_image(outputs: &[Output], slot: &ImageSlot) -> Option<DecodedImage> {
+    let data = match outputs.get(slot.output)? {
+        Output::DisplayData(display) => &display.data,
+        Output::ExecuteResult(result) => &result.data,
+        _ => return None,
+    };
+    let bytes = image::read_value(data.get(slot.mime.as_str())?).ok()?;
+    if image::source_hash(&bytes) != slot.source {
+        return None;
     }
+    image::decode(&bytes).ok()
 }
 
 /// Collects the display lines of a cell, and drops the middle of a long output.
@@ -187,6 +247,8 @@ struct Collector {
     tail: VecDeque<StyledLine>,
     tail_len: usize,
     total: usize,
+    /// Image slots and the line each starts at, counted over all lines.
+    images: Vec<(usize, PendingImage)>,
 }
 
 impl Collector {
@@ -201,6 +263,7 @@ impl Collector {
             // smaller half, so the end gets the extra line when it is odd.
             tail_len: max - 1 - (max - 1) / 2,
             total: 0,
+            images: Vec::new(),
         }
     }
 
@@ -215,15 +278,64 @@ impl Collector {
         }
     }
 
-    fn finish(self) -> Vec<StyledLine> {
+    /// Keeps room for an image: empty lines for a terminal to draw over.
+    fn push_image(&mut self, image: PendingImage) {
+        let height = image.height;
+        self.images.push((self.total, image));
+        for _ in 0..height {
+            self.push(StyledLine::default());
+        }
+    }
+
+    fn finish(self) -> (Vec<StyledLine>, Vec<ImageSlot>) {
+        let slot = |line: usize, image: &PendingImage| ImageSlot {
+            line,
+            width: image.width,
+            height: image.height,
+            output: image.output,
+            mime: image.mime,
+            source: image.source,
+        };
         if self.total <= self.max {
-            return self.head;
+            let images = self
+                .images
+                .iter()
+                .map(|(at, image)| slot(*at, image))
+                .collect();
+            return (self.head, images);
+        }
+        // A slot is kept whole or not at all, so a cut that falls inside one
+        // moves to its edge.
+        let mut head_len = (self.max - 1) / 2;
+        let mut tail_start = self.total - self.tail_len;
+        for (start, image) in &self.images {
+            let end = start + usize::from(image.height);
+            if *start < head_len && head_len < end {
+                head_len = *start;
+            }
+            if *start < tail_start && tail_start < end {
+                tail_start = end;
+            }
         }
         let mut lines = self.head;
-        lines.truncate((self.max - 1) / 2);
-        lines.push(notice(self.total - self.max + 1, self.width));
-        lines.extend(self.tail);
-        lines
+        lines.truncate(head_len);
+        lines.push(notice(tail_start - head_len, self.width));
+        let first_kept = self.total - self.tail.len();
+        lines.extend(self.tail.into_iter().skip(tail_start - first_kept));
+        let images = self
+            .images
+            .iter()
+            .filter_map(|(start, image)| {
+                if start + usize::from(image.height) <= head_len {
+                    Some(slot(*start, image))
+                } else if *start >= tail_start {
+                    Some(slot(head_len + 1 + (start - tail_start), image))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        (lines, images)
     }
 }
 
@@ -320,10 +432,14 @@ fn normalize(spans: Vec<StyledSpan>) -> Vec<StyledSpan> {
 }
 
 /// Group the outputs into the units that are rendered as a whole.
-fn units(outputs: &[Output], options: &RenderOptions) -> Vec<Unit> {
+fn units(
+    outputs: &[Output],
+    options: &RenderOptions,
+    sink: &mut dyn FnMut(u64, DecodedImage),
+) -> Vec<Unit> {
     let mut units: Vec<Unit> = Vec::new();
     let mut stream: Option<&str> = None;
-    for output in outputs {
+    for (index, output) in outputs.iter().enumerate() {
         // The name of the stream that the last unit holds, if the last output
         // was a stream.
         let previous = stream.take();
@@ -343,8 +459,20 @@ fn units(outputs: &[Output], options: &RenderOptions) -> Vec<Unit> {
                 }
                 stream = Some(&output.name);
             }
-            Output::DisplayData(display) => units.push(bundle_unit(&display.data, options)),
-            Output::ExecuteResult(result) => units.push(bundle_unit(&result.data, options)),
+            Output::DisplayData(display) => units.push(bundle_unit(
+                &display.data,
+                &display.metadata,
+                index,
+                options,
+                sink,
+            )),
+            Output::ExecuteResult(result) => units.push(bundle_unit(
+                &result.data,
+                &result.metadata,
+                index,
+                options,
+                sink,
+            )),
             Output::Error(error) => units.push(Unit::Body {
                 text: traceback_text(error),
                 fill: true,
@@ -425,42 +553,102 @@ fn is_default_repr(text: &str) -> bool {
         })
 }
 
-/// The logical lines of Markdown, JSON or HTML in a MIME bundle, its plain
-/// text as a body, or a notice that names its types when it has nothing to
-/// show.
-fn bundle_unit(data: &JsonMap, options: &RenderOptions) -> Unit {
+/// The image slot of a PNG or JPEG in a MIME bundle, whose pixels go to `sink`,
+/// or else the logical lines of its Markdown, JSON or HTML, its plain text as a
+/// body, or a notice that names its types when it has nothing to show.
+fn bundle_unit(
+    data: &JsonMap,
+    metadata: &JsonMap,
+    output: usize,
+    options: &RenderOptions,
+    sink: &mut dyn FnMut(u64, DecodedImage),
+) -> Unit {
+    // An image that reads is shown whatever else the bundle holds. One that
+    // does not read gives way to the next entry.
+    let mut failures: Vec<(ImageMime, ImageFailure)> = Vec::new();
+    for mime in [ImageMime::Png, ImageMime::Jpeg] {
+        let Some(value) = data.get(mime.as_str()) else {
+            continue;
+        };
+        let read = image::read_value(value).and_then(|bytes| {
+            let decoded = image::decode(&bytes)?;
+            Ok((bytes, decoded))
+        });
+        let (bytes, decoded) = match read {
+            Ok(read) => read,
+            Err(failure) => {
+                failures.push((mime, failure));
+                continue;
+            }
+        };
+        let natural =
+            image::natural_size(metadata.get(mime.as_str()), (decoded.width, decoded.height));
+        let (width, height) = image::slot_size(natural, options);
+        let source = image::source_hash(&bytes);
+        sink(source, decoded);
+        return Unit::Image(PendingImage {
+            width,
+            height,
+            output,
+            mime,
+            source,
+        });
+    }
+    // Text with nothing in it, or that only names its object, would leave no
+    // sign that an image was refused. `IPython.display.Image` writes such a
+    // name next to every image.
+    let hides_failure =
+        |text: &str| !failures.is_empty() && (text.trim().is_empty() || is_default_repr(text));
     let (lines, blank) = match select(data) {
         Selected::Markdown(text) => (
             markdown::render(&text, options.width, options.background),
             text.trim().is_empty(),
         ),
         Selected::Json(value) => (json::render(value), false),
+        Selected::Plain(text) if hides_failure(&text) => return types_notice(data, &failures),
         Selected::Plain(text) => return Unit::Body { text, fill: false },
         Selected::Html(text) => (
             html::render(&text, options.width, options.background),
             text.trim().is_empty(),
         ),
-        Selected::None => return types_notice(data),
+        Selected::None => return types_notice(data, &failures),
     };
-    // An empty entry shows nothing on purpose.
-    if !lines.is_empty() || blank {
+    // An empty entry shows nothing on purpose, unless an image was refused.
+    if !lines.is_empty() || (blank && failures.is_empty()) {
         return Unit::Blocks(lines);
     }
     // A rich entry whose content renders to nothing, such as HTML that only
     // holds a script, would leave no trace, so plain text that shows the
     // object or the types stand in.
     match text_of(data, "text/plain") {
-        Some(text) if !is_default_repr(&text) => Unit::Body { text, fill: false },
-        _ => types_notice(data),
+        Some(text) if !is_default_repr(&text) && !hides_failure(&text) => {
+            Unit::Body { text, fill: false }
+        }
+        _ => types_notice(data, &failures),
     }
 }
 
 /// The notice that names the types of a MIME bundle.
-fn types_notice(data: &JsonMap) -> Unit {
+///
+/// A PNG or JPEG entry that was refused is followed by the reason.
+fn types_notice(data: &JsonMap, failures: &[(ImageMime, ImageFailure)]) -> Unit {
     if data.is_empty() {
         return Unit::Notice("[no data]".to_owned());
     }
-    let types: Vec<&str> = data.keys().map(String::as_str).collect();
+    let types: Vec<String> = data
+        .keys()
+        .map(|name| {
+            let failure = failures
+                .iter()
+                .find(|(mime, _)| mime.as_str() == name)
+                .map(|(_, failure)| failure);
+            match failure {
+                Some(ImageFailure::Broken) => format!("{name}: broken"),
+                Some(ImageFailure::TooLarge) => format!("{name}: too large"),
+                None => name.clone(),
+            }
+        })
+        .collect();
     Unit::Notice(format!("[{}]", types.join(", ")))
 }
 

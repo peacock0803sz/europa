@@ -1,0 +1,28 @@
+---
+source: crates/europa-tui/src/tests/image_draw.rs
+expression: describe(&buffer)
+---
+Buffer {
+    area: Rect { x: 0, y: 0, width: 12, height: 7 },
+    content: [
+        "          xx",
+        "          xx",
+        "          xx",
+        "          xx",
+        "          xx",
+        "xxxxxxxxxxxx",
+        "xxxxxxxxxxxx",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Indexed(160), bg: Indexed(160), modifier: NONE,
+        x: 10, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 1, fg: Indexed(160), bg: Indexed(160), modifier: NONE,
+        x: 10, y: 1, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 2, fg: Indexed(160), bg: Indexed(160), modifier: NONE,
+        x: 10, y: 2, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 3, fg: Indexed(160), bg: Indexed(160), modifier: NONE,
+        x: 10, y: 3, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 4, fg: Indexed(160), bg: Indexed(160), modifier: NONE,
+        x: 10, y: 4, fg: Reset, bg: Reset, modifier: NONE,
+    ]
+}

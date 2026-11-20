@@ -3,7 +3,7 @@
 use std::num::{NonZeroU16, NonZeroUsize};
 
 use europa_core::{
-    Background, Cell, Color, JsonMap, Notebook, Output, RenderOptions, RenderedCell,
+    Background, Cell, Color, DecodedImage, JsonMap, Notebook, Output, RenderOptions, RenderedCell,
     SourceLanguage, Style, StyledLine,
 };
 use unicode_width::UnicodeWidthStr;
@@ -199,10 +199,15 @@ pub fn draw(cell: &RenderedCell, options: &RenderOptions) -> String {
             }
         })
         .expect("draws");
+    // Building the whole workspace turns on the `underline-color` feature of
+    // `ratatui-crossterm`, which makes the debug output of a cell carry
+    // `underline: Reset`. `Style` has no underline color, so the field says
+    // nothing, and it would make the snapshots depend on which crates are
+    // built together.
+    let buffer = format!("{:?}", terminal.backend().buffer()).replace(", underline: Reset", "");
     format!(
-        "{}\n{:?}",
-        serde_json::to_string(options).expect("serializes"),
-        terminal.backend().buffer()
+        "{}\n{buffer}",
+        serde_json::to_string(options).expect("serializes")
     )
 }
 
@@ -401,6 +406,182 @@ pub fn expected_source_text(source: &str) -> String {
             text.push(shown);
             column += unicode_width::UnicodeWidthChar::width(shown).unwrap_or(0);
         }
+    }
+    text
+}
+
+/// A PNG whose color follows from the coordinates.
+pub fn png(width: u32, height: u32) -> Vec<u8> {
+    let image = image::RgbImage::from_fn(width, height, |x, y| {
+        image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
+    });
+    let mut bytes = Vec::new();
+    image
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .expect("png encodes");
+    bytes
+}
+
+/// A PNG whose pixels all have the alpha `alpha`.
+pub fn png_rgba(width: u32, height: u32, alpha: u8) -> Vec<u8> {
+    let image = image::RgbaImage::from_fn(width, height, |x, y| {
+        image::Rgba([(x % 256) as u8, (y % 256) as u8, 0, alpha])
+    });
+    let mut bytes = Vec::new();
+    image
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .expect("png encodes");
+    bytes
+}
+
+/// A JPEG with the same gradient as [`png`].
+pub fn jpeg(width: u32, height: u32) -> Vec<u8> {
+    let image = image::RgbImage::from_fn(width, height, |x, y| {
+        image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
+    });
+    let mut bytes = Vec::new();
+    image
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Jpeg,
+        )
+        .expect("jpeg encodes");
+    bytes
+}
+
+/// A JPEG cut halfway between its start of scan and its end marker.
+///
+/// The image has to be big enough for that, because the decoder refuses a JPEG
+/// cut in its headers even without the check of the end marker, so such a cut
+/// would not test the check.
+pub fn jpeg_cut_in_scan(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = jpeg(width, height);
+    let scan = bytes
+        .windows(2)
+        .rposition(|pair| pair == [0xff, 0xda])
+        .expect("the encoder writes a start of scan");
+    let end = bytes.len() - 2;
+    assert_eq!(bytes[end..], [0xff, 0xd9]);
+    assert!(end - scan > 1000, "the scan is only {} bytes", end - scan);
+    bytes.truncate((scan + end) / 2);
+    bytes
+}
+
+/// The color of the pixel at `x`, `y`.
+pub fn rgb_at(image: &DecodedImage, x: u32, y: u32) -> [u8; 3] {
+    let start = ((y * image.width + x) * 3) as usize;
+    [image.rgb[start], image.rgb[start + 1], image.rgb[start + 2]]
+}
+
+/// CRC-32 as PNG chunks use it.
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = u32::MAX;
+    for byte in bytes {
+        crc ^= u32::from(*byte);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 {
+                (crc >> 1) ^ 0xedb8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    !crc
+}
+
+/// A PNG whose header says `width` by `height`, with data for one pixel.
+///
+/// Only the header matches the size asked for, which is all a size limit looks
+/// at.
+pub fn png_with_size(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = png(1, 1);
+    bytes[16..20].copy_from_slice(&width.to_be_bytes());
+    bytes[20..24].copy_from_slice(&height.to_be_bytes());
+    let crc = crc32(&bytes[12..29]);
+    bytes[29..33].copy_from_slice(&crc.to_be_bytes());
+    bytes
+}
+
+/// A JPEG whose frame header says `width` by `height`, with data for 8 by 8.
+pub fn jpeg_with_size(width: u16, height: u16) -> Vec<u8> {
+    let mut bytes = jpeg(8, 8);
+    let sof = bytes
+        .windows(2)
+        .position(|pair| pair == [0xff, 0xc0])
+        .expect("the encoder writes a baseline frame header");
+    bytes[sof + 5..sof + 7].copy_from_slice(&height.to_be_bytes());
+    bytes[sof + 7..sof + 9].copy_from_slice(&width.to_be_bytes());
+    bytes
+}
+
+/// A JPEG with an Exif block that holds the Orientation `orientation`.
+pub fn jpeg_with_orientation(width: u32, height: u32, orientation: u16) -> Vec<u8> {
+    let mut exif = b"Exif\0\0MM\0\x2a\0\0\0\x08\0\x01".to_vec();
+    exif.extend_from_slice(&[0x01, 0x12, 0, 3, 0, 0, 0, 1]);
+    exif.extend_from_slice(&orientation.to_be_bytes());
+    exif.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
+    let length = u16::try_from(exif.len() + 2).expect("the block is small");
+    let mut segment = vec![0xff, 0xe1];
+    segment.extend_from_slice(&length.to_be_bytes());
+    segment.extend_from_slice(&exif);
+    let mut bytes = jpeg(width, height);
+    bytes.splice(2..2, segment);
+    bytes
+}
+
+/// A PNG with an `acTL` chunk after the header, which marks it animated.
+pub fn apng(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = png(width, height);
+    let mut chunk = Vec::new();
+    chunk.extend_from_slice(&8u32.to_be_bytes());
+    chunk.extend_from_slice(b"acTL");
+    chunk.extend_from_slice(&2u32.to_be_bytes());
+    chunk.extend_from_slice(&0u32.to_be_bytes());
+    let crc = crc32(&chunk[4..]);
+    chunk.extend_from_slice(&crc.to_be_bytes());
+    bytes.splice(33..33, chunk);
+    bytes
+}
+
+/// The bytes as base64, the way a notebook saves an image.
+pub fn b64(bytes: &[u8]) -> String {
+    base64_simd::STANDARD.encode_to_string(bytes)
+}
+
+/// Display data holding the MIME bundle `data` and the metadata `metadata`.
+pub fn display_with(data: &str, metadata: &str) -> Vec<Output> {
+    let json = format!(r#"[{{"output_type":"display_data","data":{data},"metadata":{metadata}}}]"#);
+    cell_outputs(&notebook(&json)).to_vec()
+}
+
+/// Execute result holding the MIME bundle `data` and the metadata `metadata`.
+pub fn result_with(data: &str, metadata: &str) -> Vec<Output> {
+    let json = format!(
+        r#"[{{"output_type":"execute_result","data":{data},"metadata":{metadata},"execution_count":1}}]"#
+    );
+    cell_outputs(&notebook(&json)).to_vec()
+}
+
+/// Like [`draw`], with one line per image slot after it.
+///
+/// The `source` of a slot is a hash, so it stays out of the snapshots.
+pub fn draw_with_images(cell: &RenderedCell, options: &RenderOptions) -> String {
+    let mut text = draw(cell, options);
+    for slot in &cell.images {
+        text.push_str(&format!(
+            "\nimage line={} width={} height={} output={} mime={}",
+            slot.line,
+            slot.width,
+            slot.height,
+            slot.output,
+            slot.mime.as_str()
+        ));
     }
     text
 }

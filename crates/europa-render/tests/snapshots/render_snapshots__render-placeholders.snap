@@ -4,28 +4,29 @@ expression: "common :: draw(& cell, & options)"
 ---
 {"width":16,"max_output_lines":200,"background":"dark"}
 Buffer {
-    area: Rect { x: 0, y: 0, width: 16, height: 8 },
+    area: Rect { x: 0, y: 0, width: 16, height: 9 },
     content: [
-        "[image/png]     ",
+        "[image/png: brok",
+        "en]             ",
         "x               ",
         "[no data]       ",
         "[unknown output:",
         " widget_state]  ",
-        "[image/png, text",
-        "/plain]         ",
+        "[image/png: brok",
+        "en, text/plain] ",
         "after           ",
     ],
     styles: [
         x: 0, y: 0, fg: Reset, bg: Reset, modifier: DIM,
-        x: 11, y: 0, fg: Reset, bg: Reset, modifier: NONE,
-        x: 0, y: 1, fg: Reset, bg: Reset, modifier: BOLD,
-        x: 1, y: 1, fg: Reset, bg: Reset, modifier: NONE,
-        x: 0, y: 2, fg: Reset, bg: Reset, modifier: DIM,
-        x: 9, y: 2, fg: Reset, bg: Reset, modifier: NONE,
+        x: 3, y: 1, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 2, fg: Reset, bg: Reset, modifier: BOLD,
+        x: 1, y: 2, fg: Reset, bg: Reset, modifier: NONE,
         x: 0, y: 3, fg: Reset, bg: Reset, modifier: DIM,
-        x: 14, y: 4, fg: Reset, bg: Reset, modifier: NONE,
-        x: 0, y: 5, fg: Reset, bg: Reset, modifier: DIM,
-        x: 7, y: 6, fg: Reset, bg: Reset, modifier: NONE,
-        x: 0, y: 7, fg: Reset, bg: Indexed(52), modifier: NONE,
+        x: 9, y: 3, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 4, fg: Reset, bg: Reset, modifier: DIM,
+        x: 14, y: 5, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 6, fg: Reset, bg: Reset, modifier: DIM,
+        x: 15, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 8, fg: Reset, bg: Indexed(52), modifier: NONE,
     ]
 }
