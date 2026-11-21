@@ -26,13 +26,16 @@ pub(crate) struct StderrTail {
 impl StderrTail {
     /// Make an empty buffer.
     pub(crate) fn new() -> Self {
-        todo!()
+        Self { buf: Vec::new() }
     }
 
     /// Append bytes, dropping from the front past the limit.
     pub(crate) fn push(&mut self, bytes: &[u8]) {
-        let _ = bytes;
-        todo!()
+        self.buf.extend_from_slice(bytes);
+        if self.buf.len() > STDERR_LIMIT {
+            let drop = self.buf.len() - STDERR_LIMIT;
+            self.buf.drain(..drop);
+        }
     }
 
     /// Read the tail as text.
@@ -40,7 +43,11 @@ impl StderrTail {
     /// Undecodable bytes become `U+FFFD`, and a cut inside a character
     /// starts from the next boundary.
     pub(crate) fn tail(&self) -> String {
-        todo!()
+        let mut start = 0;
+        while start < self.buf.len() && (self.buf[start] & 0xC0) == 0x80 {
+            start += 1;
+        }
+        String::from_utf8_lossy(&self.buf[start..]).into_owned()
     }
 }
 
@@ -58,32 +65,118 @@ pub(crate) struct Watched {
 impl Watched {
     /// Start `<python> -m ipykernel_launcher -f <connection_file>`.
     pub(crate) fn spawn(python: &Path, connection_file: &Path) -> io::Result<Watched> {
-        let _ = (python, connection_file);
-        todo!()
+        spawn_command(
+            python,
+            &[
+                OsStr::new("-m"),
+                OsStr::new("ipykernel_launcher"),
+                OsStr::new("-f"),
+                connection_file.as_os_str(),
+            ],
+        )
     }
 
     /// Send `SIGKILL` to the process group, unless already exited.
+    ///
+    /// The check and the signal are not atomic: the child may end between
+    /// them while a grandchild keeps the group id alive, but a recycled
+    /// group id colliding in that window is unlikely, so this is accepted.
     pub(crate) fn kill_group(&self) {
-        todo!()
+        if self.exited.borrow().is_none() {
+            signal_group(self.pid, libc::SIGKILL);
+        }
     }
 
     /// Wait up to `timeout` for the child to end.
     pub(crate) async fn wait_exit(&mut self, timeout: Duration) -> Option<ProcessExit> {
-        let _ = timeout;
-        todo!()
+        let current = *self.exited.borrow();
+        if current.is_some() {
+            return current;
+        }
+        let _ = tokio::time::timeout(timeout, self.exited.wait_for(|exit| exit.is_some())).await;
+        *self.exited.borrow()
     }
 }
 
 /// Send a signal to a process group, ignoring missing groups.
 pub(crate) fn signal_group(pid: u32, signal: i32) {
-    let _ = (pid, signal);
-    todo!()
+    // SAFETY: `killpg` only sends a signal and touches no memory. A
+    // positive pid names a process group, and `ESRCH` for a missing group
+    // is ignored by the caller contract.
+    let sent = unsafe { libc::killpg(pid as i32, signal) };
+    if sent != 0 {
+        debug_assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+    }
 }
 
-#[cfg(test)]
+/// Start a command on a watcher thread, for tests and kernels.
 fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watched> {
-    let _ = (program, args);
-    todo!()
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+
+    let (exit_tx, exit_rx) = tokio::sync::watch::channel(None);
+    let stderr = Arc::new(Mutex::new(StderrTail::new()));
+    let (pid_tx, pid_rx) = std::sync::mpsc::channel();
+    let program = program.to_path_buf();
+    let args: Vec<std::ffi::OsString> = args.iter().map(|arg| arg.to_os_string()).collect();
+    let stderr_reader = Arc::clone(&stderr);
+    let parent_pid = std::process::id();
+    std::thread::spawn(move || {
+        let mut command = std::process::Command::new(&program);
+        command.args(&args);
+        command.stdin(Stdio::null());
+        command.stdout(Stdio::null());
+        command.stderr(Stdio::piped());
+        command.process_group(0);
+        command.env("JPY_PARENT_PID", parent_pid.to_string());
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                let _ = pid_tx.send(Err(error));
+                return;
+            }
+        };
+        let _ = pid_tx.send(Ok(child.id()));
+        let piped = child.stderr.take();
+        let reader = std::thread::spawn(move || {
+            use std::io::Read;
+            if let Some(mut piped) = piped {
+                let mut chunk = [0_u8; 8192];
+                loop {
+                    match piped.read(&mut chunk) {
+                        Ok(0) => break,
+                        Ok(read) => stderr_reader
+                            .lock()
+                            .unwrap_or_else(|poison| poison.into_inner())
+                            .push(&chunk[..read]),
+                        Err(_) => break,
+                    }
+                }
+            }
+        });
+        let status = child.wait();
+        let _ = reader.join();
+        let exit = status.map(|status| {
+            use std::os::unix::process::ExitStatusExt;
+            match (status.code(), status.signal()) {
+                (Some(code), _) => ProcessExit::Code(code),
+                (None, Some(signal)) => ProcessExit::Signal(signal),
+                (None, None) => ProcessExit::Unknown,
+            }
+        });
+        let _ = exit_tx.send_replace(exit.ok());
+    });
+    pid_rx
+        .recv()
+        .map_err(|_| io::Error::other("watcher thread died"))?
+        .map(|pid| Watched {
+            pid,
+            exited: exit_rx,
+            stderr,
+        })
 }
 
 #[cfg(test)]

@@ -24,12 +24,32 @@ pub(crate) struct Ports {
 
 /// Pick five free ports on loopback.
 pub(crate) fn pick_ports() -> io::Result<Ports> {
-    todo!()
+    let first = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let second = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let third = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let fourth = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let fifth = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let port =
+        |listener: &std::net::TcpListener| -> io::Result<u16> { Ok(listener.local_addr()?.port()) };
+    Ok(Ports {
+        shell: port(&first)?,
+        iopub: port(&second)?,
+        stdin: port(&third)?,
+        control: port(&fourth)?,
+        hb: port(&fifth)?,
+    })
 }
 
 /// Make a random 64 character lowercase hex key.
 pub(crate) fn new_key() -> String {
-    todo!()
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).expect("randomness is available");
+    let mut out = String::with_capacity(64);
+    for byte in bytes {
+        out.push(char::from_digit(u32::from(byte >> 4), 16).expect("hex digit"));
+        out.push(char::from_digit(u32::from(byte & 0x0f), 16).expect("hex digit"));
+    }
+    out
 }
 
 /// Connection file written for one spawn, removed afterwards.
@@ -46,18 +66,38 @@ pub(crate) struct ConnectionFile {
 impl ConnectionFile {
     /// Write the connection file for these ports and key.
     pub(crate) fn create(ports: Ports, key: String, kernel_name: &str) -> io::Result<Self> {
-        let _ = (ports, key, kernel_name);
-        todo!()
+        let info = jupyter_protocol::ConnectionInfo {
+            ip: "127.0.0.1".to_owned(),
+            transport: jupyter_protocol::connection_info::Transport::TCP,
+            shell_port: ports.shell,
+            iopub_port: ports.iopub,
+            stdin_port: ports.stdin,
+            control_port: ports.control,
+            hb_port: ports.hb,
+            key: key.clone(),
+            signature_scheme: "hmac-sha256".to_owned(),
+            kernel_name: Some(kernel_name.to_owned()),
+        };
+        let file = tempfile::Builder::new()
+            .prefix("europa-kernel-")
+            .suffix(".json")
+            .tempfile()?;
+        serde_json::to_writer(&file, &info).map_err(io::Error::other)?;
+        Ok(Self {
+            path: file.into_temp_path(),
+            ports,
+            key,
+        })
     }
 
     /// Borrow the file path.
     pub(crate) fn path(&self) -> &Path {
-        todo!()
+        &self.path
     }
 
     /// Remove the file.
     pub(crate) fn remove(self) -> io::Result<()> {
-        todo!()
+        std::fs::remove_file(self.path)
     }
 }
 
