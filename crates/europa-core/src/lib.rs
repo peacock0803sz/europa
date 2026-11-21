@@ -133,6 +133,9 @@
 //! outputs. Output text that was read from a file may still hold `\r`, and
 //! [`resolve_carriage_returns`] applies the rule that [`apply_iopub`] uses for
 //! received text, so that it shows the same as it did when it arrived.
+//!
+//! Kernel launch arguments, events, states, and errors live in [`kernel`],
+//! which the kernel adapter and its callers share.
 #![deny(missing_docs)]
 
 mod canonical;
@@ -141,6 +144,7 @@ pub mod exec;
 pub mod io;
 pub mod iopub;
 pub mod json;
+pub mod kernel;
 pub mod normalize;
 pub mod notebook;
 pub mod pos;
@@ -151,6 +155,11 @@ pub use exec::{Applied, CellExecState, ExecEffect, ExecEvent, ExecState, MsgId, 
 pub use io::{parse, serialize};
 pub use iopub::{apply_iopub, resolve_carriage_returns, IopubApplied, IopubMsg};
 pub use json::{JsonMap, JsonNumber, JsonValue};
+pub use kernel::{
+    admit, next_state, Admission, KernelError, KernelEvent, KernelInfo, KernelLaunch, KernelOp,
+    KernelState, KernelStatus, KernelTransition, LanguageInfo, ProcessExit, SpawnError,
+    SpawnErrorKind, WarningReason,
+};
 pub use normalize::MultilineText;
 pub use notebook::{Cell, Notebook, Output};
 pub use pos::{CellPos, ResolveError};
