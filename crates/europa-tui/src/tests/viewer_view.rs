@@ -116,6 +116,123 @@ fn status_narrow_snapshot() {
     insta::assert_snapshot!("status_narrow", common::frame(&viewer, &many));
 }
 
+fn ten_cells_notebook() -> europa_core::Notebook {
+    let cells: Vec<String> = (0..10)
+        .map(|i| {
+            common::code_cell(
+                &(0..10).map(|n| format!("x = {n}\n")).collect::<String>(),
+                Some(i as i64),
+                &[common::stream(
+                    "stdout",
+                    &(0..20).map(|n| format!("line {n}\n")).collect::<String>(),
+                )],
+            )
+        })
+        .collect();
+    common::notebook(&cells)
+}
+
+fn apply(
+    viewer: &mut crate::viewer::Viewer,
+    recorder: &mut common::RecordingRenderer<'_>,
+    key: crate::viewer::Key,
+) {
+    let _ = crate::viewer::update(viewer, crate::viewer::Input::Key(key), recorder);
+    let _ = recorder.take_calls();
+}
+
+#[test]
+fn next_cell_snapshot() {
+    let notebook = ten_cells_notebook();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    for _ in 0..3 {
+        apply(&mut viewer, &mut recorder, crate::viewer::Key::NextCell);
+    }
+    for _ in 0..4 {
+        apply(&mut viewer, &mut recorder, crate::viewer::Key::Down);
+    }
+    apply(&mut viewer, &mut recorder, crate::viewer::Key::NextCell);
+    insta::assert_snapshot!("next_cell", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn prev_cell_middle_snapshot() {
+    let notebook = ten_cells_notebook();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    for _ in 0..3 {
+        apply(&mut viewer, &mut recorder, crate::viewer::Key::NextCell);
+    }
+    for _ in 0..4 {
+        apply(&mut viewer, &mut recorder, crate::viewer::Key::Down);
+    }
+    apply(&mut viewer, &mut recorder, crate::viewer::Key::PrevCell);
+    insta::assert_snapshot!("prev_cell_middle", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn prev_cell_first_snapshot() {
+    let notebook = ten_cells_notebook();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    apply(&mut viewer, &mut recorder, crate::viewer::Key::PrevCell);
+    insta::assert_snapshot!("prev_cell_first", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn next_cell_bottom_snapshot() {
+    let notebook = ten_cells_notebook();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    for _ in 0..20 {
+        apply(&mut viewer, &mut recorder, crate::viewer::Key::NextCell);
+    }
+    insta::assert_snapshot!("next_cell_bottom", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn gg_snapshot() {
+    let notebook = ten_cells_notebook();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    for _ in 0..5 {
+        apply(&mut viewer, &mut recorder, crate::viewer::Key::Down);
+    }
+    apply(&mut viewer, &mut recorder, crate::viewer::Key::GPrefix);
+    apply(&mut viewer, &mut recorder, crate::viewer::Key::GPrefix);
+    insta::assert_snapshot!("gg", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn big_g_snapshot() {
+    let notebook = ten_cells_notebook();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    apply(&mut viewer, &mut recorder, crate::viewer::Key::Bottom);
+    insta::assert_snapshot!("big_g", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn g_then_other_snapshot() {
+    let notebook = ten_cells_notebook();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    apply(&mut viewer, &mut recorder, crate::viewer::Key::GPrefix);
+    apply(&mut viewer, &mut recorder, crate::viewer::Key::Down);
+    insta::assert_snapshot!("g_then_other", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn modified_key_snapshot() {
+    let notebook = ten_cells_notebook();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    apply(&mut viewer, &mut recorder, crate::viewer::Key::GPrefix);
+    apply(&mut viewer, &mut recorder, crate::viewer::Key::Other);
+    insta::assert_snapshot!("modified_key", common::frame(&viewer, &notebook));
+}
+
 fn step(
     notebook: &europa_core::Notebook,
     viewer: &mut crate::viewer::Viewer,

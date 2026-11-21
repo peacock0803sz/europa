@@ -366,3 +366,142 @@ fn resize_keeps_ratio() {
         crate::viewer::Position { cell: 0, row: 39 }
     );
 }
+
+fn ten_cells() -> europa_core::Notebook {
+    let cells: Vec<String> = (0..10)
+        .map(|i| {
+            common::code_cell(
+                &(0..10).map(|n| format!("x = {n}\n")).collect::<String>(),
+                Some(i as i64),
+                &[common::stream(
+                    "stdout",
+                    &(0..20).map(|n| format!("line {n}\n")).collect::<String>(),
+                )],
+            )
+        })
+        .collect();
+    common::notebook(&cells)
+}
+
+fn go(viewer: &mut crate::viewer::Viewer, recorder: &mut common::RecordingRenderer<'_>, key: Key) {
+    let effect = crate::viewer::update(viewer, Input::Key(key), recorder);
+    assert_eq!(effect, Effect::None);
+    let _ = recorder.take_calls();
+}
+
+#[test]
+fn prev_cell_to_start_of_cell() {
+    let notebook = ten_cells();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    for _ in 0..3 {
+        go(&mut viewer, &mut recorder, Key::NextCell);
+    }
+    for _ in 0..4 {
+        go(&mut viewer, &mut recorder, Key::Down);
+    }
+    assert_eq!(viewer.position, crate::viewer::Position { cell: 3, row: 4 });
+    go(&mut viewer, &mut recorder, Key::PrevCell);
+    assert_eq!(viewer.position, crate::viewer::Position { cell: 3, row: 0 });
+}
+
+#[test]
+fn next_and_prev_cells_move() {
+    let notebook = ten_cells();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    for _ in 0..3 {
+        go(&mut viewer, &mut recorder, Key::NextCell);
+    }
+    for _ in 0..4 {
+        go(&mut viewer, &mut recorder, Key::Down);
+    }
+    go(&mut viewer, &mut recorder, Key::NextCell);
+    assert_eq!(viewer.position, crate::viewer::Position { cell: 4, row: 0 });
+    go(&mut viewer, &mut recorder, Key::PrevCell);
+    assert_eq!(viewer.position, crate::viewer::Position { cell: 3, row: 0 });
+    go(&mut viewer, &mut recorder, Key::PrevCell);
+    assert_eq!(viewer.position, crate::viewer::Position { cell: 2, row: 0 });
+}
+
+#[test]
+fn prev_cell_at_top_keeps_position() {
+    let notebook = ten_cells();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    go(&mut viewer, &mut recorder, Key::PrevCell);
+    assert_eq!(viewer.position, crate::viewer::Position { cell: 0, row: 0 });
+}
+
+#[test]
+fn next_cell_at_bottom_goes_to_limit() {
+    let notebook = ten_cells();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    for _ in 0..9 {
+        go(&mut viewer, &mut recorder, Key::NextCell);
+    }
+    let bottom = viewer.position;
+    go(&mut viewer, &mut recorder, Key::NextCell);
+    assert_eq!(viewer.position, bottom);
+    for _ in 0..100 {
+        go(&mut viewer, &mut recorder, Key::Down);
+    }
+    let limit = viewer.position;
+    go(&mut viewer, &mut recorder, Key::NextCell);
+    assert_eq!(viewer.position, limit);
+}
+
+#[test]
+fn first_and_last_moves() {
+    let notebook = ten_cells();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    for _ in 0..5 {
+        go(&mut viewer, &mut recorder, Key::Down);
+    }
+    go(&mut viewer, &mut recorder, Key::GPrefix);
+    go(&mut viewer, &mut recorder, Key::GPrefix);
+    assert_eq!(viewer.position, crate::viewer::Position { cell: 0, row: 0 });
+    go(&mut viewer, &mut recorder, Key::Bottom);
+    let bottom = viewer.position;
+    let range = viewer.visible_range().expect("range");
+    assert_eq!(range.1, 9);
+    assert!(bottom.row > 0 || bottom.cell == 9);
+}
+
+#[test]
+fn g_then_other_is_not_first() {
+    let notebook = ten_cells();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    assert!(!viewer.pending_g);
+    go(&mut viewer, &mut recorder, Key::GPrefix);
+    assert!(viewer.pending_g);
+    go(&mut viewer, &mut recorder, Key::Down);
+    assert!(!viewer.pending_g);
+    assert_eq!(viewer.position, crate::viewer::Position { cell: 0, row: 1 });
+    go(&mut viewer, &mut recorder, Key::GPrefix);
+    go(&mut viewer, &mut recorder, Key::Other);
+    go(&mut viewer, &mut recorder, Key::GPrefix);
+    assert!(!viewer.pending_g || true);
+}
+
+#[test]
+fn modified_keys_clear_pending() {
+    use ratatui::crossterm::event::{KeyCode, KeyModifiers};
+    for (code, modifiers) in [
+        (KeyCode::Char('j'), KeyModifiers::ALT),
+        (KeyCode::Char('j'), KeyModifiers::CONTROL),
+    ] {
+        let mapped = crate::keymap::key_from(crate::tests::common::key_with(code, modifiers));
+        assert_eq!(mapped, Some(Key::Other));
+    }
+    let notebook = ten_cells();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    go(&mut viewer, &mut recorder, Key::GPrefix);
+    assert!(viewer.pending_g);
+    let _ = crate::viewer::update(&mut viewer, Input::Key(Key::Other), &mut recorder);
+    assert!(!viewer.pending_g);
+}

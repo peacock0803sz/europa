@@ -98,6 +98,8 @@ pub(crate) struct Viewer {
     /// The background is decided when opening and stays the same until the
     /// viewer closes.
     pub(crate) visible: BTreeMap<usize, RenderedCell>,
+    /// Waiting for the second `g` of `gg`.
+    pub(crate) pending_g: bool,
 }
 
 impl Viewer {
@@ -121,6 +123,7 @@ impl Viewer {
             rows,
             options,
             visible: std::collections::BTreeMap::new(),
+            pending_g: false,
         };
         viewer.fill_visible(renderer);
         viewer
@@ -230,79 +233,61 @@ impl Viewer {
 pub(crate) fn update(viewer: &mut Viewer, input: Input, renderer: &mut dyn CellRenderer) -> Effect {
     match input {
         Input::Key(Key::Quit) => Effect::Quit,
-        Input::Key(Key::Down) => {
-            step_down(viewer, renderer);
+        Input::Resize { .. } => {
+            apply_resize(viewer, input, renderer);
             Effect::None
         }
-        Input::Key(Key::Up) => {
-            step_up(viewer, renderer);
-            Effect::None
-        }
-        Input::Key(Key::NextCell | Key::PrevCell | Key::GPrefix | Key::Bottom) => Effect::None,
-        Input::Key(Key::Other) => Effect::None,
-        Input::Resize {
-            columns,
-            rows,
-            cell_pixels,
-        } => {
-            if columns != viewer.columns || cell_pixels != viewer.options.cell_pixels {
-                let old_height = viewer
-                    .visible
-                    .get(&viewer.position.cell)
-                    .map(|cell| cell.lines.len());
-                viewer.visible.clear();
-                viewer.columns = columns;
-                viewer.rows = rows;
-                viewer.options.width = std::num::NonZeroU16::new(columns.max(1)).expect("non-zero");
-                viewer.options.cell_pixels = cell_pixels;
-                let first = viewer.position.cell;
-                let new_height = if viewer.cell_count == 0 {
-                    0
-                } else {
-                    let index = first.min(viewer.cell_count - 1);
-                    let rendered = renderer.render(index, &viewer.options);
-                    viewer.visible.insert(index, rendered);
-                    viewer
-                        .visible
-                        .get(&index)
-                        .map(|cell| cell.lines.len())
-                        .unwrap_or(0)
-                };
-                viewer.position = match (old_height, new_height) {
-                    (Some(old), new) if old > 0 => Position {
-                        cell: first,
-                        row: viewer.position.row * new / old,
-                    },
-                    _ => Position {
-                        cell: first,
-                        row: 0,
-                    },
-                };
-                if viewer.cell_count > 0 {
-                    let index = viewer.position.cell.min(viewer.cell_count - 1);
-                    let height = viewer
-                        .visible
-                        .get(&index)
-                        .map(|cell| cell.lines.len())
-                        .unwrap_or(0);
-                    if viewer.position.row >= height.max(1) {
-                        viewer.position.row = height.saturating_sub(1);
+        Input::Key(key) => {
+            if viewer.pending_g {
+                match key {
+                    Key::GPrefix => {
+                        viewer.pending_g = false;
+                        viewer.position = Position { cell: 0, row: 0 };
+                        viewer.fill_visible(renderer);
+                        return Effect::None;
+                    }
+                    Key::Quit => return Effect::Quit,
+                    _ => {
+                        viewer.pending_g = false;
                     }
                 }
-                viewer.fill_visible(renderer);
-                if needs_bottom(viewer) {
-                    viewer.position = viewer.bottom(renderer);
-                    viewer.fill_visible(renderer);
+            }
+            match key {
+                Key::Quit => Effect::Quit,
+                Key::GPrefix => {
+                    viewer.pending_g = true;
+                    Effect::None
                 }
-            } else if rows != viewer.rows {
-                viewer.rows = rows;
-                viewer.fill_visible(renderer);
-                if needs_bottom(viewer) {
-                    viewer.position = viewer.bottom(renderer);
-                    viewer.fill_visible(renderer);
+                Key::Other => {
+                    viewer.pending_g = false;
+                    Effect::None
+                }
+                Key::Down => {
+                    viewer.pending_g = false;
+                    step_down(viewer, renderer);
+                    Effect::None
+                }
+                Key::Up => {
+                    viewer.pending_g = false;
+                    step_up(viewer, renderer);
+                    Effect::None
+                }
+                Key::NextCell => {
+                    viewer.pending_g = false;
+                    step_next_cell(viewer, renderer);
+                    Effect::None
+                }
+                Key::PrevCell => {
+                    viewer.pending_g = false;
+                    step_prev_cell(viewer, renderer);
+                    Effect::None
+                }
+                Key::Bottom => {
+                    viewer.pending_g = false;
+                    step_bottom(viewer, renderer);
+                    Effect::None
                 }
             }
-            Effect::None
         }
     }
 }
@@ -370,6 +355,136 @@ fn step_up(viewer: &mut Viewer, renderer: &mut dyn CellRenderer) {
         return;
     }
     viewer.fill_visible(renderer);
+}
+
+fn step_next_cell(viewer: &mut Viewer, renderer: &mut dyn CellRenderer) {
+    let height = viewer.viewport_lines();
+    if height == 0 || viewer.cell_count == 0 || viewer.columns == 0 {
+        return;
+    }
+    let Some(next) = viewer.position.cell.checked_add(1) else {
+        return;
+    };
+    if next >= viewer.cell_count {
+        viewer.position = viewer.bottom(renderer);
+        viewer.fill_visible(renderer);
+        return;
+    }
+    let mut sum = 0usize;
+    let mut index = next;
+    while index < viewer.cell_count {
+        if !viewer.visible.contains_key(&index) {
+            let rendered = renderer.render(index, &viewer.options);
+            viewer.visible.insert(index, rendered);
+        }
+        let cell_height = viewer
+            .visible
+            .get(&index)
+            .map(|cell| cell.lines.len())
+            .unwrap_or(0);
+        sum += cell_height;
+        if sum >= height {
+            viewer.position = Position { cell: next, row: 0 };
+            viewer.fill_visible(renderer);
+            return;
+        }
+        index += 1;
+    }
+    viewer.position = viewer.bottom(renderer);
+    viewer.fill_visible(renderer);
+}
+
+fn step_prev_cell(viewer: &mut Viewer, renderer: &mut dyn CellRenderer) {
+    let height = viewer.viewport_lines();
+    if height == 0 || viewer.cell_count == 0 || viewer.columns == 0 {
+        return;
+    }
+    if viewer.position.row > 0 {
+        viewer.position.row = 0;
+    } else if viewer.position.cell > 0 {
+        viewer.position.cell -= 1;
+        viewer.position.row = 0;
+    } else {
+        return;
+    }
+    viewer.fill_visible(renderer);
+}
+
+fn step_bottom(viewer: &mut Viewer, renderer: &mut dyn CellRenderer) {
+    let height = viewer.viewport_lines();
+    if height == 0 || viewer.cell_count == 0 || viewer.columns == 0 {
+        return;
+    }
+    viewer.position = viewer.bottom(renderer);
+    viewer.fill_visible(renderer);
+}
+
+fn apply_resize(viewer: &mut Viewer, input: Input, renderer: &mut dyn CellRenderer) {
+    let Input::Resize {
+        columns,
+        rows,
+        cell_pixels,
+    } = input
+    else {
+        return;
+    };
+    if columns != viewer.columns || cell_pixels != viewer.options.cell_pixels {
+        let old_height = viewer
+            .visible
+            .get(&viewer.position.cell)
+            .map(|cell| cell.lines.len());
+        viewer.visible.clear();
+        viewer.columns = columns;
+        viewer.rows = rows;
+        viewer.options.width = std::num::NonZeroU16::new(columns.max(1)).expect("non-zero");
+        viewer.options.cell_pixels = cell_pixels;
+        let first = viewer.position.cell;
+        let new_height = if viewer.cell_count == 0 {
+            0
+        } else {
+            let index = first.min(viewer.cell_count - 1);
+            let rendered = renderer.render(index, &viewer.options);
+            viewer.visible.insert(index, rendered);
+            viewer
+                .visible
+                .get(&index)
+                .map(|cell| cell.lines.len())
+                .unwrap_or(0)
+        };
+        viewer.position = match (old_height, new_height) {
+            (Some(old), new) if old > 0 => Position {
+                cell: first,
+                row: viewer.position.row * new / old,
+            },
+            _ => Position {
+                cell: first,
+                row: 0,
+            },
+        };
+        if viewer.cell_count > 0 {
+            let index = viewer.position.cell.min(viewer.cell_count - 1);
+            let height = viewer
+                .visible
+                .get(&index)
+                .map(|cell| cell.lines.len())
+                .unwrap_or(0);
+            if viewer.position.row >= height.max(1) {
+                viewer.position.row = height.saturating_sub(1);
+            }
+        }
+        viewer.fill_visible(renderer);
+        if needs_bottom(viewer) {
+            viewer.position = viewer.bottom(renderer);
+            viewer.fill_visible(renderer);
+        }
+    } else if rows != viewer.rows {
+        viewer.rows = rows;
+        viewer.fill_visible(renderer);
+        if needs_bottom(viewer) {
+            viewer.position = viewer.bottom(renderer);
+            viewer.fill_visible(renderer);
+        }
+    }
 }
 
 /// Renders cells of a notebook, handing pixels to the image renderer.
