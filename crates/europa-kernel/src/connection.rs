@@ -53,14 +53,13 @@ pub(crate) fn new_key() -> String {
 }
 
 /// Connection file written for one spawn, removed afterwards.
+///
+/// Ports and key travel separately to the handshake; the handle only
+/// needs the path for removal.
 #[derive(Debug)]
 pub(crate) struct ConnectionFile {
     /// Temporary file path.
     path: TempPath,
-    /// Ports written into the file.
-    ports: Ports,
-    /// Key written into the file.
-    key: String,
 }
 
 impl ConnectionFile {
@@ -85,8 +84,6 @@ impl ConnectionFile {
         serde_json::to_writer(&file, &info).map_err(io::Error::other)?;
         Ok(Self {
             path: file.into_temp_path(),
-            ports,
-            key,
         })
     }
 
