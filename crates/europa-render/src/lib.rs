@@ -7,6 +7,8 @@
 //! [`render_source`] does the same for the source of a cell, and highlights
 //! Python by the kind of token.
 //!
+//! [`render_markdown`] renders Markdown source of a cell by the same rules.
+//!
 //! A PNG or JPEG output becomes room for an image, which a terminal draws
 //! over empty lines. [`render_outputs_with_images`] also hands over the
 //! decoded pixels, and [`decode_image`] decodes one again later.
@@ -51,6 +53,32 @@ mod source;
 mod wrap;
 
 pub use source::render_source;
+
+/// Render Markdown source of a cell as display lines.
+///
+/// The source is rendered by the Markdown rules of 009, wrapped at
+/// `options.width`, with the background of `options.background` for code
+/// blocks. Unlike outputs, it is never cut at
+/// `options.max_output_lines`. It does no IO and reads nothing but its
+/// arguments, so equal arguments give equal results.
+///
+/// ```
+/// use std::num::NonZeroU16;
+///
+/// use europa_core::RenderOptions;
+/// use europa_render::render_markdown;
+///
+/// let options = RenderOptions::new(NonZeroU16::new(80).unwrap());
+/// assert!(render_markdown("", &options).is_empty());
+/// assert_eq!(render_markdown("a", &options).len(), 1);
+/// ```
+#[must_use]
+pub fn render_markdown(source: &str, options: &RenderOptions) -> Vec<StyledLine> {
+    markdown::render(source, options.width, options.background)
+        .iter()
+        .flat_map(|line| wrap_line(line, options.width))
+        .collect()
+}
 
 use std::collections::VecDeque;
 use std::num::NonZeroU16;
