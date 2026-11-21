@@ -82,3 +82,16 @@ target/release/examples/image_probe sample.ipynb --protocol halfblock
 ```
 
 `j` and `k` scroll and `q` quits. Without `--protocol` the terminal decides.
+
+## Development
+
+The kernel integration tests need a Python with `ipykernel` and never run
+inside plain `cargo test`. Point `EUROPA_KERNEL_PYTHON` at such an
+interpreter and run the ignored tests serially:
+
+```sh
+EUROPA_KERNEL_PYTHON=/path/to/python cargo test -p europa-kernel --test local_kernel -- --ignored --test-threads=1
+```
+
+Europa never installs packages into your Python environment; bring your
+own `ipykernel`.
