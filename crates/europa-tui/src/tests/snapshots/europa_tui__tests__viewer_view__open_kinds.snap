@@ -1,0 +1,40 @@
+---
+source: crates/europa-tui/src/tests/viewer_view.rs
+expression: "common::frame(&viewer, &notebook)"
+---
+Position { cell: 0, row: 0 }
+Buffer {
+    area: Rect { x: 0, y: 0, width: 40, height: 12 },
+    content: [
+        "== 1 code [0] ==========================",
+        "x = 1                                   ",
+        "-- out ---------------------------------",
+        "hi                                      ",
+        "== 2 markdown ==========================",
+        "Title                                   ",
+        "== 3 raw ===============================",
+        "raw                                     ",
+        "== 4 ? =================================",
+        "[unknown cell type: widget]             ",
+        "== 5 code [ ] ==========================",
+        "test.ipynb                         1-5/5",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: BOLD,
+        x: 0, y: 1, fg: Reset, bg: Reset, modifier: NONE,
+        x: 4, y: 1, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 5, y: 1, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 2, fg: Reset, bg: Reset, modifier: DIM,
+        x: 0, y: 3, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 4, fg: Reset, bg: Reset, modifier: BOLD,
+        x: 0, y: 5, fg: Reset, bg: Reset, modifier: BOLD | UNDERLINED,
+        x: 5, y: 5, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 6, fg: Reset, bg: Reset, modifier: BOLD,
+        x: 0, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 8, fg: Reset, bg: Reset, modifier: BOLD,
+        x: 0, y: 9, fg: Reset, bg: Reset, modifier: DIM,
+        x: 27, y: 9, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 10, fg: Reset, bg: Reset, modifier: BOLD,
+        x: 0, y: 11, fg: Reset, bg: Reset, modifier: REVERSED,
+    ]
+}

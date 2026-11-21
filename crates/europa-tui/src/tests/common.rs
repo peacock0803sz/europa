@@ -2,7 +2,9 @@
 
 use std::num::{NonZeroU16, NonZeroUsize};
 
-use europa_core::{Cell, CellPixels, ImageSlot, Output, RenderOptions, RenderedCell};
+use europa_core::{
+    Cell, CellPixels, ImageSlot, Notebook, Output, RenderOptions, RenderedCell, SourceLanguage,
+};
 use image::DynamicImage;
 use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
@@ -264,4 +266,229 @@ pub(crate) fn renderer_with(protocol: ProtocolType, encoder: Box<dyn Encoder>) -
         crate::image_cache::DEFAULT_LIMIT,
         encoder,
     )
+}
+
+/// A code cell as JSON with `source`, `execution_count` and `outputs`.
+pub(crate) fn code_cell(source: &str, execution_count: Option<i64>, outputs: &[String]) -> String {
+    let source_json = json_string(source);
+    let count = match execution_count {
+        Some(n) => n.to_string(),
+        None => "null".to_owned(),
+    };
+    format!(
+        r#"{{"cell_type":"code","metadata":{{}},"source":{source_json},"outputs":[{}],"execution_count":{count}}}"#,
+        outputs.join(",")
+    )
+}
+
+/// A Markdown cell as JSON with `source`.
+pub(crate) fn markdown_cell(source: &str) -> String {
+    let source_json = json_string(source);
+    format!(r#"{{"cell_type":"markdown","metadata":{{}},"source":{source_json}}}"#)
+}
+
+/// A raw cell as JSON with `source`.
+pub(crate) fn raw_cell(source: &str) -> String {
+    let source_json = json_string(source);
+    format!(r#"{{"cell_type":"raw","metadata":{{}},"source":{source_json}}}"#)
+}
+
+/// A cell of an unknown kind as JSON.
+pub(crate) fn unknown_cell(cell_type: &str) -> String {
+    let kind_json = json_string(cell_type);
+    format!(r#"{{"cell_type":{kind_json},"metadata":{{}},"source":""}}"#)
+}
+
+/// A stream output as JSON.
+pub(crate) fn stream(name: &str, text: &str) -> String {
+    let name_json = json_string(name);
+    let text_json = json_string(text);
+    format!(r#"{{"output_type":"stream","name":{name_json},"text":{text_json}}}"#)
+}
+
+/// An error output as JSON.
+pub(crate) fn error_output(ename: &str, evalue: &str) -> String {
+    let ename_json = json_string(ename);
+    let evalue_json = json_string(evalue);
+    format!(
+        r#"{{"output_type":"error","ename":{ename_json},"evalue":{evalue_json},"traceback":[]}}"#
+    )
+}
+
+fn json_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                out.push_str(&format!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// A notebook made of the cell JSON fragments in `cells`.
+pub(crate) fn notebook(cells: &[String]) -> Notebook {
+    let text = format!(
+        r#"{{"nbformat":4,"nbformat_minor":5,"metadata":{{}},"cells":[{}]}}"#,
+        cells.join(",")
+    );
+    europa_core::parse(text.as_bytes()).expect("notebook loads")
+}
+
+/// A notebook where every cell holds 10 source lines and 20 stdout lines.
+pub(crate) fn large_notebook(cells: usize) -> Notebook {
+    let made: Vec<String> = (0..cells)
+        .map(|_| {
+            let source: String = (0..10).map(|n| format!("x = {n}\n")).collect();
+            let out: String = (0..20).map(|n| format!("line {n}\n")).collect();
+            code_cell(&source, Some(0), &[stream("stdout", &out)])
+        })
+        .collect();
+    notebook(&made)
+}
+
+/// Records which cells were rendered, keeping pixels when asked.
+pub(crate) struct RecordingRenderer<'a> {
+    /// Notebook the cells are read from.
+    pub(crate) notebook: &'a Notebook,
+    /// How code source is highlighted.
+    pub(crate) language: SourceLanguage,
+    /// Indices rendered so far.
+    pub(crate) calls: Vec<usize>,
+    /// Keeps pixels when set.
+    pub(crate) images: Option<ImageRenderer>,
+}
+
+impl crate::viewer::CellRenderer for RecordingRenderer<'_> {
+    fn render(&mut self, index: usize, options: &RenderOptions) -> RenderedCell {
+        self.calls.push(index);
+        let language = self.language;
+        let cell = &self.notebook.cells[index];
+        let number = index + 1;
+        let images = &mut self.images;
+        crate::cell_display::cell_display(cell, number, language, options, &mut |source, image| {
+            if let Some(kept) = images.as_mut() {
+                kept.insert(source, image);
+            }
+        })
+    }
+}
+
+impl RecordingRenderer<'_> {
+    /// Recorded indices, emptied afterwards.
+    pub(crate) fn take_calls(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.calls)
+    }
+}
+
+/// Open `notebook` with `options` and a recorder without images.
+pub(crate) fn open_with(
+    notebook: &Notebook,
+    columns: u16,
+    rows: u16,
+    options: RenderOptions,
+) -> (crate::viewer::Viewer, RecordingRenderer<'_>) {
+    open_with_images_opt(notebook, columns, rows, options, None)
+}
+
+/// Open `notebook` with `options`, giving the recorder `images`.
+fn open_with_images_opt(
+    notebook: &Notebook,
+    columns: u16,
+    rows: u16,
+    options: RenderOptions,
+    images: Option<ImageRenderer>,
+) -> (crate::viewer::Viewer, RecordingRenderer<'_>) {
+    let mut recorder = RecordingRenderer {
+        notebook,
+        language: notebook.source_language(),
+        calls: Vec::new(),
+        images,
+    };
+    let viewer = crate::viewer::Viewer::open(
+        "test.ipynb".to_owned(),
+        notebook.cells.len(),
+        columns,
+        rows,
+        options,
+        &mut recorder,
+    );
+    (viewer, recorder)
+}
+
+/// Open `notebook` for a dark background with default options.
+pub(crate) fn open(
+    notebook: &Notebook,
+    columns: u16,
+    rows: u16,
+) -> (crate::viewer::Viewer, RecordingRenderer<'_>) {
+    let width = NonZeroU16::new(columns.max(1)).expect("non-zero");
+    open_with(notebook, columns, rows, RenderOptions::new(width))
+}
+
+/// Draw `viewer` and describe the frame after its position line.
+pub(crate) fn frame_in(
+    viewer: &crate::viewer::Viewer,
+    notebook: &Notebook,
+    renderer: &mut ImageRenderer,
+) -> String {
+    let mut terminal =
+        Terminal::new(TestBackend::new(viewer.columns, viewer.rows)).expect("terminal");
+    terminal
+        .draw(|frame| {
+            crate::viewer_view::view(viewer, notebook, frame.buffer_mut(), renderer);
+        })
+        .expect("draws");
+    format!(
+        "{:?}\n{}",
+        viewer.position,
+        describe(terminal.backend().buffer())
+    )
+}
+
+/// Draw `viewer` with a half-block renderer.
+pub(crate) fn frame(viewer: &crate::viewer::Viewer, notebook: &Notebook) -> String {
+    let mut renderer = ImageRenderer::with_parts(
+        ProtocolType::Halfblocks,
+        CellPixels::DEFAULT,
+        ColorDepth::TrueColor,
+        crate::image_cache::DEFAULT_LIMIT,
+        Box::new(RatatuiEncoder),
+    );
+    frame_in(viewer, notebook, &mut renderer)
+}
+
+/// Open `notebook` with `images` kept by the recorder.
+pub(crate) fn open_with_images(
+    notebook: &Notebook,
+    columns: u16,
+    rows: u16,
+    options: RenderOptions,
+    images: ImageRenderer,
+) -> (crate::viewer::Viewer, RecordingRenderer<'_>) {
+    open_with_images_opt(notebook, columns, rows, options, Some(images))
+}
+
+/// An input key for `code` without modifiers.
+pub(crate) fn key(code: ratatui::crossterm::event::KeyCode) -> crate::viewer::Input {
+    use ratatui::crossterm::event::KeyModifiers;
+    let event = ratatui::crossterm::event::KeyEvent::new(code, KeyModifiers::NONE);
+    crate::viewer::Input::Key(crate::keymap::key_from(event).expect("mapped"))
+}
+
+/// A key event with `code` and `modifiers`.
+pub(crate) fn key_with(
+    code: ratatui::crossterm::event::KeyCode,
+    modifiers: ratatui::crossterm::event::KeyModifiers,
+) -> ratatui::crossterm::event::KeyEvent {
+    ratatui::crossterm::event::KeyEvent::new(code, modifiers)
 }

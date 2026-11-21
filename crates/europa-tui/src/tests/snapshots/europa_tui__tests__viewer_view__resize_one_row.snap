@@ -1,0 +1,14 @@
+---
+source: crates/europa-tui/src/tests/viewer_view.rs
+expression: "common::frame(&viewer, &notebook)"
+---
+Position { cell: 0, row: 0 }
+Buffer {
+    area: Rect { x: 0, y: 0, width: 80, height: 1 },
+    content: [
+        "test.ipynb                                                                   /10",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: REVERSED,
+    ]
+}

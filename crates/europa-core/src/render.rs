@@ -181,7 +181,12 @@ pub enum ImageProtocolChoice {
     Halfblock,
 }
 
-/// The display lines of one cell's outputs, ready for a terminal to draw.
+/// The display lines of one cell, ready for a terminal to draw.
+///
+/// Holds either the outputs of a code cell, or the whole cell view of border,
+/// source, separator and outputs. When it holds only outputs, there are at
+/// most [`RenderOptions::max_output_lines`] of them, and possibly fewer when
+/// an image slot on the border of the omitted part was dropped whole.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderedCell {
     /// Display lines from top to bottom. There are at most

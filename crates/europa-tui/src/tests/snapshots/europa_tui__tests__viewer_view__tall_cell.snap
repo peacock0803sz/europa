@@ -1,0 +1,48 @@
+---
+source: crates/europa-tui/src/tests/viewer_view.rs
+expression: "common::frame(&viewer, &notebook)"
+---
+Position { cell: 0, row: 5 }
+Buffer {
+    area: Rect { x: 0, y: 0, width: 40, height: 12 },
+    content: [
+        "line 4                                  ",
+        "line 5                                  ",
+        "line 6                                  ",
+        "line 7                                  ",
+        "line 8                                  ",
+        "line 9                                  ",
+        "line 10                                 ",
+        "line 11                                 ",
+        "line 12                                 ",
+        "line 13                                 ",
+        "line 14                                 ",
+        "test.ipynb                           1/1",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 5, y: 0, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 6, y: 0, fg: Reset, bg: Reset, modifier: NONE,
+        x: 5, y: 1, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 6, y: 1, fg: Reset, bg: Reset, modifier: NONE,
+        x: 5, y: 2, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 6, y: 2, fg: Reset, bg: Reset, modifier: NONE,
+        x: 5, y: 3, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 6, y: 3, fg: Reset, bg: Reset, modifier: NONE,
+        x: 5, y: 4, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 6, y: 4, fg: Reset, bg: Reset, modifier: NONE,
+        x: 5, y: 5, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 6, y: 5, fg: Reset, bg: Reset, modifier: NONE,
+        x: 5, y: 6, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 7, y: 6, fg: Reset, bg: Reset, modifier: NONE,
+        x: 5, y: 7, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 7, y: 7, fg: Reset, bg: Reset, modifier: NONE,
+        x: 5, y: 8, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 7, y: 8, fg: Reset, bg: Reset, modifier: NONE,
+        x: 5, y: 9, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 7, y: 9, fg: Reset, bg: Reset, modifier: NONE,
+        x: 5, y: 10, fg: Indexed(6), bg: Reset, modifier: NONE,
+        x: 7, y: 10, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 11, fg: Reset, bg: Reset, modifier: REVERSED,
+    ]
+}

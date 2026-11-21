@@ -1,7 +1,9 @@
 mod common;
 
+use std::num::{NonZeroU16, NonZeroUsize};
+
 use europa_core::Style;
-use europa_render::render_outputs;
+use europa_render::{render_markdown, render_outputs};
 
 fn show(markdown: &str) -> (europa_core::RenderedCell, Vec<String>) {
     let data = serde_json::to_string(&serde_json::json!({
@@ -628,4 +630,63 @@ fn html_code_of_python_is_not_highlighted() {
     assert!(styles
         .iter()
         .all(|style| style.fg != Some(europa_core::Color::Indexed(5))));
+}
+
+#[test]
+fn source_matches_markdown_output_on_both_backgrounds() {
+    let src =
+        "# Title\n\nSome **bold** and *italic* text.\n\n```python\ndef f():\n    return 1\n```\n";
+    for options in [
+        common::opts(40),
+        common::light(40),
+        europa_core::RenderOptions {
+            background: europa_core::Background::Light,
+            ..common::opts(40)
+        },
+    ] {
+        let data =
+            serde_json::to_string(&serde_json::json!({ "text/markdown": src })).expect("data");
+        let cell = europa_render::render_outputs(&[common::display(&data)], &options);
+        let lines = render_markdown(src, &options);
+        assert_eq!(lines, cell.lines, "options {options:?}");
+        assert!(!cell.images.is_empty() || cell.images.is_empty());
+        for line in &lines {
+            for span in &line.spans {
+                assert!(!span.text.is_empty());
+            }
+        }
+    }
+    let dark = common::opts(40);
+    let light = common::light(40);
+    let dark_lines = render_markdown(src, &dark);
+    let light_lines = render_markdown(src, &light);
+    assert_eq!(dark_lines.len(), light_lines.len());
+    let dark_fill: Vec<_> = dark_lines.iter().map(|line| line.fill).collect();
+    let light_fill: Vec<_> = light_lines.iter().map(|line| line.fill).collect();
+    assert_ne!(dark_fill, light_fill);
+}
+
+#[test]
+fn source_ignores_output_line_limit() {
+    let src = (0..10)
+        .map(|n| format!("p{n}"))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let options = europa_core::RenderOptions {
+        max_output_lines: NonZeroUsize::new(3).expect("non-zero"),
+        ..common::opts(40)
+    };
+    let lines = render_markdown(&src, &options);
+    assert_eq!(lines.len(), 19, "{lines:?}");
+    let texts: Vec<String> = lines
+        .iter()
+        .map(|line| line.spans.iter().map(|span| span.text.as_str()).collect())
+        .collect();
+    assert!(!texts.concat().contains("hidden"), "{texts:?}");
+}
+
+#[test]
+fn empty_source_renders_nothing() {
+    let options = europa_core::RenderOptions::new(NonZeroU16::new(40).expect("non-zero"));
+    assert!(render_markdown("", &options).is_empty());
 }

@@ -1,15 +1,14 @@
 //! Terminal interface for Europa.
 //!
 //! The library draws what `europa-render` makes of a cell, including images
-//! of PNG and JPEG outputs. The only public item is the program that shows a
-//! notebook with images, which is used to check each protocol on a real
-//! terminal.
+//! of PNG and JPEG outputs. [`run`] opens a notebook in the terminal, and
+//! the probe program shows a notebook with images to check each protocol on
+//! a real terminal.
 //!
 //! # How a viewer uses the drawing
 //!
-//! Opening a notebook in a terminal is not done here yet; the viewer that
-//! does it calls these in this order, and the probe in `probe.rs` is an
-//! example of each step.
+//! The viewer in `app.rs` opens a notebook and draws it, and the probe in
+//! `probe.rs` is an example of each step.
 //!
 //! 1. `ImageRenderer::new` once, after `ratatui::init` and before the first
 //!    event is read. It chooses the protocol and finds the size of a cell.
@@ -35,13 +34,20 @@
 
 #![deny(missing_docs)]
 
+mod app;
+mod cell_display;
 mod cell_view;
+mod cli;
+mod exit;
 mod image_cache;
 mod image_protocol;
 mod image_view;
+mod keymap;
 mod probe;
 #[cfg(test)]
 mod tests;
+mod viewer;
+mod viewer_view;
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -63,4 +69,14 @@ pub fn run_image_probe(args: impl Iterator<Item = OsString>) -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// Open a notebook in the terminal.
+///
+/// `args` holds the arguments without the name of the program. The exit
+/// codes are 0 for success and `--help`, 64 for usage errors, 65 for a
+/// notebook that cannot be parsed, 66 for a file that cannot be read, 74 for
+/// a terminal that cannot be used, 129 for SIGHUP and 143 for SIGTERM.
+pub fn run(args: impl Iterator<Item = OsString>) -> ExitCode {
+    crate::app::run(args)
 }
