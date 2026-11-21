@@ -7,8 +7,11 @@
 #![deny(missing_docs)]
 
 mod client;
+mod connection;
 #[allow(dead_code)]
 mod convert;
+#[allow(dead_code)]
+mod wire;
 #[allow(dead_code)]
 mod wire;
 
