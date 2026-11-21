@@ -131,7 +131,11 @@ fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watched> {
         command.stdout(Stdio::null());
         command.stderr(Stdio::piped());
         command.process_group(0);
-        command.env("JPY_PARENT_PID", parent_pid.to_string());
+        // Only the SIGKILL tests set this variable, to prove Linux
+        // `PR_SET_PDEATHSIG` alone; it is never set in production.
+        if std::env::var_os("EUROPA_KERNEL_TEST_NO_JPY_PARENT_PID").is_none() {
+            command.env("JPY_PARENT_PID", parent_pid.to_string());
+        }
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(error) => {
