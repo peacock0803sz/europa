@@ -47,35 +47,202 @@ pub(crate) enum DecodeError {
     Malformed(String),
 }
 
+use hmac::{Hmac, KeyInit, Mac};
+use sha2::Sha256;
+
 /// Compute the HMAC-SHA256 signature of message parts as lowercase hex.
 ///
 /// An empty key disables signing and yields an empty string.
 pub(crate) fn sign(key: &[u8], parts: &[&[u8]]) -> String {
-    let _ = (key, parts);
-    todo!()
+    if key.is_empty() {
+        return String::new();
+    }
+    let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC takes any key size");
+    for part in parts {
+        mac.update(part);
+    }
+    let digest = mac.finalize().into_bytes();
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push(char::from_digit(u32::from(byte >> 4), 16).expect("hex digit"));
+        out.push(char::from_digit(u32::from(byte & 0x0f), 16).expect("hex digit"));
+    }
+    out
 }
 
 /// Pack a message into frames for sending.
 pub(crate) fn encode(msg: &WireMessage, key: &[u8]) -> Vec<Vec<u8>> {
-    let _ = (msg, key);
-    todo!()
+    let header = serde_json::to_vec(&msg.header).expect("header serializes");
+    let parent = match &msg.parent_header {
+        Some(parent) => serde_json::to_vec(parent).expect("parent serializes"),
+        None => b"{}".to_vec(),
+    };
+    let metadata = serde_json::to_vec(&msg.metadata).expect("metadata serializes");
+    let content = serde_json::to_vec(&msg.content).expect("content serializes");
+    let signature = sign(key, &[&header, &parent, &metadata, &content]);
+    let mut frames = Vec::with_capacity(msg.identities.len() + 5 + msg.buffers.len());
+    frames.extend(msg.identities.iter().cloned());
+    frames.push(b"<IDS|MSG>".to_vec());
+    frames.push(signature.into_bytes());
+    frames.push(header);
+    frames.push(parent);
+    frames.push(metadata);
+    frames.push(content);
+    frames.extend(msg.buffers.iter().cloned());
+    frames
 }
 
 /// Unpack frames into a message, checking the signature first.
 pub(crate) fn decode(frames: &[Vec<u8>], key: &[u8]) -> Result<WireMessage, DecodeError> {
-    let _ = (frames, key);
-    todo!()
+    let marker = frames
+        .iter()
+        .position(|frame| frame.as_slice() == b"<IDS|MSG>")
+        .ok_or_else(|| DecodeError::Malformed("missing <IDS|MSG>".to_owned()))?;
+    let rest = &frames[marker + 1..];
+    if rest.len() < 5 {
+        return Err(DecodeError::Malformed("too few frames".to_owned()));
+    }
+    let signature = &rest[0];
+    let header_bytes = &rest[1];
+    let parent_bytes = &rest[2];
+    let metadata_bytes = &rest[3];
+    let content_bytes = &rest[4];
+    let buffers = rest[5..].to_vec();
+    if !key.is_empty() {
+        let expected = hex_decode(signature).ok_or(DecodeError::BadSignature)?;
+        let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC takes any key size");
+        mac.update(header_bytes);
+        mac.update(parent_bytes);
+        mac.update(metadata_bytes);
+        mac.update(content_bytes);
+        mac.verify_slice(&expected)
+            .map_err(|_| DecodeError::BadSignature)?;
+    }
+    let header: Header = serde_json::from_slice(header_bytes)
+        .map_err(|error| DecodeError::Malformed(error.to_string()))?;
+    let parent_header = if parent_bytes.as_slice() == b"{}" {
+        None
+    } else {
+        Some(
+            serde_json::from_slice(parent_bytes)
+                .map_err(|error| DecodeError::Malformed(error.to_string()))?,
+        )
+    };
+    let metadata: serde_json::Value = serde_json::from_slice(metadata_bytes)
+        .map_err(|error| DecodeError::Malformed(error.to_string()))?;
+    let content: serde_json::Value = serde_json::from_slice(content_bytes)
+        .map_err(|error| DecodeError::Malformed(error.to_string()))?;
+    Ok(WireMessage {
+        identities: frames[..marker].to_vec(),
+        header,
+        parent_header,
+        metadata,
+        content,
+        buffers,
+    })
+}
+
+/// Decode lowercase or uppercase hex into bytes.
+fn hex_decode(text: &[u8]) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    let (pairs, rest) = text.as_chunks::<2>();
+    if !rest.is_empty() {
+        return None;
+    }
+    let mut out = Vec::with_capacity(text.len() / 2);
+    for pair in pairs {
+        let high = hex_value(pair[0])?;
+        let low = hex_value(pair[1])?;
+        out.push((high << 4) | low);
+    }
+    Some(out)
+}
+
+/// Value of one hex digit.
+fn hex_value(digit: u8) -> Option<u8> {
+    match digit {
+        b'0'..=b'9' => Some(digit - b'0'),
+        b'a'..=b'f' => Some(digit - b'a' + 10),
+        b'A'..=b'F' => Some(digit - b'A' + 10),
+        _ => None,
+    }
 }
 
 /// Make a random version 4 UUID string.
 pub(crate) fn new_id() -> String {
-    todo!()
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes).expect("randomness is available");
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let hex: Vec<String> = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+    let flat: String = hex.concat();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &flat[0..8],
+        &flat[8..12],
+        &flat[12..16],
+        &flat[16..20],
+        &flat[20..32]
+    )
 }
 
 /// Build a header for an outgoing message.
 pub(crate) fn header(msg_type: &str, session: &str) -> Header {
-    let _ = (msg_type, session);
-    todo!()
+    Header {
+        msg_id: new_id(),
+        session: session.to_owned(),
+        username: "europa".to_owned(),
+        date: utc_now(),
+        msg_type: msg_type.to_owned(),
+        version: "5.3".to_owned(),
+    }
+}
+
+/// Current UTC time as `YYYY-MM-DDTHH:MM:SS.ffffffZ`.
+fn utc_now() -> String {
+    let now = std::time::SystemTime::now();
+    let elapsed = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = elapsed.as_secs() as i64;
+    let micros = elapsed.subsec_micros();
+    let days = secs.div_euclid(86_400);
+    let of_day = secs.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{micros:06}Z",
+        of_day / 3_600,
+        (of_day % 3_600) / 60,
+        of_day % 60
+    )
+}
+
+/// Convert days since the Unix epoch to a calendar date.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let shifted = days + 719_468;
+    let era = if shifted >= 0 {
+        shifted
+    } else {
+        shifted - 146_096
+    } / 146_097;
+    let ordinal = shifted - era * 146_097;
+    let year_of_era = (ordinal - ordinal / 1_460 + ordinal / 36_524 - ordinal / 146_096) / 365;
+    let year = year_of_era + era * 400;
+    let day_of_year = ordinal - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_part = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_part + 2) / 5 + 1;
+    let month = if month_part < 10 {
+        month_part + 3
+    } else {
+        month_part - 9
+    };
+    (
+        if month <= 2 { year + 1 } else { year },
+        month as u32,
+        day as u32,
+    )
 }
 
 #[cfg(test)]
