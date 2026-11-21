@@ -1,0 +1,10 @@
+---
+source: crates/europa-core/tests/kernel_errors.rs
+expression: "spawn(SpawnErrorKind::IpykernelMissing, short_tail).to_string()"
+---
+Failed to spawn kernel with /opt/venv/bin/python: ipykernel is missing. Install it with `/opt/venv/bin/python -m pip install ipykernel`; Europa does not install packages.
+
+stderr:
+line1
+line2
+line3

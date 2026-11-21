@@ -1,0 +1,5 @@
+---
+source: crates/europa-core/tests/kernel_errors.rs
+expression: "spawn(SpawnErrorKind::InterpreterNotFound, \"\").to_string()"
+---
+Failed to spawn kernel with /opt/venv/bin/python: interpreter not found; check the path or pass an absolute path to a Python interpreter.

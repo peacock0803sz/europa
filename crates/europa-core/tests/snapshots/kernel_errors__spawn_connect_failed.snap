@@ -1,0 +1,5 @@
+---
+source: crates/europa-core/tests/kernel_errors.rs
+expression: "spawn(SpawnErrorKind::ConnectFailed { message: \"refused\".to_owned(), },\n\"\").to_string()"
+---
+Failed to spawn kernel with /opt/venv/bin/python: connection failed: refused.

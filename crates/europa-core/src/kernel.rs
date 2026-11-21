@@ -133,8 +133,19 @@ impl KernelEvent {
     /// through [`crate::apply_iopub`] instead.
     #[must_use]
     pub fn exec_event(&self) -> Option<ExecEvent> {
-        let _ = self;
-        todo!()
+        match self {
+            Self::Status {
+                parent: Some(parent),
+                state: KernelStatus::Idle,
+            } => Some(ExecEvent::Idle {
+                parent: parent.clone(),
+            }),
+            Self::ExecuteReply { parent, status, .. } => Some(ExecEvent::Reply {
+                parent: parent.clone(),
+                status: *status,
+            }),
+            _ => None,
+        }
     }
 }
 
@@ -239,8 +250,20 @@ pub enum Admission {
 /// Has no IO and returns the same result for the same input.
 #[must_use]
 pub fn admit(state: &KernelState, op: KernelOp) -> Admission {
-    let _ = (state, op);
-    todo!()
+    match (state, op) {
+        (KernelState::Ready, KernelOp::Execute)
+        | (KernelState::Ready, KernelOp::KernelInfo)
+        | (KernelState::Ready, KernelOp::Interrupt) => Admission::Send,
+        (KernelState::Ready, KernelOp::Restart) => Admission::StopThenRestart,
+        (KernelState::Ready, KernelOp::Shutdown) => Admission::StopAndClose,
+        (KernelState::Restarting, KernelOp::Shutdown) => Admission::AbortRestartAndStop,
+        (KernelState::Restarting, _) => Admission::Reject(KernelError::Restarting),
+        (KernelState::Dead { exit: _ }, KernelOp::Restart) => Admission::RestartFromDead,
+        (KernelState::Dead { .. }, KernelOp::Shutdown) => Admission::CleanUpDead,
+        (KernelState::Dead { exit }, _) => Admission::Reject(KernelError::Dead { exit: *exit }),
+        (KernelState::Closed, KernelOp::Shutdown) => Admission::AlreadyClosed,
+        (KernelState::Closed, _) => Admission::Reject(KernelError::Closed),
+    }
 }
 
 /// Transition of kernel liveness.
@@ -272,8 +295,17 @@ pub enum KernelTransition {
 /// `Ready` to `Dead`, and `RestartStarted` only applies in `Ready` and `Dead`.
 #[must_use]
 pub fn next_state(state: &KernelState, transition: KernelTransition) -> KernelState {
-    let _ = (state, transition);
-    todo!()
+    match (state, transition) {
+        (_, KernelTransition::Closed) => KernelState::Closed,
+        (KernelState::Ready, KernelTransition::ChildExited { exit }) => KernelState::Dead { exit },
+        (KernelState::Ready, KernelTransition::RestartStarted)
+        | (KernelState::Dead { .. }, KernelTransition::RestartStarted) => KernelState::Restarting,
+        (KernelState::Restarting, KernelTransition::RestartSucceeded) => KernelState::Ready,
+        (KernelState::Restarting, KernelTransition::RestartFailed) => KernelState::Dead {
+            exit: ProcessExit::Unknown,
+        },
+        _ => state.clone(),
+    }
 }
 
 /// Failure of an operation after the kernel was spawned.
@@ -304,8 +336,14 @@ pub enum KernelError {
 
 impl fmt::Display for KernelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = (self, f);
-        todo!()
+        match self {
+            Self::Spawn(error) => write!(f, "{error}"),
+            Self::Dead { exit } => write!(f, "Kernel is dead ({}).", exit_text(*exit)),
+            Self::Restarting => write!(f, "Kernel is restarting."),
+            Self::Timeout { op } => write!(f, "Timed out waiting for {}.", op_name(*op)),
+            Self::Closed => write!(f, "Kernel is closed."),
+            Self::Io { message } => write!(f, "Kernel I/O failed: {message}."),
+        }
     }
 }
 
@@ -348,9 +386,72 @@ pub enum SpawnErrorKind {
 
 impl fmt::Display for SpawnError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = (self, f);
-        todo!()
+        let python = self.python.display();
+        match &self.kind {
+            SpawnErrorKind::InterpreterNotFound => write!(
+                f,
+                "Failed to spawn kernel with {python}: interpreter not found; check the path or pass an absolute path to a Python interpreter.{}",
+                stderr_section(&self.stderr_tail)
+            ),
+            SpawnErrorKind::IpykernelMissing => write!(
+                f,
+                "Failed to spawn kernel with {python}: ipykernel is missing. Install it with `{python} -m pip install ipykernel`; Europa does not install packages.{}",
+                stderr_section(&self.stderr_tail)
+            ),
+            SpawnErrorKind::EarlyExit { exit } => write!(
+                f,
+                "Failed to spawn kernel with {python}: process {} before handshake. Check the Python version and that ipykernel imports.{}",
+                exit_text(*exit),
+                stderr_section(&self.stderr_tail)
+            ),
+            SpawnErrorKind::HandshakeTimeout { after } => write!(
+                f,
+                "Failed to spawn kernel with {python}: handshake timed out after {}s. The kernel may be slow to start or blocked by a firewall on 127.0.0.1.{}",
+                after.as_secs(),
+                stderr_section(&self.stderr_tail)
+            ),
+            SpawnErrorKind::ConnectFailed { message } => write!(
+                f,
+                "Failed to spawn kernel with {python}: connection failed: {message}.{}",
+                stderr_section(&self.stderr_tail)
+            ),
+        }
     }
+}
+
+/// Short human text for how a child ended.
+fn exit_text(exit: ProcessExit) -> String {
+    match exit {
+        ProcessExit::Code(code) => format!("exited with code {code}"),
+        ProcessExit::Signal(signal) => format!("killed by signal {signal}"),
+        ProcessExit::Unknown => "exited with unknown status".to_owned(),
+    }
+}
+
+/// Human name of a kernel operation.
+fn op_name(op: KernelOp) -> &'static str {
+    match op {
+        KernelOp::Execute => "execute",
+        KernelOp::KernelInfo => "kernel info",
+        KernelOp::Interrupt => "interrupt",
+        KernelOp::Restart => "restart",
+        KernelOp::Shutdown => "shutdown",
+    }
+}
+
+/// Last 20 lines of stderr, prefixed for display.
+fn stderr_section(tail: &str) -> String {
+    if tail.is_empty() {
+        return String::new();
+    }
+    let lines: Vec<&str> = tail.lines().collect();
+    let start = lines.len().saturating_sub(20);
+    let mut out = String::from("\n\nstderr:\n");
+    out.push_str(&lines[start..].join("\n"));
+    if tail.ends_with('\n') {
+        out.push('\n');
+    }
+    out
 }
 
 impl std::error::Error for SpawnError {}

@@ -1,0 +1,5 @@
+---
+source: crates/europa-core/tests/kernel_errors.rs
+expression: "KernelError::Timeout { op: KernelOp::KernelInfo, }.to_string()"
+---
+Timed out waiting for kernel info.
