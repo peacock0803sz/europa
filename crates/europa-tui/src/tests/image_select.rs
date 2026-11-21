@@ -19,6 +19,7 @@ fn probe(protocol: ProtocolType, cell_pixels: Option<CellPixels>) -> Option<Prob
     Some(Probe {
         protocol,
         cell_pixels,
+        background: None,
     })
 }
 

@@ -3,7 +3,7 @@
 
 use std::num::NonZeroU16;
 
-use europa_core::{CellPixels, ImageProtocolChoice};
+use europa_core::{Background, CellPixels, ImageProtocolChoice};
 use ratatui_image::picker::{Capability, ProtocolType};
 
 /// How many colors the terminal shows.
@@ -22,6 +22,25 @@ pub(crate) struct Probe {
     pub(crate) protocol: ProtocolType,
     /// The size of a cell the terminal reported, if it did.
     pub(crate) cell_pixels: Option<CellPixels>,
+    /// The background color the terminal reported, if it did.
+    pub(crate) background: Option<(u8, u8, u8)>,
+}
+
+/// Decide whether the background is dark or light.
+///
+/// Returns dark when there was no answer.
+pub(crate) fn background_from(answer: Option<(u8, u8, u8)>) -> Background {
+    match answer {
+        Some((r, g, b)) => {
+            let bright = u32::from(r) * 2126 + u32::from(g) * 7152 + u32::from(b) * 722;
+            if bright > 1_275_000 {
+                Background::Light
+            } else {
+                Background::Dark
+            }
+        }
+        None => Background::Dark,
+    }
 }
 
 /// What to find out before a protocol is chosen.
@@ -96,9 +115,14 @@ pub(crate) fn probe_from(protocol: ProtocolType, capabilities: &[Capability]) ->
         }),
         _ => None,
     });
+    let background = capabilities.iter().find_map(|capability| match capability {
+        Capability::Background(r, g, b) => Some((*r, *g, *b)),
+        _ => None,
+    });
     Probe {
         protocol,
         cell_pixels,
+        background,
     }
 }
 

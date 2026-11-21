@@ -2,7 +2,7 @@
 
 use std::io::IsTerminal;
 
-use europa_core::{CellPixels, DecodedImage, ImageProtocolChoice, ImageSlot, Output};
+use europa_core::{Background, CellPixels, DecodedImage, ImageProtocolChoice, ImageSlot, Output};
 use image::imageops::FilterType;
 use image::{DynamicImage, RgbImage};
 use ratatui::backend::{Backend, ClearType};
@@ -17,7 +17,8 @@ use ratatui_image::{FontSize, Resize};
 
 use crate::image_cache::{EncodeKey, Encoded, ImageCache, DEFAULT_LIMIT};
 use crate::image_protocol::{
-    cell_pixels_from, color_depth, plan_selection, probe_from, ColorDepth, Selection,
+    background_from, cell_pixels_from, color_depth, plan_selection, probe_from, ColorDepth,
+    Selection,
 };
 
 /// Where an image is on the screen.
@@ -172,6 +173,7 @@ pub(crate) struct ImageRenderer {
     picker: Picker,
     color_depth: ColorDepth,
     cell_pixels: CellPixels,
+    background: Background,
     cache: ImageCache,
     encoder: Box<dyn Encoder>,
     stats: ImageStats,
@@ -184,7 +186,8 @@ impl ImageRenderer {
     /// The terminal is queried only when `choice` leaves it open and both the
     /// input and the output are a terminal. Call this after `ratatui::init`
     /// and before the first event is read, because the answer of the terminal
-    /// comes through the input.
+    /// comes through the input. The background query rides in the same
+    /// single query, so a terminal that answers in two digits reads as dark.
     pub(crate) fn new(choice: ImageProtocolChoice) -> Self {
         let interactive = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
         let selection = plan_selection(choice, interactive);
@@ -193,18 +196,31 @@ impl ImageRenderer {
             // A terminal that does not answer still gives `Ok`, with what the
             // environment suggests, so `None` is only a failure to read or
             // write.
-            Selection::Query { .. } => Picker::from_query_stdio()
-                .ok()
-                .map(|picker| probe_from(picker.protocol_type(), picker.capabilities())),
+            Selection::Query { .. } => Picker::from_query_stdio_with_options(
+                ratatui_image::picker::cap_parser::QueryStdioOptions {
+                    terminal_background_color_osc: true,
+                    ..ratatui_image::picker::cap_parser::QueryStdioOptions::default()
+                },
+            )
+            .ok()
+            .map(|picker| probe_from(picker.protocol_type(), picker.capabilities())),
+        };
+        let background = match selection {
+            Selection::Halfblock => Background::Dark,
+            Selection::Query { .. } => probe
+                .map(|found| background_from(found.background))
+                .unwrap_or(Background::Dark),
         };
         let (protocol, cell_pixels) = selection.resolve(probe, window_cell_pixels());
-        Self::with_parts(
+        let mut created = Self::with_parts(
             protocol,
             cell_pixels,
             color_depth(|name| std::env::var(name).ok()),
             DEFAULT_LIMIT,
             Box::new(RatatuiEncoder),
-        )
+        );
+        created.background = background;
+        created
     }
 
     /// A renderer that does not touch the terminal.
@@ -219,6 +235,7 @@ impl ImageRenderer {
             picker: build_picker(cell_pixels, protocol),
             color_depth,
             cell_pixels,
+            background: Background::Dark,
             cache: ImageCache::new(cache_limit),
             encoder,
             stats: ImageStats::default(),
@@ -234,6 +251,11 @@ impl ImageRenderer {
     /// The size of a cell, for the options of the renderer.
     pub(crate) fn cell_pixels(&self) -> CellPixels {
         self.cell_pixels
+    }
+
+    /// Whether the terminal background is dark or light.
+    pub(crate) fn background(&self) -> Background {
+        self.background
     }
 
     /// Keeps the pixels of an image for drawing.
