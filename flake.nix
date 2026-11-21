@@ -47,6 +47,7 @@
               jq
               cargo-insta
               libiconv
+              (pkgs.python3.withPackages (ps: [ ps.ipykernel ]))
             ];
           };
 
