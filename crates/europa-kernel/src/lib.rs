@@ -10,6 +10,7 @@ mod client;
 mod connection;
 #[allow(dead_code)]
 mod convert;
+mod process;
 #[allow(dead_code)]
 mod wire;
 #[allow(dead_code)]
