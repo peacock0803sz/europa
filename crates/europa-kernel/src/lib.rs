@@ -12,7 +12,9 @@ mod convert;
 mod handshake;
 mod local;
 mod process;
+mod registry;
 mod wire;
 
 pub use client::KernelClient;
-pub use local::{kill_all_kernels, LocalKernel};
+pub use local::LocalKernel;
+pub use registry::kill_all_kernels;

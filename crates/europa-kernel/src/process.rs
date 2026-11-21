@@ -113,7 +113,7 @@ pub(crate) fn signal_group(pid: u32, signal: i32) {
 }
 
 /// Start a command on a watcher thread, for tests and kernels.
-fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watched> {
+pub(crate) fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watched> {
     use std::os::unix::process::CommandExt;
     use std::process::Stdio;
 

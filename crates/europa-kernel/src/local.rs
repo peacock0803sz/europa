@@ -23,6 +23,7 @@ use crate::connection::{new_key, pick_ports, ConnectionFile};
 use crate::convert::{convert, warning, Channel, Converted};
 use crate::handshake::{handshake, Sockets};
 use crate::process::{signal_group, Watched};
+use crate::registry::GLOBAL;
 use crate::wire::{decode, encode, header, new_id, WireMessage};
 use crate::KernelClient;
 
@@ -200,13 +201,6 @@ struct RestartedOk {
     info: KernelInfo,
 }
 
-/// Stop all live kernels without waiting.
-///
-/// Temporary stub for the registry (T039); panics until then.
-pub fn kill_all_kernels() {
-    todo!()
-}
-
 /// A spawned local kernel.
 pub struct LocalKernel {
     /// Commands for the owner task.
@@ -268,6 +262,7 @@ impl LocalKernel {
                 }
             };
             let session = new_id();
+            GLOBAL.register(watched.pid, conn.path().to_path_buf());
             match handshake(
                 &ports,
                 key.as_bytes(),
@@ -348,6 +343,7 @@ impl LocalKernel {
                     watched.kill_group();
                     let _ = watched.wait_exit(Duration::from_secs(5)).await;
                     let _ = conn.remove();
+                    GLOBAL.unregister(watched.pid);
                     if should_retry(&kind, &tail) && attempt < launch.port_retries {
                         attempt += 1;
                         continue;
@@ -450,12 +446,14 @@ impl KernelClient for LocalKernel {
 
 impl Drop for LocalKernel {
     fn drop(&mut self) {
-        if let Some((pid, path)) = self
+        // Drop first so a later `kill_all_kernels` never sees this pid.
+        let current = self
             .current
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
-            .take()
-        {
+            .take();
+        if let Some((pid, path)) = current {
+            GLOBAL.unregister(pid);
             signal_group(pid, libc::SIGKILL);
             let _ = std::fs::remove_file(&path);
         }
@@ -476,9 +474,7 @@ async fn run_owner(
         tokio::select! {
             command = commands.recv() => {
                 let Some(command) = command else {
-                    abort_restart(&mut restarting, &mut restart_rx).await;
-                    kill_live(&mut owner);
-                    finish_close(&mut owner);
+                    abort_and_cleanup(&mut owner, &mut restarting, &mut restart_rx).await;
                     break;
                 };
                 match command {
@@ -496,9 +492,7 @@ async fn run_owner(
                         handle_shutdown(&mut owner, &mut restarting, &mut restart_rx, reply).await;
                     }
                     Command::Kill => {
-                        abort_restart(&mut restarting, &mut restart_rx).await;
-                        kill_live(&mut owner);
-                        finish_close(&mut owner);
+                        abort_and_cleanup(&mut owner, &mut restarting, &mut restart_rx).await;
                         break;
                     }
                 }
@@ -556,6 +550,21 @@ async fn abort_restart(
         let _ = state.task.await;
         let _ = state.reply.send(Err(KernelError::Closed));
     }
+}
+
+/// Abort a restart, kill the current child, and close.
+async fn abort_and_cleanup(
+    owner: &mut Owner,
+    restarting: &mut Option<Restarting>,
+    restart_rx: &mut Option<mpsc::UnboundedReceiver<RestartOutcome>>,
+) {
+    abort_restart(restarting, restart_rx).await;
+    if let Some((pid, path)) = take_current(owner) {
+        signal_group(pid, libc::SIGKILL);
+        let _ = std::fs::remove_file(&path);
+    }
+    kill_live(owner);
+    finish_close(owner);
 }
 
 /// Forward shell messages until the receive task ends or is told to stop.
@@ -626,6 +635,19 @@ async fn wait_child_exited(
     }
 }
 
+/// Take the current child, forgetting it in the registry.
+fn take_current(owner: &Owner) -> Option<(u32, PathBuf)> {
+    let taken = owner
+        .current
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .take();
+    if let Some((pid, _)) = taken.as_ref() {
+        GLOBAL.unregister(*pid);
+    }
+    taken
+}
+
 /// Turn an unexpected child exit into one `Died` event.
 async fn handle_child_exit(owner: &mut Owner, exit: Option<ProcessExit>) {
     let Some(exit) = exit else {
@@ -661,11 +683,7 @@ async fn handle_child_exit(owner: &mut Owner, exit: Option<ProcessExit>) {
     if let Some(conn) = owner.conn.take() {
         let _ = conn.remove();
     }
-    let _ = owner
-        .current
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .take();
+    let _ = take_current(owner);
     owner.watched = None;
     if let Some(live) = owner.live.take() {
         let _ = (&live.stdin, &live.hb);
@@ -993,6 +1011,7 @@ async fn run_restart(
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .replace((watched.pid, conn.path().to_path_buf()));
+        GLOBAL.register(watched.pid, conn.path().to_path_buf());
         match handshake(
             &ports,
             key.as_bytes(),
@@ -1018,6 +1037,7 @@ async fn run_restart(
                     restarted.watched.kill_group();
                     let _ = restarted.watched.wait_exit(Duration::from_secs(5)).await;
                     let _ = restarted.conn.remove();
+                    GLOBAL.unregister(restarted.watched.pid);
                     let _ = current
                         .lock()
                         .unwrap_or_else(|poison| poison.into_inner())
@@ -1038,6 +1058,7 @@ async fn run_restart(
                 watched.kill_group();
                 let _ = watched.wait_exit(Duration::from_secs(5)).await;
                 let _ = conn.remove();
+                GLOBAL.unregister(watched.pid);
                 let _ = current
                     .lock()
                     .unwrap_or_else(|poison| poison.into_inner())
@@ -1084,6 +1105,7 @@ async fn stop_old_generation(
     }
     let _ = old.watched.wait_exit(Duration::from_secs(5)).await;
     let _ = old.conn.remove();
+    GLOBAL.unregister(old.watched.pid);
     let _ = current
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())
@@ -1181,12 +1203,7 @@ async fn handle_shutdown(
         }
         Admission::AbortRestartAndStop => {
             abort_restart(restarting, restart_rx).await;
-            if let Some((pid, path)) = owner
-                .current
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .take()
-            {
+            if let Some((pid, path)) = take_current(owner) {
                 signal_group(pid, libc::SIGKILL);
                 let _ = std::fs::remove_file(&path);
             }
@@ -1271,11 +1288,7 @@ fn kill_live(owner: &mut Owner) {
 
 /// Clear the current child, fail waiters, and close the state.
 fn finish_close(owner: &mut Owner) {
-    let _ = owner
-        .current
-        .lock()
-        .unwrap_or_else(|poison| poison.into_inner())
-        .take();
+    let _ = take_current(owner);
     for (_, (reply, _)) in owner.pending_info.drain() {
         let _ = reply.send(Err(KernelError::Closed));
     }
