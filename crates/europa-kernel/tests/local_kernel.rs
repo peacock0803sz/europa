@@ -6,9 +6,10 @@
 //! of passing silently.
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use europa_core::{KernelLaunch, SpawnErrorKind};
+use europa_core::{IopubMsg, KernelEvent, KernelLaunch, KernelStatus, MsgId, SpawnErrorKind};
 use europa_kernel::{KernelClient, LocalKernel};
 
 /// Interpreter under test, or a loud failure.
@@ -175,6 +176,140 @@ async fn drop_kills() {
     let file = owned.connection_file().expect("file");
     runtime.shutdown_background();
     drop(owned);
+    assert_gone(pid);
+    assert!(!file.exists());
+}
+
+/// Gather events until the reply and idle for `parent` both arrive.
+fn collect_until(
+    events: &Receiver<KernelEvent>,
+    parent: &MsgId,
+    timeout: Duration,
+) -> Vec<KernelEvent> {
+    let mut out = Vec::new();
+    let mut reply_seen = false;
+    let mut idle_seen = false;
+    let start = Instant::now();
+    while !(reply_seen && idle_seen) {
+        assert!(
+            start.elapsed() < timeout,
+            "timed out waiting for {parent:?}"
+        );
+        match events.recv_timeout(Duration::from_secs(1)) {
+            Ok(event) => {
+                match &event {
+                    KernelEvent::ExecuteReply { parent: p, .. } if p == parent => {
+                        reply_seen = true;
+                    }
+                    KernelEvent::Status {
+                        parent: Some(p),
+                        state: KernelStatus::Idle,
+                    } if p == parent => {
+                        idle_seen = true;
+                    }
+                    _ => {}
+                }
+                out.push(event);
+            }
+            Err(error) => panic!("channel failed: {error}"),
+        }
+    }
+    out
+}
+
+/// One round of executions against a live kernel.
+async fn run_execute_sequence(kernel: &LocalKernel, events: &Receiver<KernelEvent>) {
+    let hello = kernel.execute("print(\"hi\")").await.expect("sends");
+    let got = collect_until(events, &hello, Duration::from_secs(10));
+    assert!(got.iter().any(|event| matches!(
+        event,
+        KernelEvent::Status { parent: Some(p), state: KernelStatus::Busy } if p == &hello
+    )));
+    assert!(got.iter().any(|event| matches!(
+        event,
+        KernelEvent::Iopub(IopubMsg::Stream { parent: p, name, text })
+            if p == &hello && name == "stdout" && text == "hi\n"
+    )));
+    assert!(got.iter().any(|event| matches!(
+        event,
+        KernelEvent::ExecuteReply { parent: p, .. } if p == &hello
+    )));
+    assert!(got.iter().any(|event| matches!(
+        event,
+        KernelEvent::Status { parent: Some(p), state: KernelStatus::Idle } if p == &hello
+    )));
+
+    let error = kernel.execute("1/0").await.expect("sends");
+    let got = collect_until(events, &error, Duration::from_secs(10));
+    assert!(got.iter().any(|event| matches!(
+        event,
+        KernelEvent::Iopub(IopubMsg::Error { parent: p, ename, traceback, .. })
+            if p == &error && ename == "ZeroDivisionError" && !traceback.is_empty()
+    )));
+
+    let stuck = kernel.execute("input()").await.expect("sends");
+    let got = collect_until(events, &stuck, Duration::from_secs(10));
+    assert!(got.iter().any(|event| matches!(
+        event,
+        KernelEvent::Iopub(IopubMsg::Error { parent: p, .. }) if p == &stuck
+    )));
+
+    let first = kernel.execute("a = 1").await.expect("sends");
+    let second = kernel.execute("a + 1").await.expect("sends");
+    collect_until(events, &first, Duration::from_secs(10));
+    let got = collect_until(events, &second, Duration::from_secs(10));
+    assert!(got.iter().any(|event| matches!(
+        event,
+        KernelEvent::Iopub(IopubMsg::ExecuteResult { parent: p, .. }) if p == &second
+    )));
+}
+
+#[ignore]
+#[tokio::test(flavor = "multi_thread")]
+async fn execute_events() {
+    let (mut kernel, _) = LocalKernel::spawn(launch())
+        .await
+        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    let events = kernel.messages().expect("channel");
+    run_execute_sequence(&kernel, &events).await;
+    let pid = kernel.process_id().expect("running");
+    let file = kernel.connection_file().expect("file");
+    kernel.shutdown().await.expect("shutdown");
+    assert_gone(pid);
+    assert!(!file.exists());
+}
+
+#[ignore]
+#[tokio::test(flavor = "multi_thread")]
+async fn execute_events_repeat() {
+    let (mut kernel, _) = LocalKernel::spawn(launch())
+        .await
+        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    let events = kernel.messages().expect("channel");
+    for _ in 0..10 {
+        run_execute_sequence(&kernel, &events).await;
+    }
+    let pid = kernel.process_id().expect("running");
+    let file = kernel.connection_file().expect("file");
+    kernel.shutdown().await.expect("shutdown");
+    assert_gone(pid);
+    assert!(!file.exists());
+}
+
+#[ignore]
+#[tokio::test(flavor = "multi_thread")]
+async fn dropped_receiver() {
+    let (mut kernel, _) = LocalKernel::spawn(launch())
+        .await
+        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    drop(kernel.messages());
+    for _ in 0..3 {
+        kernel.execute("1").await.expect("sends");
+    }
+    kernel.kernel_info().await.expect("info works");
+    let pid = kernel.process_id().expect("running");
+    let file = kernel.connection_file().expect("file");
+    kernel.shutdown().await.expect("shutdown");
     assert_gone(pid);
     assert!(!file.exists());
 }
