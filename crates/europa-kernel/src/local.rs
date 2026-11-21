@@ -21,7 +21,7 @@ use zeromq::{SocketRecv, SocketSend};
 
 use crate::connection::{new_key, pick_ports, ConnectionFile};
 use crate::convert::{convert, warning, Channel, Converted};
-use crate::handshake::handshake;
+use crate::handshake::{handshake, Sockets};
 use crate::process::{signal_group, Watched};
 use crate::wire::{decode, encode, header, new_id, WireMessage};
 use crate::KernelClient;
@@ -65,6 +65,11 @@ enum Command {
         /// Where the answer goes.
         reply: oneshot::Sender<Result<(), KernelError>>,
     },
+    /// Stop the kernel and start it again.
+    Restart {
+        /// Where the new kernel description goes.
+        reply: oneshot::Sender<Result<KernelInfo, KernelError>>,
+    },
     /// Stop the kernel and close.
     Shutdown {
         /// Where the answer goes.
@@ -75,13 +80,16 @@ enum Command {
 }
 
 /// A message arriving from a receive task.
+///
+/// The generation lets the owner drop messages from sockets that a restart
+/// already replaced.
 enum Inbound {
     /// Something arrived on shell.
-    Shell(Result<zeromq::ZmqMessage, zeromq::ZmqError>),
+    Shell(u64, Result<zeromq::ZmqMessage, zeromq::ZmqError>),
     /// Something arrived on iopub.
-    Iopub(Result<zeromq::ZmqMessage, zeromq::ZmqError>),
+    Iopub(u64, Result<zeromq::ZmqMessage, zeromq::ZmqError>),
     /// Something arrived on control.
-    Control(Result<zeromq::ZmqMessage, zeromq::ZmqError>),
+    Control(u64, Result<zeromq::ZmqMessage, zeromq::ZmqError>),
 }
 
 /// Sockets kept by the owner task.
@@ -108,6 +116,8 @@ struct Owner {
     key: Vec<u8>,
     /// Session id shared by our messages.
     session: String,
+    /// Launch arguments reused by restarts.
+    launch: KernelLaunch,
     /// Send halves, dropped on close.
     live: Option<LiveSockets>,
     /// Child watcher, cleared on close.
@@ -122,6 +132,10 @@ struct Owner {
     current: Arc<Mutex<Option<(u32, PathBuf)>>>,
     /// Channel carrying kernel events to the caller.
     events: std::sync::mpsc::Sender<KernelEvent>,
+    /// Sender kept so the inbound channel never closes early.
+    inbound_tx: mpsc::UnboundedSender<Inbound>,
+    /// Socket generation, bumped on every restart.
+    generation: u64,
     /// Info replies waiting for their message id, with deadlines.
     pending_info: HashMap<
         String,
@@ -138,6 +152,52 @@ struct Owner {
             tokio::time::Instant,
         ),
     >,
+}
+
+/// A restart running beside the owner task.
+struct Restarting {
+    /// The restart task, aborted on shutdown or drop.
+    task: tokio::task::JoinHandle<()>,
+    /// Where the restart caller waits.
+    reply: oneshot::Sender<Result<KernelInfo, KernelError>>,
+}
+
+/// How one kernel generation ends for the restart task.
+struct OldLive {
+    /// Send halves used to stop the old kernel.
+    live: LiveSockets,
+    /// Old watcher whose exit ends the stop phase.
+    watched: Watched,
+    /// Old file removed after the old child ends.
+    conn: ConnectionFile,
+    /// Old HMAC key for the shutdown request.
+    key: Vec<u8>,
+    /// Old session for the shutdown request.
+    session: String,
+}
+
+/// What a restart task hands back.
+enum RestartOutcome {
+    /// A fresh kernel generation.
+    Ok(Box<RestartedOk>),
+    /// Starting over failed; the owner goes `Dead`.
+    Err(SpawnError),
+}
+
+/// A fresh kernel generation from a restart task.
+struct RestartedOk {
+    /// Fresh connected sockets.
+    sockets: Sockets,
+    /// Fresh child watcher.
+    watched: Watched,
+    /// Fresh connection file.
+    conn: ConnectionFile,
+    /// Fresh HMAC key.
+    key: Vec<u8>,
+    /// Fresh session.
+    session: String,
+    /// Fresh handshake info.
+    info: KernelInfo,
 }
 
 /// Stop all live kernels without waiting.
@@ -225,18 +285,21 @@ impl LocalKernel {
                         Arc::new(Mutex::new(Some((watched.pid, conn.path().to_path_buf()))));
                     let done = Arc::new(Notify::new());
                     tokio::spawn(recv_shell(
+                        0,
                         sockets.shell_recv,
                         inbound_tx.clone(),
                         Arc::clone(&done),
                     ));
                     tokio::spawn(recv_iopub(
+                        0,
                         sockets.iopub,
                         inbound_tx.clone(),
                         Arc::clone(&done),
                     ));
                     tokio::spawn(recv_control(
+                        0,
                         sockets.control_recv,
-                        inbound_tx,
+                        inbound_tx.clone(),
                         Arc::clone(&done),
                     ));
                     let exited = watched.exited.clone();
@@ -246,6 +309,7 @@ impl LocalKernel {
                         shutdown_grace: launch.shutdown_grace,
                         key: key.into_bytes(),
                         session,
+                        launch: launch.clone(),
                         live: Some(LiveSockets {
                             shell_send: sockets.shell_send,
                             control_send: sockets.control_send,
@@ -258,6 +322,8 @@ impl LocalKernel {
                         exited,
                         current: Arc::clone(&current),
                         events: events_tx,
+                        inbound_tx,
+                        generation: 0,
                         pending_info: HashMap::new(),
                         pending_interrupt: HashMap::new(),
                     };
@@ -294,13 +360,6 @@ impl LocalKernel {
                 }
             }
         }
-    }
-
-    /// Stop all live kernels without waiting.
-    ///
-    /// Temporary stub for the registry (T039); panics until then.
-    pub fn kill_all_kernels() {
-        todo!()
     }
 
     /// Current child pid, if the kernel runs.
@@ -362,7 +421,12 @@ impl KernelClient for LocalKernel {
     }
 
     async fn restart(&self) -> Result<KernelInfo, KernelError> {
-        todo!()
+        let (reply, answer) = oneshot::channel();
+        let sent = self.commands.send(Command::Restart { reply });
+        if sent.is_err() {
+            return Err(KernelError::Closed);
+        }
+        answer.await.unwrap_or(Err(KernelError::Closed))
     }
 
     fn shutdown(&self) -> impl Future<Output = Result<(), KernelError>> + Send {
@@ -405,12 +469,16 @@ async fn run_owner(
     mut commands: mpsc::UnboundedReceiver<Command>,
     mut inbound: mpsc::UnboundedReceiver<Inbound>,
 ) {
+    let mut restarting: Option<Restarting> = None;
+    let mut restart_rx: Option<mpsc::UnboundedReceiver<RestartOutcome>> = None;
     loop {
         let deadline = owner.pending_deadline();
         tokio::select! {
             command = commands.recv() => {
                 let Some(command) = command else {
-                    close_everything(&mut owner).await;
+                    abort_restart(&mut restarting, &mut restart_rx).await;
+                    kill_live(&mut owner);
+                    finish_close(&mut owner);
                     break;
                 };
                 match command {
@@ -421,9 +489,16 @@ async fn run_owner(
                     Command::Interrupt { reply } => {
                         handle_interrupt(&mut owner, reply).await;
                     }
-                    Command::Shutdown { reply } => handle_shutdown(&mut owner, reply).await,
+                    Command::Restart { reply } => {
+                        handle_restart(&mut owner, &mut restarting, &mut restart_rx, reply).await;
+                    }
+                    Command::Shutdown { reply } => {
+                        handle_shutdown(&mut owner, &mut restarting, &mut restart_rx, reply).await;
+                    }
                     Command::Kill => {
-                        close_everything(&mut owner).await;
+                        abort_restart(&mut restarting, &mut restart_rx).await;
+                        kill_live(&mut owner);
+                        finish_close(&mut owner);
                         break;
                     }
                 }
@@ -433,9 +508,29 @@ async fn run_owner(
                     continue;
                 };
                 match message {
-                    Inbound::Shell(result) => handle_shell(&mut owner, result),
-                    Inbound::Iopub(result) => handle_channel(&mut owner, Channel::Iopub, result),
-                    Inbound::Control(result) => handle_channel(&mut owner, Channel::Control, result),
+                    Inbound::Shell(gen, result) if gen == owner.generation => {
+                        handle_shell(&mut owner, result);
+                    }
+                    Inbound::Iopub(gen, result) if gen == owner.generation => {
+                        handle_channel(&mut owner, Channel::Iopub, result);
+                    }
+                    Inbound::Control(gen, result) if gen == owner.generation => {
+                        handle_channel(&mut owner, Channel::Control, result);
+                    }
+                    _ => {}
+                }
+            }
+            result = async {
+                match restart_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                restart_rx = None;
+                let taken = restarting.take();
+                if let Some(state) = taken {
+                    let _ = state.task.await;
+                    apply_restart(&mut owner, result, Some(state.reply));
                 }
             }
             _ = sleep_until(deadline) => {
@@ -450,8 +545,22 @@ async fn run_owner(
     }
 }
 
+/// Abort a running restart and tell its caller it was closed.
+async fn abort_restart(
+    restarting: &mut Option<Restarting>,
+    restart_rx: &mut Option<mpsc::UnboundedReceiver<RestartOutcome>>,
+) {
+    restart_rx.take();
+    if let Some(state) = restarting.take() {
+        state.task.abort();
+        let _ = state.task.await;
+        let _ = state.reply.send(Err(KernelError::Closed));
+    }
+}
+
 /// Forward shell messages until the receive task ends or is told to stop.
 async fn recv_shell(
+    gen: u64,
     mut recv: zeromq::DealerRecvHalf,
     tx: mpsc::UnboundedSender<Inbound>,
     done: Arc<Notify>,
@@ -459,7 +568,7 @@ async fn recv_shell(
     loop {
         tokio::select! {
             result = recv.recv() => {
-                if tx.send(Inbound::Shell(result)).is_err() {
+                if tx.send(Inbound::Shell(gen, result)).is_err() {
                     break;
                 }
             }
@@ -470,6 +579,7 @@ async fn recv_shell(
 
 /// Forward iopub messages until the receive task ends or is told to stop.
 async fn recv_iopub(
+    gen: u64,
     mut recv: zeromq::SubSocket,
     tx: mpsc::UnboundedSender<Inbound>,
     done: Arc<Notify>,
@@ -477,7 +587,7 @@ async fn recv_iopub(
     loop {
         tokio::select! {
             result = recv.recv() => {
-                if tx.send(Inbound::Iopub(result)).is_err() {
+                if tx.send(Inbound::Iopub(gen, result)).is_err() {
                     break;
                 }
             }
@@ -488,6 +598,7 @@ async fn recv_iopub(
 
 /// Forward control messages until the receive task ends or is told to stop.
 async fn recv_control(
+    gen: u64,
     mut recv: zeromq::DealerRecvHalf,
     tx: mpsc::UnboundedSender<Inbound>,
     done: Arc<Notify>,
@@ -495,7 +606,7 @@ async fn recv_control(
     loop {
         tokio::select! {
             result = recv.recv() => {
-                if tx.send(Inbound::Control(result)).is_err() {
+                if tx.send(Inbound::Control(gen, result)).is_err() {
                     break;
                 }
             }
@@ -766,8 +877,296 @@ async fn handle_kernel_info(
     owner.pending_info.insert(msg_id, (reply, deadline));
 }
 
+/// Restart the kernel, stopping the old generation in a separate task.
+async fn handle_restart(
+    owner: &mut Owner,
+    restarting: &mut Option<Restarting>,
+    restart_rx: &mut Option<mpsc::UnboundedReceiver<RestartOutcome>>,
+    reply: oneshot::Sender<Result<KernelInfo, KernelError>>,
+) {
+    let stop_old = match admit(&owner.state, KernelOp::Restart) {
+        Admission::StopThenRestart => {
+            match (owner.live.take(), owner.watched.take(), owner.conn.take()) {
+                (Some(live), Some(watched), Some(conn)) => Some(OldLive {
+                    live,
+                    watched,
+                    conn,
+                    key: owner.key.clone(),
+                    session: owner.session.clone(),
+                }),
+                _ => None,
+            }
+        }
+        Admission::RestartFromDead => None,
+        Admission::Reject(error) => {
+            let _ = reply.send(Err(error));
+            return;
+        }
+        _ => {
+            let _ = reply.send(Err(KernelError::Closed));
+            return;
+        }
+    };
+    owner.state = next_state(&owner.state, KernelTransition::RestartStarted);
+    owner.generation += 1;
+    owner.done.notify_waiters();
+    let (result_tx, result_rx) = mpsc::unbounded_channel();
+    let task = tokio::spawn(run_restart(
+        owner.launch.clone(),
+        stop_old,
+        Arc::clone(&owner.current),
+        owner.shutdown_grace,
+        result_tx,
+    ));
+    *restarting = Some(Restarting { task, reply });
+    *restart_rx = Some(result_rx);
+}
+
+/// Stop the old generation, then spawn and shake hands on a new one.
+async fn run_restart(
+    launch: KernelLaunch,
+    stop_old: Option<OldLive>,
+    current: Arc<Mutex<Option<(u32, PathBuf)>>>,
+    grace: Duration,
+    result: mpsc::UnboundedSender<RestartOutcome>,
+) {
+    if let Some(old) = stop_old {
+        stop_old_generation(old, &current, grace).await;
+    }
+    let key = new_key();
+    let session = new_id();
+    let mut attempt = 0;
+    loop {
+        let ports = match pick_ports() {
+            Ok(ports) => ports,
+            Err(error) => {
+                let _ = result.send(RestartOutcome::Err(SpawnError {
+                    kind: SpawnErrorKind::ConnectFailed {
+                        message: error.to_string(),
+                    },
+                    python: launch.python.clone(),
+                    stderr_tail: String::new(),
+                }));
+                return;
+            }
+        };
+        let conn = match ConnectionFile::create(ports, key.clone(), &launch.kernel_name) {
+            Ok(conn) => conn,
+            Err(error) => {
+                let _ = result.send(RestartOutcome::Err(SpawnError {
+                    kind: SpawnErrorKind::ConnectFailed {
+                        message: error.to_string(),
+                    },
+                    python: launch.python.clone(),
+                    stderr_tail: String::new(),
+                }));
+                return;
+            }
+        };
+        let mut watched = match Watched::spawn(&launch.python, conn.path()) {
+            Ok(watched) => watched,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    || error.kind() == std::io::ErrorKind::PermissionDenied =>
+            {
+                let _ = conn.remove();
+                let _ = result.send(RestartOutcome::Err(SpawnError {
+                    kind: SpawnErrorKind::InterpreterNotFound,
+                    python: launch.python.clone(),
+                    stderr_tail: String::new(),
+                }));
+                return;
+            }
+            Err(error) => {
+                let _ = conn.remove();
+                let _ = result.send(RestartOutcome::Err(SpawnError {
+                    kind: SpawnErrorKind::ConnectFailed {
+                        message: error.to_string(),
+                    },
+                    python: launch.python.clone(),
+                    stderr_tail: String::new(),
+                }));
+                return;
+            }
+        };
+        current
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .replace((watched.pid, conn.path().to_path_buf()));
+        match handshake(
+            &ports,
+            key.as_bytes(),
+            &session,
+            &mut watched,
+            launch.handshake_timeout,
+        )
+        .await
+        {
+            Ok((sockets, info)) => {
+                let outcome = RestartedOk {
+                    sockets,
+                    watched,
+                    conn,
+                    key: key.into_bytes(),
+                    session,
+                    info,
+                };
+                if let Err(returned) = result.send(RestartOutcome::Ok(Box::new(outcome))) {
+                    let RestartOutcome::Ok(mut restarted) = returned.0 else {
+                        return;
+                    };
+                    restarted.watched.kill_group();
+                    let _ = restarted.watched.wait_exit(Duration::from_secs(5)).await;
+                    let _ = restarted.conn.remove();
+                    let _ = current
+                        .lock()
+                        .unwrap_or_else(|poison| poison.into_inner())
+                        .take();
+                }
+                return;
+            }
+            Err(kind) => {
+                let tail = watched
+                    .stderr
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .tail();
+                let kind = match kind {
+                    SpawnErrorKind::EarlyExit { exit } => classify(exit, &tail),
+                    kind => kind,
+                };
+                watched.kill_group();
+                let _ = watched.wait_exit(Duration::from_secs(5)).await;
+                let _ = conn.remove();
+                let _ = current
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .take();
+                if should_retry(&kind, &tail) && attempt < launch.port_retries {
+                    attempt += 1;
+                    continue;
+                }
+                let _ = result.send(RestartOutcome::Err(SpawnError {
+                    kind,
+                    python: launch.python.clone(),
+                    stderr_tail: tail,
+                }));
+                return;
+            }
+        }
+    }
+}
+
+/// Stop one old generation with a shutdown request, then forcefully.
+async fn stop_old_generation(
+    mut old: OldLive,
+    current: &Arc<Mutex<Option<(u32, PathBuf)>>>,
+    grace: Duration,
+) {
+    let message = WireMessage {
+        identities: Vec::new(),
+        header: header("shutdown_request", &old.session),
+        parent_header: None,
+        metadata: serde_json::Value::Object(Default::default()),
+        content: serde_json::json!({"restart": false}),
+        buffers: Vec::new(),
+    };
+    let frames = encode(&message, &old.key);
+    let mut live = old.live;
+    let _ = send_zmq(&mut live.control_send, frames).await;
+    let mut exited = old.watched.exited.clone();
+    let done = tokio::select! {
+        _ = exited.wait_for(|exit| exit.is_some()) => true,
+        _ = tokio::time::sleep(grace) => false,
+    };
+    if !done {
+        old.watched.kill_group();
+    }
+    let _ = old.watched.wait_exit(Duration::from_secs(5)).await;
+    let _ = old.conn.remove();
+    let _ = current
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .take();
+    let _ = (&live.stdin, &live.hb);
+}
+
+/// Apply a finished restart to the owner.
+fn apply_restart(
+    owner: &mut Owner,
+    outcome: Option<RestartOutcome>,
+    reply: Option<oneshot::Sender<Result<KernelInfo, KernelError>>>,
+) {
+    let Some(reply) = reply else {
+        return;
+    };
+    match outcome {
+        Some(RestartOutcome::Ok(restarted)) => {
+            let gen = owner.generation;
+            let inbound_tx = owner.inbound_tx.clone();
+            let done = Arc::clone(&owner.done);
+            tokio::spawn(recv_shell(
+                gen,
+                restarted.sockets.shell_recv,
+                inbound_tx.clone(),
+                Arc::clone(&done),
+            ));
+            tokio::spawn(recv_iopub(
+                gen,
+                restarted.sockets.iopub,
+                inbound_tx.clone(),
+                Arc::clone(&done),
+            ));
+            tokio::spawn(recv_control(
+                gen,
+                restarted.sockets.control_recv,
+                inbound_tx,
+                Arc::clone(&done),
+            ));
+            owner.live = Some(LiveSockets {
+                shell_send: restarted.sockets.shell_send,
+                control_send: restarted.sockets.control_send,
+                stdin: restarted.sockets.stdin,
+                hb: restarted.sockets.hb,
+            });
+            owner.exited = restarted.watched.exited.clone();
+            owner.watched = Some(restarted.watched);
+            owner.conn = Some(restarted.conn);
+            owner.key = restarted.key;
+            owner.session = restarted.session;
+            owner.state = next_state(&owner.state, KernelTransition::RestartSucceeded);
+            send_event(
+                owner,
+                KernelEvent::Restarted {
+                    info: restarted.info.clone(),
+                },
+            );
+            let _ = reply.send(Ok(restarted.info));
+        }
+        Some(RestartOutcome::Err(error)) => {
+            owner.state = next_state(&owner.state, KernelTransition::RestartFailed);
+            let _ = reply.send(Err(KernelError::Spawn(error)));
+        }
+        None => {
+            owner.state = next_state(&owner.state, KernelTransition::RestartFailed);
+            let _ = reply.send(Err(KernelError::Spawn(SpawnError {
+                kind: SpawnErrorKind::ConnectFailed {
+                    message: "restart task ended".to_owned(),
+                },
+                python: owner.launch.python.clone(),
+                stderr_tail: String::new(),
+            })));
+        }
+    }
+}
+
 /// Stop the kernel and close, waiting out the grace period first.
-async fn handle_shutdown(owner: &mut Owner, reply: oneshot::Sender<Result<(), KernelError>>) {
+async fn handle_shutdown(
+    owner: &mut Owner,
+    restarting: &mut Option<Restarting>,
+    restart_rx: &mut Option<mpsc::UnboundedReceiver<RestartOutcome>>,
+    reply: oneshot::Sender<Result<(), KernelError>>,
+) {
     match admit(&owner.state, KernelOp::Shutdown) {
         Admission::StopAndClose => {}
         Admission::CleanUpDead => {
@@ -777,6 +1176,22 @@ async fn handle_shutdown(owner: &mut Owner, reply: oneshot::Sender<Result<(), Ke
             return;
         }
         Admission::AlreadyClosed => {
+            let _ = reply.send(Ok(()));
+            return;
+        }
+        Admission::AbortRestartAndStop => {
+            abort_restart(restarting, restart_rx).await;
+            if let Some((pid, path)) = owner
+                .current
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .take()
+            {
+                signal_group(pid, libc::SIGKILL);
+                let _ = std::fs::remove_file(&path);
+            }
+            drop_live(owner);
+            finish_close(owner);
             let _ = reply.send(Ok(()));
             return;
         }
@@ -852,12 +1267,6 @@ fn kill_live(owner: &mut Owner) {
         watched.kill_group();
     }
     drop_live(owner);
-}
-
-/// Stop everything without waiting, for task end.
-async fn close_everything(owner: &mut Owner) {
-    kill_live(owner);
-    finish_close(owner);
 }
 
 /// Clear the current child, fail waiters, and close the state.
