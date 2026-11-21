@@ -33,6 +33,16 @@ The exit codes are 0 for success and `--help`, 64 for usage errors, 65 for
 a notebook that cannot be parsed, 66 for a file that cannot be read, 74 for
 a terminal that cannot be used, 129 for SIGHUP and 143 for SIGTERM.
 
+| Keys | Move |
+|------|------|
+| `j`, `↓` | One line down |
+| `k`, `↑` | One line up |
+| `]` | Next cell |
+| `[` | Previous cell |
+| `gg` | First cell |
+| `G` | Last cell |
+| `q`, `Ctrl-C` | Quit |
+
 At startup the terminal is asked for its background color in the same
 single query as the graphics protocol. When it answers, light or dark
 colors are chosen for stderr, errors and code blocks. Without an answer
@@ -47,6 +57,7 @@ iTerm2), and the answer is used when there is one. Terminals that do not
 support any, or that do not answer, get half-block characters, which work
 everywhere and need no query. The probe can skip the query by choosing
 half-blocks by hand, as does a session whose input or output is not a terminal.
+In `europa` the same images are scrolled with `j` and `k`.
 
 An image that cannot be read, or that is over 64 million pixels, is named in a
 line of its own with the reason, for example `[image/png: broken]`, and the
