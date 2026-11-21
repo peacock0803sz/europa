@@ -16,16 +16,23 @@ use crate::process::Watched;
 use crate::wire::{decode, encode, header, WireMessage};
 
 /// Connected sockets for one kernel.
+///
+/// Send halves stay with the owner task; receive halves move into dedicated
+/// tasks, so a slow channel never blocks the others behind one lock.
 pub(crate) struct Sockets {
-    /// Shell channel for requests and replies.
-    pub(crate) shell: zeromq::DealerSocket,
-    /// Control channel for interrupt and shutdown.
-    pub(crate) control: zeromq::DealerSocket,
+    /// Shell channel sender for requests.
+    pub(crate) shell_send: zeromq::DealerSendHalf,
+    /// Shell channel receiver, moved into its task.
+    pub(crate) shell_recv: zeromq::DealerRecvHalf,
+    /// Control channel sender for interrupt and shutdown.
+    pub(crate) control_send: zeromq::DealerSendHalf,
+    /// Control channel receiver, moved into its task.
+    pub(crate) control_recv: zeromq::DealerRecvHalf,
     /// Stdin channel, connected but never read.
     pub(crate) stdin: zeromq::DealerSocket,
-    /// Iopub channel for status and outputs.
+    /// Iopub channel for status and outputs, moved into its task.
     pub(crate) iopub: zeromq::SubSocket,
-    /// Heartbeat channel for liveness checks.
+    /// Heartbeat channel, used only during the handshake.
     pub(crate) hb: zeromq::ReqSocket,
 }
 
@@ -63,9 +70,13 @@ impl Sockets {
         hb.connect(&format!("tcp://127.0.0.1:{}", ports.hb))
             .await
             .map_err(|error| error.to_string())?;
+        let (shell_send, shell_recv) = shell.split();
+        let (control_send, control_recv) = control.split();
         Ok(Self {
-            shell,
-            control,
+            shell_send,
+            shell_recv,
+            control_send,
+            control_recv,
             stdin,
             iopub,
             hb,
@@ -111,6 +122,9 @@ async fn run_handshake(
 }
 
 /// Send requests until shell, iopub, and heartbeat all answer.
+///
+/// The heartbeat round trip runs as one pinned future: cancelling a `REQ`
+/// receive drops its in-flight request, so it is never re-polled.
 async fn probe(
     ports: &Ports,
     key: &[u8],
@@ -119,14 +133,28 @@ async fn probe(
     let mut sockets = Sockets::connect(ports)
         .await
         .map_err(|message| SpawnErrorKind::ConnectFailed { message })?;
-    send_kernel_info(&mut sockets.shell, key, session).await?;
-    sockets
-        .hb
-        .send(ping())
-        .await
-        .map_err(|error| SpawnErrorKind::ConnectFailed {
-            message: error.to_string(),
-        })?;
+    send_kernel_info(&mut sockets.shell_send, key, session).await?;
+    let idle_hb = zeromq::ReqSocket::new();
+    let mut hb = std::mem::replace(&mut sockets.hb, idle_hb);
+    let mut hb_roundtrip = Box::pin(async move {
+        hb.send(ping())
+            .await
+            .map_err(|error| SpawnErrorKind::ConnectFailed {
+                message: error.to_string(),
+            })?;
+        let echo = hb
+            .recv()
+            .await
+            .map_err(|error| SpawnErrorKind::ConnectFailed {
+                message: error.to_string(),
+            })?;
+        let frames: Vec<Vec<u8>> = echo
+            .into_vec()
+            .into_iter()
+            .map(|frame| frame.to_vec())
+            .collect();
+        Ok::<_, SpawnErrorKind>((hb, frames == vec![b"ping".to_vec()]))
+    });
     let mut info = None;
     let mut iopub_seen = false;
     let mut hb_seen = false;
@@ -137,7 +165,7 @@ async fn probe(
             break;
         }
         tokio::select! {
-            incoming = sockets.shell.recv() => {
+            incoming = sockets.shell_recv.recv() => {
                 let frames = into_frames(incoming)?;
                 let Ok(message) = decode(&frames, key) else {
                     continue;
@@ -158,23 +186,22 @@ async fn probe(
                     iopub_seen = true;
                 }
             }
-            incoming = sockets.hb.recv() => {
-                let frames = into_frames(incoming)?;
-                if frames == vec![b"ping".to_vec()] {
-                    hb_seen = true;
-                }
+            result = &mut hb_roundtrip, if !hb_seen => {
+                let (back, ok) = result?;
+                sockets.hb = back;
+                hb_seen = ok;
             }
             _ = resend.tick(), if info.is_none() => {
-                send_kernel_info(&mut sockets.shell, key, session).await?;
+                send_kernel_info(&mut sockets.shell_send, key, session).await?;
             }
         }
     }
     Ok((sockets, info.expect("checked above")))
 }
 
-/// Send one `kernel_info_request` on shell.
+/// Send one `kernel_info_request` on a shell sender.
 async fn send_kernel_info(
-    shell: &mut zeromq::DealerSocket,
+    shell: &mut zeromq::DealerSendHalf,
     key: &[u8],
     session: &str,
 ) -> Result<(), SpawnErrorKind> {
