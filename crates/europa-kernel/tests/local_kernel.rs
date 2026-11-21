@@ -74,9 +74,17 @@ fn launch() -> KernelLaunch {
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn spawn_and_info() {
-    let (kernel, info) = LocalKernel::spawn(launch()).await.expect("spawns");
+    let (kernel, info) = LocalKernel::spawn(launch())
+        .await
+        .unwrap_or_else(|error| panic!("spawns: {error}"));
     assert_eq!(info.language.name, "python");
-    assert_eq!(kernel.kernel_info().await.expect("info"), info);
+    let mut again = kernel.kernel_info().await.expect("info");
+    assert_eq!(again.language.name, "python");
+    // The banner rotates tips on every call, so compare the rest.
+    let mut expected = info.clone();
+    expected.banner.clear();
+    again.banner.clear();
+    assert_eq!(again, expected);
     let pid = kernel.process_id().expect("running");
     let file = kernel.connection_file().expect("file");
     kernel.shutdown().await.expect("shutdown");
@@ -90,13 +98,15 @@ async fn spawn_and_info() {
 async fn spawn_failures() {
     let before = connection_files();
     let missing = KernelLaunch::new("/nonexistent-europa-python", "python3");
-    let error = LocalKernel::spawn(missing)
-        .await
-        .expect_err("missing fails");
+    let Err(error) = LocalKernel::spawn(missing).await else {
+        panic!("missing fails")
+    };
     assert_eq!(error.kind, SpawnErrorKind::InterpreterNotFound);
     let dir = tempfile::tempdir().expect("temp dir");
     let bare = KernelLaunch::new(bare_python(dir.path()), "python3");
-    let error = LocalKernel::spawn(bare).await.expect_err("bare fails");
+    let Err(error) = LocalKernel::spawn(bare).await else {
+        panic!("bare fails")
+    };
     assert_eq!(error.kind, SpawnErrorKind::IpykernelMissing);
     assert!(error.stderr_tail.contains("ipykernel"));
     assert_eq!(connection_files(), before);
@@ -109,7 +119,9 @@ async fn handshake_timeout() {
     let mut args = launch();
     args.handshake_timeout = Duration::from_millis(1);
     args.port_retries = 0;
-    let error = LocalKernel::spawn(args).await.expect_err("times out");
+    let Err(error) = LocalKernel::spawn(args).await else {
+        panic!("times out")
+    };
     assert!(matches!(
         error.kind,
         SpawnErrorKind::HandshakeTimeout { .. }
@@ -120,10 +132,15 @@ async fn handshake_timeout() {
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn repeat_spawn() {
-    for _ in 0..10 {
+    for round in 0..10 {
         let start = Instant::now();
-        let (kernel, _) = LocalKernel::spawn(launch()).await.expect("spawns");
-        kernel.kernel_info().await.expect("info");
+        let (kernel, _) = LocalKernel::spawn(launch())
+            .await
+            .unwrap_or_else(|error| panic!("round {round} spawns: {error}"));
+        kernel
+            .kernel_info()
+            .await
+            .unwrap_or_else(|error| panic!("round {round} info: {error:?}"));
         assert!(start.elapsed() < Duration::from_secs(10));
         let pid = kernel.process_id().expect("running");
         let file = kernel.connection_file().expect("file");
@@ -136,7 +153,9 @@ async fn repeat_spawn() {
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn drop_kills() {
-    let (kernel, _) = LocalKernel::spawn(launch()).await.expect("spawns");
+    let (kernel, _) = LocalKernel::spawn(launch())
+        .await
+        .unwrap_or_else(|error| panic!("spawns: {error}"));
     let pid = kernel.process_id().expect("running");
     let file = kernel.connection_file().expect("file");
     drop(kernel);
@@ -150,9 +169,8 @@ async fn drop_kills() {
     let owned = runtime
         .spawn(LocalKernel::spawn(launch()))
         .await
-        .expect("joins")
-        .expect("spawns")
-        .0;
+        .expect("joins");
+    let (owned, _) = owned.unwrap_or_else(|error| panic!("spawns: {error}"));
     let pid = owned.process_id().expect("running");
     let file = owned.connection_file().expect("file");
     runtime.shutdown_background();
