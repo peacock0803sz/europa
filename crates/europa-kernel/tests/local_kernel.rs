@@ -448,7 +448,6 @@ async fn restart_flow() {
     let pid = kernel.process_id().expect("running");
     let file = kernel.connection_file().expect("file");
     let kernel = Arc::try_unwrap(kernel).unwrap_or_else(|_| panic!("sole owner"));
-    let mut kernel = kernel;
     kernel.shutdown().await.expect("shutdown");
     assert_gone(pid);
     assert!(!file.exists());
@@ -457,7 +456,7 @@ async fn restart_flow() {
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn shutdown_during_restart() {
-    let (mut kernel, _) = LocalKernel::spawn(launch())
+    let (kernel, _) = LocalKernel::spawn(launch())
         .await
         .unwrap_or_else(|error| panic!("spawns: {error}"));
     let old_pid = kernel.process_id().expect("running");
@@ -550,7 +549,7 @@ async fn restart_failure() {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).expect("chmod");
     }
-    let (mut kernel, _) = LocalKernel::spawn(KernelLaunch::new(&wrapper, "python3"))
+    let (kernel, _) = LocalKernel::spawn(KernelLaunch::new(&wrapper, "python3"))
         .await
         .unwrap_or_else(|error| panic!("spawns: {error}"));
     std::fs::remove_file(&wrapper).expect("removes wrapper");
@@ -601,7 +600,7 @@ async fn kill_all() {
 async fn request_timeout() {
     let mut args = launch();
     args.request_timeout = Duration::from_secs(1);
-    let (mut kernel, _) = LocalKernel::spawn(args)
+    let (kernel, _) = LocalKernel::spawn(args)
         .await
         .unwrap_or_else(|error| panic!("spawns: {error}"));
     let pid = kernel.process_id().expect("running");
@@ -621,7 +620,7 @@ async fn request_timeout() {
     ));
     let mut args = launch();
     args.shutdown_grace = Duration::from_secs(1);
-    let (mut slow, _) = LocalKernel::spawn(args)
+    let (slow, _) = LocalKernel::spawn(args)
         .await
         .unwrap_or_else(|error| panic!("spawns: {error}"));
     let slow_pid = slow.process_id().expect("running");
