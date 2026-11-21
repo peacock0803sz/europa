@@ -522,6 +522,7 @@ dependencies = [
 name = "europa-kernel"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "europa-core",
  "getrandom 0.4.3",
  "hmac",
