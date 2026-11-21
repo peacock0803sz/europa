@@ -116,6 +116,8 @@ struct Owner {
     conn: Option<ConnectionFile>,
     /// Pokes receive tasks to end on close.
     done: Arc<Notify>,
+    /// Latest child exit broadcast, refreshed on restart.
+    exited: tokio::sync::watch::Receiver<Option<ProcessExit>>,
     /// Current child and file for [`LocalKernel::process_id`].
     current: Arc<Mutex<Option<(u32, PathBuf)>>>,
     /// Channel carrying kernel events to the caller.
@@ -237,6 +239,7 @@ impl LocalKernel {
                         inbound_tx,
                         Arc::clone(&done),
                     ));
+                    let exited = watched.exited.clone();
                     let owner = Owner {
                         state: KernelState::Ready,
                         request_timeout: launch.request_timeout,
@@ -252,6 +255,7 @@ impl LocalKernel {
                         watched: Some(watched),
                         conn: Some(conn),
                         done,
+                        exited,
                         current: Arc::clone(&current),
                         events: events_tx,
                         pending_info: HashMap::new(),
@@ -437,6 +441,11 @@ async fn run_owner(
             _ = sleep_until(deadline) => {
                 expire_info(&mut owner);
             }
+            exit = wait_child_exited(owner.exited.clone()),
+                if matches!(owner.state, KernelState::Ready) =>
+            {
+                handle_child_exit(&mut owner, exit).await;
+            }
         }
     }
 }
@@ -493,6 +502,65 @@ async fn recv_control(
             _ = done.notified() => break,
         }
     }
+}
+
+/// Wait until the child ends, reporting how.
+async fn wait_child_exited(
+    mut exited: tokio::sync::watch::Receiver<Option<ProcessExit>>,
+) -> Option<ProcessExit> {
+    let settled = exited.wait_for(|exit| exit.is_some()).await;
+    match settled {
+        Ok(guard) => *guard,
+        Err(_) => None,
+    }
+}
+
+/// Turn an unexpected child exit into one `Died` event.
+async fn handle_child_exit(owner: &mut Owner, exit: Option<ProcessExit>) {
+    let Some(exit) = exit else {
+        return;
+    };
+    if !matches!(owner.state, KernelState::Ready) {
+        return;
+    }
+    let tail = owner
+        .watched
+        .as_ref()
+        .map(|watched| Arc::clone(&watched.stderr))
+        .map(|stderr| {
+            stderr
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .tail()
+        })
+        .unwrap_or_default();
+    send_event(
+        owner,
+        KernelEvent::Died {
+            exit,
+            stderr_tail: tail,
+        },
+    );
+    for (_, (reply, _)) in owner.pending_info.drain() {
+        let _ = reply.send(Err(KernelError::Dead { exit }));
+    }
+    for (_, (reply, _)) in owner.pending_interrupt.drain() {
+        let _ = reply.send(Err(KernelError::Dead { exit }));
+    }
+    if let Some(conn) = owner.conn.take() {
+        let _ = conn.remove();
+    }
+    let _ = owner
+        .current
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .take();
+    owner.watched = None;
+    if let Some(live) = owner.live.take() {
+        let _ = (&live.stdin, &live.hb);
+    }
+    owner.done.notify_waiters();
+    owner.state = next_state(&owner.state, KernelTransition::ChildExited { exit });
 }
 
 /// Sleep until a pending deadline, or never when idle.
