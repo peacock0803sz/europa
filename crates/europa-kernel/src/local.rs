@@ -60,6 +60,11 @@ enum Command {
         /// Where the request id goes.
         reply: oneshot::Sender<Result<MsgId, KernelError>>,
     },
+    /// Interrupt the running execution.
+    Interrupt {
+        /// Where the answer goes.
+        reply: oneshot::Sender<Result<(), KernelError>>,
+    },
     /// Stop the kernel and close.
     Shutdown {
         /// Where the answer goes.
@@ -120,6 +125,14 @@ struct Owner {
         String,
         (
             oneshot::Sender<Result<KernelInfo, KernelError>>,
+            tokio::time::Instant,
+        ),
+    >,
+    /// Interrupt replies waiting for their message id, with deadlines.
+    pending_interrupt: HashMap<
+        String,
+        (
+            oneshot::Sender<Result<(), KernelError>>,
             tokio::time::Instant,
         ),
     >,
@@ -242,6 +255,7 @@ impl LocalKernel {
                         current: Arc::clone(&current),
                         events: events_tx,
                         pending_info: HashMap::new(),
+                        pending_interrupt: HashMap::new(),
                     };
                     tokio::spawn(run_owner(owner, commands_rx, inbound_rx));
                     let kernel = Self {
@@ -335,7 +349,12 @@ impl KernelClient for LocalKernel {
     }
 
     async fn interrupt(&self) -> Result<(), KernelError> {
-        todo!()
+        let (reply, answer) = oneshot::channel();
+        let sent = self.commands.send(Command::Interrupt { reply });
+        if sent.is_err() {
+            return Err(KernelError::Closed);
+        }
+        answer.await.unwrap_or(Err(KernelError::Closed))
     }
 
     async fn restart(&self) -> Result<KernelInfo, KernelError> {
@@ -394,6 +413,9 @@ async fn run_owner(
                     Command::KernelInfo { reply } => handle_kernel_info(&mut owner, reply).await,
                     Command::Execute { code, reply } => {
                         handle_execute(&mut owner, code, reply).await;
+                    }
+                    Command::Interrupt { reply } => {
+                        handle_interrupt(&mut owner, reply).await;
                     }
                     Command::Shutdown { reply } => handle_shutdown(&mut owner, reply).await,
                     Command::Kill => {
@@ -482,9 +504,13 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
 }
 
 impl Owner {
-    /// Earliest info deadline, if any request waits.
+    /// Earliest pending deadline, if any request waits.
     fn pending_deadline(&self) -> Option<tokio::time::Instant> {
-        self.pending_info.values().map(|(_, at)| *at).min()
+        self.pending_info
+            .values()
+            .map(|(_, at)| *at)
+            .chain(self.pending_interrupt.values().map(|(_, at)| *at))
+            .min()
     }
 }
 
@@ -539,6 +565,15 @@ fn handle_channel(
     };
     if let Converted::Event(event) = convert(channel, &message) {
         send_event(owner, event);
+        return;
+    }
+    if let Converted::InterruptReply { parent } = convert(channel, &message) {
+        let Some(id) = parent.map(|parent| parent.as_str().to_owned()) else {
+            return;
+        };
+        if let Some((reply, _)) = owner.pending_interrupt.remove(&id) {
+            let _ = reply.send(Ok(()));
+        }
     }
 }
 
@@ -586,6 +621,42 @@ async fn handle_execute(
     } else {
         let _ = reply.send(Err(KernelError::Closed));
     }
+}
+
+/// Interrupt the running execution when admitted.
+async fn handle_interrupt(owner: &mut Owner, reply: oneshot::Sender<Result<(), KernelError>>) {
+    match admit(&owner.state, KernelOp::Interrupt) {
+        Admission::Send => {}
+        Admission::Reject(error) => {
+            let _ = reply.send(Err(error));
+            return;
+        }
+        _ => {
+            let _ = reply.send(Err(KernelError::Closed));
+            return;
+        }
+    }
+    let req_header = header("interrupt_request", &owner.session);
+    let msg_id = req_header.msg_id.clone();
+    let message = WireMessage {
+        identities: Vec::new(),
+        header: req_header,
+        parent_header: None,
+        metadata: serde_json::Value::Object(Default::default()),
+        content: serde_json::Value::Object(Default::default()),
+        buffers: Vec::new(),
+    };
+    let frames = encode(&message, &owner.key);
+    let sent = match owner.live.as_mut() {
+        Some(live) => send_zmq(&mut live.control_send, frames).await.is_ok(),
+        None => false,
+    };
+    if !sent {
+        let _ = reply.send(Err(KernelError::Closed));
+        return;
+    }
+    let deadline = tokio::time::Instant::now() + owner.request_timeout;
+    owner.pending_interrupt.insert(msg_id, (reply, deadline));
 }
 
 /// Ask for the kernel description when admitted.
@@ -731,10 +802,13 @@ fn finish_close(owner: &mut Owner) {
     for (_, (reply, _)) in owner.pending_info.drain() {
         let _ = reply.send(Err(KernelError::Closed));
     }
+    for (_, (reply, _)) in owner.pending_interrupt.drain() {
+        let _ = reply.send(Err(KernelError::Closed));
+    }
     owner.state = next_state(&owner.state, KernelTransition::Closed);
 }
 
-/// Fail info requests past their deadline.
+/// Fail requests past their deadline.
 fn expire_info(owner: &mut Owner) {
     let now = tokio::time::Instant::now();
     let expired: Vec<String> = owner
@@ -747,6 +821,19 @@ fn expire_info(owner: &mut Owner) {
         if let Some((reply, _)) = owner.pending_info.remove(&id) {
             let _ = reply.send(Err(KernelError::Timeout {
                 op: KernelOp::KernelInfo,
+            }));
+        }
+    }
+    let expired: Vec<String> = owner
+        .pending_interrupt
+        .iter()
+        .filter(|(_, (_, at))| *at <= now)
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in expired {
+        if let Some((reply, _)) = owner.pending_interrupt.remove(&id) {
+            let _ = reply.send(Err(KernelError::Timeout {
+                op: KernelOp::Interrupt,
             }));
         }
     }
