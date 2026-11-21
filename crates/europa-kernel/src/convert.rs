@@ -4,7 +4,10 @@
 //! the twelve known kinds. Anything else becomes a warning, except the
 //! shutdown reply on iopub, which is silently ignored.
 
-use europa_core::{KernelEvent, KernelInfo, MsgId};
+use europa_core::{
+    IopubMsg, JsonMap, KernelEvent, KernelInfo, KernelStatus, LanguageInfo, MsgId, ReplyStatus,
+    WarningReason,
+};
 
 use crate::wire::{DecodeError, WireMessage};
 
@@ -47,14 +50,314 @@ pub(crate) enum Converted {
 
 /// Convert one wire message into an event or a pending reply.
 pub(crate) fn convert(channel: Channel, msg: &WireMessage) -> Converted {
-    let _ = (channel, msg);
-    todo!()
+    let msg_type = msg.header.msg_type.as_str();
+    let parent = msg
+        .parent_header
+        .as_ref()
+        .map(|header| MsgId::new(header.msg_id.clone()));
+    match (channel, msg_type) {
+        (Channel::Iopub, "status") => convert_status(msg, parent),
+        (Channel::Iopub, "stream") => convert_stream(msg, parent),
+        (Channel::Iopub, "display_data") => convert_display_data(msg, parent),
+        (Channel::Iopub, "update_display_data") => convert_update_display_data(msg, parent),
+        (Channel::Iopub, "execute_result") => convert_execute_result(msg, parent),
+        (Channel::Iopub, "error") => convert_error(msg, parent),
+        (Channel::Iopub, "clear_output") => convert_clear_output(msg, parent),
+        (Channel::Iopub, "execute_input") => convert_execute_input(msg, parent),
+        (Channel::Iopub, "shutdown_reply") => Converted::Ignored,
+        (Channel::Shell, "execute_reply") => convert_execute_reply(msg, parent),
+        (Channel::Shell, "kernel_info_reply") => convert_kernel_info_reply(msg, parent),
+        (Channel::Control, "interrupt_reply") => Converted::InterruptReply { parent },
+        (Channel::Control, "shutdown_reply") => Converted::ShutdownReply { parent },
+        _ => Converted::Event(KernelEvent::Warning {
+            reason: WarningReason::UnknownType,
+            msg_type: Some(msg_type.to_owned()),
+            detail: String::new(),
+        }),
+    }
 }
 
 /// Turn a decoding failure into a warning event.
 pub(crate) fn warning(error: &DecodeError) -> KernelEvent {
-    let _ = error;
-    todo!()
+    match error {
+        DecodeError::BadSignature => KernelEvent::Warning {
+            reason: WarningReason::BadSignature,
+            msg_type: None,
+            detail: String::new(),
+        },
+        DecodeError::Malformed(detail) => KernelEvent::Warning {
+            reason: WarningReason::Malformed,
+            msg_type: None,
+            detail: detail.clone(),
+        },
+    }
+}
+
+/// Parent id or a missing-parent warning.
+fn missing_parent(msg_type: &str) -> Converted {
+    Converted::Event(KernelEvent::Warning {
+        reason: WarningReason::Malformed,
+        msg_type: Some(msg_type.to_owned()),
+        detail: "missing parent".to_owned(),
+    })
+}
+
+/// Malformed content warning.
+fn malformed(msg_type: &str) -> Converted {
+    Converted::Event(KernelEvent::Warning {
+        reason: WarningReason::Malformed,
+        msg_type: Some(msg_type.to_owned()),
+        detail: "invalid content".to_owned(),
+    })
+}
+
+/// Read a MIME bundle from content.
+fn bundle(content: &serde_json::Value, key: &str) -> Option<(JsonMap, JsonMap)> {
+    let data = serde_json::from_value(content.get("data")?.clone()).ok()?;
+    let metadata = match content.get("metadata") {
+        None => JsonMap::new(),
+        Some(value) => serde_json::from_value(value.clone()).ok()?,
+    };
+    let _ = key;
+    Some((data, metadata))
+}
+
+/// Convert a status message.
+fn convert_status(msg: &WireMessage, parent: Option<MsgId>) -> Converted {
+    let parsed: Result<jupyter_protocol::Status, _> = serde_json::from_value(msg.content.clone());
+    let Ok(status) = parsed else {
+        return malformed("status");
+    };
+    let state = match status.execution_state {
+        jupyter_protocol::ExecutionState::Busy => KernelStatus::Busy,
+        jupyter_protocol::ExecutionState::Idle => KernelStatus::Idle,
+        jupyter_protocol::ExecutionState::Starting => KernelStatus::Starting,
+        _ => {
+            return Converted::Event(KernelEvent::Warning {
+                reason: WarningReason::Malformed,
+                msg_type: Some("status".to_owned()),
+                detail: "unknown execution_state".to_owned(),
+            });
+        }
+    };
+    Converted::Event(KernelEvent::Status { parent, state })
+}
+
+/// Convert a stream message.
+fn convert_stream(msg: &WireMessage, parent: Option<MsgId>) -> Converted {
+    let Some(parent) = parent else {
+        return missing_parent("stream");
+    };
+    let Ok(content) =
+        serde_json::from_value::<jupyter_protocol::StreamContent>(msg.content.clone())
+    else {
+        return malformed("stream");
+    };
+    let name = match content.name {
+        jupyter_protocol::Stdio::Stdout => "stdout".to_owned(),
+        jupyter_protocol::Stdio::Stderr => "stderr".to_owned(),
+    };
+    Converted::Event(KernelEvent::Iopub(IopubMsg::Stream {
+        parent,
+        name,
+        text: content.text,
+    }))
+}
+
+/// Convert a display_data message.
+fn convert_display_data(msg: &WireMessage, parent: Option<MsgId>) -> Converted {
+    let Some(parent) = parent else {
+        return missing_parent("display_data");
+    };
+    let Ok(content) = serde_json::from_value::<jupyter_protocol::DisplayData>(msg.content.clone())
+    else {
+        return malformed("display_data");
+    };
+    let Some((data, metadata)) = bundle(&msg.content, "display_data") else {
+        return malformed("display_data");
+    };
+    Converted::Event(KernelEvent::Iopub(IopubMsg::DisplayData {
+        parent,
+        data,
+        metadata,
+        display_id: content.transient.and_then(|transient| transient.display_id),
+    }))
+}
+
+/// Convert an update_display_data message.
+fn convert_update_display_data(msg: &WireMessage, parent: Option<MsgId>) -> Converted {
+    let Some(parent) = parent else {
+        return missing_parent("update_display_data");
+    };
+    let Ok(content) =
+        serde_json::from_value::<jupyter_protocol::UpdateDisplayData>(msg.content.clone())
+    else {
+        return malformed("update_display_data");
+    };
+    let Some((data, metadata)) = bundle(&msg.content, "update_display_data") else {
+        return malformed("update_display_data");
+    };
+    Converted::Event(KernelEvent::Iopub(IopubMsg::UpdateDisplayData {
+        parent,
+        data,
+        metadata,
+        display_id: content.transient.display_id.unwrap_or_default(),
+    }))
+}
+
+/// Convert an execute_result message.
+fn convert_execute_result(msg: &WireMessage, parent: Option<MsgId>) -> Converted {
+    let Some(parent) = parent else {
+        return missing_parent("execute_result");
+    };
+    let Ok(content) =
+        serde_json::from_value::<jupyter_protocol::ExecuteResult>(msg.content.clone())
+    else {
+        return malformed("execute_result");
+    };
+    let Some((data, metadata)) = bundle(&msg.content, "execute_result") else {
+        return malformed("execute_result");
+    };
+    Converted::Event(KernelEvent::Iopub(IopubMsg::ExecuteResult {
+        parent,
+        data,
+        metadata,
+        execution_count: Some(usize::from(content.execution_count) as i64),
+    }))
+}
+
+/// Convert an error message.
+fn convert_error(msg: &WireMessage, parent: Option<MsgId>) -> Converted {
+    let Some(parent) = parent else {
+        return missing_parent("error");
+    };
+    let Ok(content) = serde_json::from_value::<jupyter_protocol::ErrorOutput>(msg.content.clone())
+    else {
+        return malformed("error");
+    };
+    Converted::Event(KernelEvent::Iopub(IopubMsg::Error {
+        parent,
+        ename: content.ename,
+        evalue: content.evalue,
+        traceback: content.traceback,
+    }))
+}
+
+/// Convert a clear_output message.
+fn convert_clear_output(msg: &WireMessage, parent: Option<MsgId>) -> Converted {
+    let Some(parent) = parent else {
+        return missing_parent("clear_output");
+    };
+    let Ok(content) = serde_json::from_value::<jupyter_protocol::ClearOutput>(msg.content.clone())
+    else {
+        return malformed("clear_output");
+    };
+    Converted::Event(KernelEvent::Iopub(IopubMsg::ClearOutput {
+        parent,
+        wait: content.wait,
+    }))
+}
+
+/// Convert an execute_input message.
+fn convert_execute_input(msg: &WireMessage, parent: Option<MsgId>) -> Converted {
+    let Some(parent) = parent else {
+        return missing_parent("execute_input");
+    };
+    let Ok(content) = serde_json::from_value::<jupyter_protocol::ExecuteInput>(msg.content.clone())
+    else {
+        return malformed("execute_input");
+    };
+    Converted::Event(KernelEvent::Iopub(IopubMsg::ExecuteInput {
+        parent,
+        execution_count: usize::from(content.execution_count) as i64,
+    }))
+}
+
+/// Convert an execute_reply message.
+fn convert_execute_reply(msg: &WireMessage, parent: Option<MsgId>) -> Converted {
+    let Some(parent) = parent else {
+        return missing_parent("execute_reply");
+    };
+    let status_text = msg.content.get("status").and_then(|value| value.as_str());
+    let status = match status_text {
+        Some("ok") => ReplyStatus::Ok,
+        Some("error") => ReplyStatus::Error,
+        Some("aborted") => ReplyStatus::Aborted,
+        Some(_) => {
+            return Converted::Event(KernelEvent::Warning {
+                reason: WarningReason::Malformed,
+                msg_type: Some("execute_reply".to_owned()),
+                detail: "unknown status".to_owned(),
+            });
+        }
+        None => return malformed("execute_reply"),
+    };
+    let Ok(_) = serde_json::from_value::<jupyter_protocol::ExecuteReply>(msg.content.clone())
+    else {
+        return malformed("execute_reply");
+    };
+    let execution_count = msg
+        .content
+        .get("execution_count")
+        .and_then(|value| value.as_i64());
+    Converted::Event(KernelEvent::ExecuteReply {
+        parent,
+        status,
+        execution_count,
+    })
+}
+
+/// Convert a kernel_info_reply message.
+fn convert_kernel_info_reply(msg: &WireMessage, parent: Option<MsgId>) -> Converted {
+    if msg
+        .content
+        .get("status")
+        .is_some_and(|value| value == "error")
+    {
+        let detail = msg
+            .content
+            .get("evalue")
+            .and_then(|value| value.as_str())
+            .unwrap_or("kernel info failed")
+            .to_owned();
+        return Converted::KernelInfoReply {
+            parent,
+            result: Err(detail),
+        };
+    }
+    let Ok(content) =
+        serde_json::from_value::<jupyter_protocol::KernelInfoReply>(msg.content.clone())
+    else {
+        return Converted::KernelInfoReply {
+            parent,
+            result: Err("invalid content".to_owned()),
+        };
+    };
+    if content.status == jupyter_protocol::ReplyStatus::Error {
+        let detail = content
+            .error
+            .as_ref()
+            .map(|error| error.evalue.clone())
+            .unwrap_or_else(|| "kernel info failed".to_owned());
+        return Converted::KernelInfoReply {
+            parent,
+            result: Err(detail),
+        };
+    }
+    Converted::KernelInfoReply {
+        parent,
+        result: Ok(KernelInfo {
+            protocol_version: content.protocol_version,
+            implementation: content.implementation,
+            implementation_version: content.implementation_version,
+            language: LanguageInfo {
+                name: content.language_info.name,
+                version: content.language_info.version,
+                file_extension: content.language_info.file_extension,
+            },
+            banner: content.banner,
+        }),
+    }
 }
 
 #[cfg(test)]
