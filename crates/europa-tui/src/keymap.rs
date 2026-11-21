@@ -21,6 +21,12 @@ pub(crate) fn key_from(event: KeyEvent) -> Option<Key> {
     }
     match event.code {
         KeyCode::Char('q') | KeyCode::Char('Q') => Some(Key::Quit),
+        KeyCode::Char('j') | KeyCode::Char('J') | KeyCode::Down => Some(Key::Down),
+        KeyCode::Char('k') | KeyCode::Char('K') | KeyCode::Up => Some(Key::Up),
+        KeyCode::Char(']') => Some(Key::NextCell),
+        KeyCode::Char('[') => Some(Key::PrevCell),
+        KeyCode::Char('g') => Some(Key::GPrefix),
+        KeyCode::Char('G') => Some(Key::Bottom),
         _ => Some(Key::Other),
     }
 }

@@ -21,6 +21,18 @@ pub(crate) struct Position {
 /// What a key press means.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Key {
+    /// Move down one line.
+    Down,
+    /// Move up one line.
+    Up,
+    /// Move to the next cell.
+    NextCell,
+    /// Move to the previous cell.
+    PrevCell,
+    /// Wait for the next key to decide on going to the top.
+    GPrefix,
+    /// Move to the bottom.
+    Bottom,
     /// Quit the viewer.
     Quit,
     /// Any other key.
@@ -125,6 +137,57 @@ impl Viewer {
         usize::from(self.rows.saturating_sub(1))
     }
 
+    fn visible_sum(&self) -> usize {
+        let mut sum = 0usize;
+        let mut first = true;
+        let mut ordered: Vec<usize> = self.visible.keys().copied().collect();
+        ordered.sort_unstable();
+        for index in ordered {
+            if let Some(cell) = self.visible.get(&index) {
+                if first {
+                    sum += cell.lines.len().saturating_sub(self.position.row);
+                    first = false;
+                } else {
+                    sum += cell.lines.len();
+                }
+            }
+        }
+        sum
+    }
+
+    fn last_visible(&self) -> Option<usize> {
+        self.visible.keys().copied().max()
+    }
+
+    fn bottom(&mut self, renderer: &mut dyn CellRenderer) -> Position {
+        let height = self.viewport_lines();
+        if height == 0 || self.columns == 0 || self.cell_count == 0 {
+            return Position { cell: 0, row: 0 };
+        }
+        let mut sum = 0usize;
+        let mut index = self.cell_count;
+        while index > 0 {
+            index -= 1;
+            if !self.visible.contains_key(&index) {
+                let rendered = renderer.render(index, &self.options);
+                self.visible.insert(index, rendered);
+            }
+            let cell_height = self
+                .visible
+                .get(&index)
+                .map(|cell| cell.lines.len())
+                .unwrap_or(0);
+            sum += cell_height;
+            if sum >= height {
+                return Position {
+                    cell: index,
+                    row: sum - height,
+                };
+            }
+        }
+        Position { cell: 0, row: 0 }
+    }
+
     fn fill_visible(&mut self, renderer: &mut dyn CellRenderer) {
         let height = self.viewport_lines();
         if height == 0 || self.columns == 0 || self.cell_count == 0 {
@@ -167,6 +230,15 @@ impl Viewer {
 pub(crate) fn update(viewer: &mut Viewer, input: Input, renderer: &mut dyn CellRenderer) -> Effect {
     match input {
         Input::Key(Key::Quit) => Effect::Quit,
+        Input::Key(Key::Down) => {
+            step_down(viewer, renderer);
+            Effect::None
+        }
+        Input::Key(Key::Up) => {
+            step_up(viewer, renderer);
+            Effect::None
+        }
+        Input::Key(Key::NextCell | Key::PrevCell | Key::GPrefix | Key::Bottom) => Effect::None,
         Input::Key(Key::Other) => Effect::None,
         Input::Resize {
             columns,
@@ -174,23 +246,130 @@ pub(crate) fn update(viewer: &mut Viewer, input: Input, renderer: &mut dyn CellR
             cell_pixels,
         } => {
             if columns != viewer.columns || cell_pixels != viewer.options.cell_pixels {
+                let old_height = viewer
+                    .visible
+                    .get(&viewer.position.cell)
+                    .map(|cell| cell.lines.len());
                 viewer.visible.clear();
                 viewer.columns = columns;
                 viewer.rows = rows;
                 viewer.options.width = std::num::NonZeroU16::new(columns.max(1)).expect("non-zero");
                 viewer.options.cell_pixels = cell_pixels;
-                viewer.position = Position {
-                    cell: viewer.position.cell,
-                    row: 0,
+                let first = viewer.position.cell;
+                let new_height = if viewer.cell_count == 0 {
+                    0
+                } else {
+                    let index = first.min(viewer.cell_count - 1);
+                    let rendered = renderer.render(index, &viewer.options);
+                    viewer.visible.insert(index, rendered);
+                    viewer
+                        .visible
+                        .get(&index)
+                        .map(|cell| cell.lines.len())
+                        .unwrap_or(0)
                 };
+                viewer.position = match (old_height, new_height) {
+                    (Some(old), new) if old > 0 => Position {
+                        cell: first,
+                        row: viewer.position.row * new / old,
+                    },
+                    _ => Position {
+                        cell: first,
+                        row: 0,
+                    },
+                };
+                if viewer.cell_count > 0 {
+                    let index = viewer.position.cell.min(viewer.cell_count - 1);
+                    let height = viewer
+                        .visible
+                        .get(&index)
+                        .map(|cell| cell.lines.len())
+                        .unwrap_or(0);
+                    if viewer.position.row >= height.max(1) {
+                        viewer.position.row = height.saturating_sub(1);
+                    }
+                }
                 viewer.fill_visible(renderer);
+                if needs_bottom(viewer) {
+                    viewer.position = viewer.bottom(renderer);
+                    viewer.fill_visible(renderer);
+                }
             } else if rows != viewer.rows {
                 viewer.rows = rows;
                 viewer.fill_visible(renderer);
+                if needs_bottom(viewer) {
+                    viewer.position = viewer.bottom(renderer);
+                    viewer.fill_visible(renderer);
+                }
             }
             Effect::None
         }
     }
+}
+
+fn needs_bottom(viewer: &Viewer) -> bool {
+    if viewer.cell_count == 0 || viewer.viewport_lines() == 0 {
+        return false;
+    }
+    let Some(last) = viewer.last_visible() else {
+        return false;
+    };
+    if last + 1 < viewer.cell_count {
+        return false;
+    }
+    viewer.visible_sum() < viewer.viewport_lines()
+}
+
+fn step_down(viewer: &mut Viewer, renderer: &mut dyn CellRenderer) {
+    let height = viewer.viewport_lines();
+    if height == 0 || viewer.cell_count == 0 || viewer.columns == 0 {
+        return;
+    }
+    let sum = viewer.visible_sum();
+    let last = viewer.last_visible().unwrap_or(viewer.position.cell);
+    if sum <= height && last + 1 >= viewer.cell_count {
+        return;
+    }
+    let first_height = viewer
+        .visible
+        .get(&viewer.position.cell)
+        .map(|cell| cell.lines.len())
+        .unwrap_or(0);
+    if viewer.position.row + 1 < first_height {
+        viewer.position.row += 1;
+    } else if viewer.position.cell + 1 < viewer.cell_count {
+        viewer.position.cell += 1;
+        viewer.position.row = 0;
+    } else {
+        return;
+    }
+    viewer.fill_visible(renderer);
+}
+
+fn step_up(viewer: &mut Viewer, renderer: &mut dyn CellRenderer) {
+    let height = viewer.viewport_lines();
+    if height == 0 || viewer.cell_count == 0 || viewer.columns == 0 {
+        return;
+    }
+    if viewer.position.row > 0 {
+        viewer.position.row -= 1;
+    } else if viewer.position.cell > 0 {
+        let prev = viewer.position.cell - 1;
+        if !viewer.visible.contains_key(&prev) {
+            let rendered = renderer.render(prev, &viewer.options);
+            viewer.visible.insert(prev, rendered);
+        }
+        let prev_height = viewer
+            .visible
+            .get(&prev)
+            .map(|cell| cell.lines.len())
+            .unwrap_or(1);
+        viewer.position.cell = prev;
+        viewer.position.row = prev_height.saturating_sub(1);
+    } else {
+        return;
+    }
+    viewer.fill_visible(renderer);
 }
 
 /// Renders cells of a notebook, handing pixels to the image renderer.

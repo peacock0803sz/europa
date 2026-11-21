@@ -116,6 +116,281 @@ fn status_narrow_snapshot() {
     insta::assert_snapshot!("status_narrow", common::frame(&viewer, &many));
 }
 
+fn step(
+    notebook: &europa_core::Notebook,
+    viewer: &mut crate::viewer::Viewer,
+    recorder: &mut common::RecordingRenderer<'_>,
+    code: ratatui::crossterm::event::KeyCode,
+) {
+    let _ = notebook;
+    let input = common::key(code);
+    let _ = crate::viewer::update(viewer, input, recorder);
+    let _ = recorder.take_calls();
+}
+
+#[test]
+fn move_j_snapshot() {
+    let notebook = common::large_notebook(10);
+    let (mut viewer, mut recorder) = common::open(&notebook, 40, 12);
+    let _ = recorder.take_calls();
+    step(
+        &notebook,
+        &mut viewer,
+        &mut recorder,
+        ratatui::crossterm::event::KeyCode::Char('j'),
+    );
+    insta::assert_snapshot!("move_j", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn move_k_top_snapshot() {
+    let notebook = common::large_notebook(10);
+    let (mut viewer, mut recorder) = common::open(&notebook, 40, 12);
+    let _ = recorder.take_calls();
+    step(
+        &notebook,
+        &mut viewer,
+        &mut recorder,
+        ratatui::crossterm::event::KeyCode::Char('k'),
+    );
+    insta::assert_snapshot!("move_k_top", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn move_j_bottom_snapshot() {
+    let cells: Vec<String> = (0..3)
+        .map(|_| {
+            common::code_cell(
+                &(0..10).map(|n| format!("x = {n}\n")).collect::<String>(),
+                Some(0),
+                &[common::stream(
+                    "stdout",
+                    &(0..20).map(|n| format!("line {n}\n")).collect::<String>(),
+                )],
+            )
+        })
+        .collect();
+    let notebook = common::notebook(&cells);
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    for _ in 0..100 {
+        step(
+            &notebook,
+            &mut viewer,
+            &mut recorder,
+            ratatui::crossterm::event::KeyCode::Char('j'),
+        );
+    }
+    insta::assert_snapshot!("move_j_bottom", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn move_arrows_snapshot() {
+    let notebook = common::large_notebook(10);
+    let (mut viewer, mut recorder) = common::open(&notebook, 40, 12);
+    let _ = recorder.take_calls();
+    step(
+        &notebook,
+        &mut viewer,
+        &mut recorder,
+        ratatui::crossterm::event::KeyCode::Down,
+    );
+    step(
+        &notebook,
+        &mut viewer,
+        &mut recorder,
+        ratatui::crossterm::event::KeyCode::Up,
+    );
+    insta::assert_snapshot!("move_arrows", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn tall_cell_snapshot() {
+    let tall_source: String = (0..49).map(|n| format!("line {n}\n")).collect();
+    let notebook = common::notebook(&[common::code_cell(&tall_source, Some(0), &[])]);
+    let (mut viewer, mut recorder) = common::open(&notebook, 40, 12);
+    let _ = recorder.take_calls();
+    for _ in 0..5 {
+        step(
+            &notebook,
+            &mut viewer,
+            &mut recorder,
+            ratatui::crossterm::event::KeyCode::Char('j'),
+        );
+    }
+    insta::assert_snapshot!("tall_cell", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn resize_width_snapshot() {
+    let notebook = common::large_notebook(10);
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    let _ = crate::viewer::update(
+        &mut viewer,
+        crate::viewer::Input::Resize {
+            columns: 40,
+            rows: 40,
+            cell_pixels: europa_core::CellPixels::DEFAULT,
+        },
+        &mut recorder,
+    );
+    insta::assert_snapshot!("resize_width", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn resize_height_snapshot() {
+    let notebook = common::large_notebook(10);
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    let _ = crate::viewer::update(
+        &mut viewer,
+        crate::viewer::Input::Resize {
+            columns: 80,
+            rows: 20,
+            cell_pixels: europa_core::CellPixels::DEFAULT,
+        },
+        &mut recorder,
+    );
+    insta::assert_snapshot!("resize_height", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn resize_mid_cell_snapshot() {
+    let notebook = common::large_notebook(10);
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    for _ in 0..10 {
+        step(
+            &notebook,
+            &mut viewer,
+            &mut recorder,
+            ratatui::crossterm::event::KeyCode::Char('j'),
+        );
+    }
+    let _ = crate::viewer::update(
+        &mut viewer,
+        crate::viewer::Input::Resize {
+            columns: 40,
+            rows: 40,
+            cell_pixels: europa_core::CellPixels::DEFAULT,
+        },
+        &mut recorder,
+    );
+    insta::assert_snapshot!("resize_mid_cell", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn resize_one_row_snapshot() {
+    let notebook = common::large_notebook(10);
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    let _ = crate::viewer::update(
+        &mut viewer,
+        crate::viewer::Input::Resize {
+            columns: 80,
+            rows: 1,
+            cell_pixels: europa_core::CellPixels::DEFAULT,
+        },
+        &mut recorder,
+    );
+    insta::assert_snapshot!("resize_one_row", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn status_bottom_snapshot() {
+    let cells: Vec<String> = (0..3)
+        .map(|_| {
+            common::code_cell(
+                &(0..10).map(|n| format!("x = {n}\n")).collect::<String>(),
+                Some(0),
+                &[common::stream(
+                    "stdout",
+                    &(0..20).map(|n| format!("line {n}\n")).collect::<String>(),
+                )],
+            )
+        })
+        .collect();
+    let notebook = common::notebook(&cells);
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    for _ in 0..100 {
+        step(
+            &notebook,
+            &mut viewer,
+            &mut recorder,
+            ratatui::crossterm::event::KeyCode::Char('j'),
+        );
+    }
+    insta::assert_snapshot!("status_bottom", common::frame(&viewer, &notebook));
+}
+
+#[test]
+fn image_edge_snapshots() {
+    let bytes = common::png(64, 120);
+    let data = base64_simd::STANDARD.encode_to_string(&bytes);
+    let output = format!("{{\"output_type\":\"display_data\",\"data\":{{\"image/png\":\"{data}\"}},\"metadata\":{{}}}}");
+    let image_cell = common::code_cell("a\nb\n", Some(1), &[output]);
+    let rest: Vec<String> = (0..2)
+        .map(|_| {
+            common::code_cell(
+                &(0..10).map(|n| format!("x = {n}\n")).collect::<String>(),
+                Some(1),
+                &[common::stream(
+                    "stdout",
+                    &(0..20).map(|n| format!("line {n}\n")).collect::<String>(),
+                )],
+            )
+        })
+        .collect();
+    let mut cells = vec![image_cell];
+    cells.extend(rest);
+    let notebook = common::notebook(&cells);
+    let options = europa_core::RenderOptions::new(std::num::NonZeroU16::new(40).expect("non-zero"));
+    let pixels = europa_core::CellPixels {
+        width: std::num::NonZeroU16::new(10).expect("non-zero"),
+        height: std::num::NonZeroU16::new(20).expect("non-zero"),
+    };
+    let options = europa_core::RenderOptions {
+        cell_pixels: pixels,
+        ..options
+    };
+    let renderer = crate::image_view::ImageRenderer::with_parts(
+        ratatui_image::picker::ProtocolType::Halfblocks,
+        pixels,
+        crate::image_protocol::ColorDepth::TrueColor,
+        crate::image_cache::DEFAULT_LIMIT,
+        Box::new(crate::image_view::RatatuiEncoder),
+    );
+    let (mut viewer, mut recorder) = common::open_with_images(&notebook, 40, 12, options, renderer);
+    let _ = recorder.take_calls();
+    if let Some(images) = recorder.images.as_mut() {
+        let _ = common::frame_in(&viewer, &notebook, images);
+    }
+    step(
+        &notebook,
+        &mut viewer,
+        &mut recorder,
+        ratatui::crossterm::event::KeyCode::Char('j'),
+    );
+    if let Some(images) = recorder.images.as_mut() {
+        let text = common::frame_in(&viewer, &notebook, images);
+        insta::assert_snapshot!("image_edge_top", text);
+    }
+    for _ in 0..5 {
+        step(
+            &notebook,
+            &mut viewer,
+            &mut recorder,
+            ratatui::crossterm::event::KeyCode::Char('j'),
+        );
+    }
+    if let Some(images) = recorder.images.as_mut() {
+        let text = common::frame_in(&viewer, &notebook, images);
+        insta::assert_snapshot!("image_edge_bottom", text);
+    }
+}
+
 #[test]
 fn narrow_widths_do_not_fail() {
     for width in [1, 2] {

@@ -45,3 +45,44 @@ fn alt_quit_is_not_quit() {
         Some(Key::Other)
     );
 }
+
+#[test]
+fn movement_keys_map_to_moves() {
+    assert_eq!(press(KeyCode::Char('j')), Some(Key::Down));
+    assert_eq!(press(KeyCode::Down), Some(Key::Down));
+    assert_eq!(press(KeyCode::Char('k')), Some(Key::Up));
+    assert_eq!(press(KeyCode::Up), Some(Key::Up));
+    assert_eq!(press(KeyCode::Char(']')), Some(Key::NextCell));
+    assert_eq!(press(KeyCode::Char('[')), Some(Key::PrevCell));
+    assert_eq!(press(KeyCode::Char('g')), Some(Key::GPrefix));
+    assert_eq!(press(KeyCode::Char('G')), Some(Key::Bottom));
+    assert_eq!(
+        key_from(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT)),
+        Some(Key::Bottom)
+    );
+}
+
+#[test]
+fn modified_movement_keys_do_nothing() {
+    for (code, modifiers) in [
+        (KeyCode::Char('j'), KeyModifiers::ALT),
+        (KeyCode::Char('j'), KeyModifiers::CONTROL),
+        (KeyCode::Char('g'), KeyModifiers::ALT),
+    ] {
+        let event = crate::tests::common::key_with(code, modifiers);
+        assert_eq!(key_from(event), Some(Key::Other), "{code:?} {modifiers:?}");
+    }
+}
+
+#[test]
+fn repeat_moves_but_release_does_not() {
+    let repeat =
+        KeyEvent::new_with_kind(KeyCode::Char('j'), KeyModifiers::NONE, KeyEventKind::Repeat);
+    assert_eq!(key_from(repeat), Some(Key::Down));
+    let release = KeyEvent::new_with_kind(
+        KeyCode::Char('j'),
+        KeyModifiers::NONE,
+        KeyEventKind::Release,
+    );
+    assert_eq!(key_from(release), None);
+}
