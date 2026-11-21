@@ -1,6 +1,8 @@
 mod background;
+mod cell_display;
 mod common;
 mod image_draw;
 mod image_select;
 mod keymap;
 mod probe;
+mod viewer;
