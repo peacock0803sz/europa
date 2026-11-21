@@ -20,14 +20,33 @@ links the C code of tree-sitter and its Python grammar statically into the
 binary. Nothing besides the binary is needed at run time. The devShell of
 `nix develop` includes a C compiler.
 
+## Usage
+
+Open a notebook with:
+
+```sh
+europa notebook.ipynb
+```
+
+The first screen shows the cells from the top. Quit with `q` or `Ctrl-C`.
+The exit codes are 0 for success and `--help`, 64 for usage errors, 65 for
+a notebook that cannot be parsed, 66 for a file that cannot be read, 74 for
+a terminal that cannot be used, 129 for SIGHUP and 143 for SIGTERM.
+
+At startup the terminal is asked for its background color in the same
+single query as the graphics protocol. When it answers, light or dark
+colors are chosen for stderr, errors and code blocks. Without an answer
+the background is dark. Terminals that answer in two digits read as dark,
+because the query scales 16-bit values down without knowing their digits.
+
 ## Images
 
 PNG and JPEG outputs are shown inline, in the place where they were produced.
 The terminal is asked which graphics protocol it supports (Kitty, Sixel or
 iTerm2), and the answer is used when there is one. Terminals that do not
 support any, or that do not answer, get half-block characters, which work
-everywhere and need no query. Choosing half-blocks by hand skips the query
-too, as does a session whose input or output is not a terminal.
+everywhere and need no query. The probe can skip the query by choosing
+half-blocks by hand, as does a session whose input or output is not a terminal.
 
 An image that cannot be read, or that is over 64 million pixels, is named in a
 line of its own with the reason, for example `[image/png: broken]`, and the
