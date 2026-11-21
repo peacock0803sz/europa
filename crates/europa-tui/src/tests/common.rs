@@ -435,17 +435,6 @@ pub(crate) fn open(
     open_with(notebook, columns, rows, RenderOptions::new(width))
 }
 
-/// Open `notebook` with `images` kept by the recorder.
-pub(crate) fn open_with_kept_images(
-    notebook: &Notebook,
-    columns: u16,
-    rows: u16,
-    options: RenderOptions,
-    images: ImageRenderer,
-) -> (crate::viewer::Viewer, RecordingRenderer<'_>) {
-    open_with_images(notebook, columns, rows, options, Some(images))
-}
-
 /// Draw `viewer` and describe the frame after its position line.
 pub(crate) fn frame_in(
     viewer: &crate::viewer::Viewer,
@@ -476,19 +465,4 @@ pub(crate) fn frame(viewer: &crate::viewer::Viewer, notebook: &Notebook) -> Stri
         Box::new(RatatuiEncoder),
     );
     frame_in(viewer, notebook, &mut renderer)
-}
-
-/// An input key for `code` without modifiers.
-pub(crate) fn key(code: ratatui::crossterm::event::KeyCode) -> crate::viewer::Input {
-    use ratatui::crossterm::event::KeyModifiers;
-    let event = ratatui::crossterm::event::KeyEvent::new(code, KeyModifiers::NONE);
-    crate::viewer::Input::Key(crate::keymap::key_from(event).expect("mapped"))
-}
-
-/// A key event with `code` and `modifiers`.
-pub(crate) fn key_with(
-    code: ratatui::crossterm::event::KeyCode,
-    modifiers: ratatui::crossterm::event::KeyModifiers,
-) -> ratatui::crossterm::event::KeyEvent {
-    ratatui::crossterm::event::KeyEvent::new(code, modifiers)
 }

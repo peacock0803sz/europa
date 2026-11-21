@@ -6,3 +6,4 @@ mod image_select;
 mod keymap;
 mod probe;
 mod viewer;
+mod viewer_view;

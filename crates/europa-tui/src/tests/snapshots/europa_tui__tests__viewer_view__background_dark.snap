@@ -1,0 +1,30 @@
+---
+source: crates/europa-tui/src/tests/viewer_view.rs
+expression: "common::frame(&viewer, &notebook)"
+---
+Position { cell: 0, row: 0 }
+Buffer {
+    area: Rect { x: 0, y: 0, width: 40, height: 12 },
+    content: [
+        "== 1 code [1] ==========================",
+        "x                                       ",
+        "-- out ---------------------------------",
+        "warn                                    ",
+        "E: bad                                  ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "                                        ",
+        "test.ipynb                           1/1",
+    ],
+    styles: [
+        x: 0, y: 0, fg: Reset, bg: Reset, modifier: BOLD,
+        x: 0, y: 1, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 2, fg: Reset, bg: Reset, modifier: DIM,
+        x: 0, y: 3, fg: Reset, bg: Indexed(52), modifier: NONE,
+        x: 0, y: 5, fg: Reset, bg: Reset, modifier: NONE,
+        x: 0, y: 11, fg: Reset, bg: Reset, modifier: REVERSED,
+    ]
+}
