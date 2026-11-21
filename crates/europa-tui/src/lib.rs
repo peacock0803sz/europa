@@ -34,14 +34,20 @@
 //!    again then.
 
 #![deny(missing_docs)]
+#![allow(dead_code, unused_variables)]
 
+mod cell_display;
 mod cell_view;
+mod exit;
 mod image_cache;
 mod image_protocol;
 mod image_view;
+mod keymap;
 mod probe;
 #[cfg(test)]
 mod tests;
+mod viewer;
+mod viewer_view;
 
 use std::ffi::OsString;
 use std::process::ExitCode;
