@@ -53,6 +53,13 @@ enum Command {
         /// Where the answer goes.
         reply: oneshot::Sender<Result<KernelInfo, KernelError>>,
     },
+    /// Run code and answer with the request id.
+    Execute {
+        /// Code to run.
+        code: String,
+        /// Where the request id goes.
+        reply: oneshot::Sender<Result<MsgId, KernelError>>,
+    },
     /// Stop the kernel and close.
     Shutdown {
         /// Where the answer goes.
@@ -300,8 +307,17 @@ impl KernelClient for LocalKernel {
     }
 
     fn execute(&self, code: &str) -> impl Future<Output = Result<MsgId, KernelError>> + Send {
-        let _ = code;
-        async move { todo!() }
+        let (reply, answer) = oneshot::channel();
+        let sent = self.commands.send(Command::Execute {
+            code: code.to_owned(),
+            reply,
+        });
+        async move {
+            if sent.is_err() {
+                return Err(KernelError::Closed);
+            }
+            answer.await.unwrap_or(Err(KernelError::Closed))
+        }
     }
 
     async fn interrupt(&self) -> Result<(), KernelError> {
@@ -362,6 +378,9 @@ async fn run_owner(
                 };
                 match command {
                     Command::KernelInfo { reply } => handle_kernel_info(&mut owner, reply).await,
+                    Command::Execute { code, reply } => {
+                        handle_execute(&mut owner, code, reply).await;
+                    }
                     Command::Shutdown { reply } => handle_shutdown(&mut owner, reply).await,
                     Command::Kill => {
                         close_everything(&mut owner).await;
@@ -506,6 +525,52 @@ fn handle_channel(
     };
     if let Converted::Event(event) = convert(channel, &message) {
         send_event(owner, event);
+    }
+}
+
+/// Run code when admitted, answering with the request id at once.
+async fn handle_execute(
+    owner: &mut Owner,
+    code: String,
+    reply: oneshot::Sender<Result<MsgId, KernelError>>,
+) {
+    match admit(&owner.state, KernelOp::Execute) {
+        Admission::Send => {}
+        Admission::Reject(error) => {
+            let _ = reply.send(Err(error));
+            return;
+        }
+        _ => {
+            let _ = reply.send(Err(KernelError::Closed));
+            return;
+        }
+    }
+    let req_header = header("execute_request", &owner.session);
+    let msg_id = req_header.msg_id.clone();
+    let message = WireMessage {
+        identities: Vec::new(),
+        header: req_header,
+        parent_header: None,
+        metadata: serde_json::Value::Object(Default::default()),
+        content: serde_json::json!({
+            "silent": false,
+            "store_history": true,
+            "user_expressions": {},
+            "allow_stdin": false,
+            "stop_on_error": true,
+            "code": code,
+        }),
+        buffers: Vec::new(),
+    };
+    let frames = encode(&message, &owner.key);
+    let sent = match owner.live.as_mut() {
+        Some(live) => send_zmq(&mut live.shell_send, frames).await.is_ok(),
+        None => false,
+    };
+    if sent {
+        let _ = reply.send(Ok(MsgId::new(msg_id)));
+    } else {
+        let _ = reply.send(Err(KernelError::Closed));
     }
 }
 

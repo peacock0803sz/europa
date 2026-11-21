@@ -8,12 +8,10 @@
 
 mod client;
 mod connection;
-#[allow(dead_code)]
 mod convert;
 mod handshake;
 mod local;
 mod process;
-#[allow(dead_code)]
 mod wire;
 
 pub use client::KernelClient;
