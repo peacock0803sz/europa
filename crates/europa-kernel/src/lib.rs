@@ -7,17 +7,14 @@
 #![deny(missing_docs)]
 
 mod client;
-#[allow(dead_code)]
 mod connection;
 #[allow(dead_code)]
 mod convert;
-#[allow(dead_code)]
 mod handshake;
-#[allow(dead_code)]
 mod local;
-#[allow(dead_code)]
 mod process;
 #[allow(dead_code)]
 mod wire;
 
 pub use client::KernelClient;
+pub use local::LocalKernel;
