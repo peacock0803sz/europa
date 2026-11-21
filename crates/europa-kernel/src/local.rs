@@ -125,6 +125,13 @@ struct Owner {
     >,
 }
 
+/// Stop all live kernels without waiting.
+///
+/// Temporary stub for the registry (T039); panics until then.
+pub fn kill_all_kernels() {
+    todo!()
+}
+
 /// A spawned local kernel.
 pub struct LocalKernel {
     /// Commands for the owner task.
@@ -269,6 +276,13 @@ impl LocalKernel {
                 }
             }
         }
+    }
+
+    /// Stop all live kernels without waiting.
+    ///
+    /// Temporary stub for the registry (T039); panics until then.
+    pub fn kill_all_kernels() {
+        todo!()
     }
 
     /// Current child pid, if the kernel runs.

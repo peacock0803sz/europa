@@ -15,4 +15,4 @@ mod process;
 mod wire;
 
 pub use client::KernelClient;
-pub use local::LocalKernel;
+pub use local::{kill_all_kernels, LocalKernel};
