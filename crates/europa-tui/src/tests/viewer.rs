@@ -505,3 +505,127 @@ fn modified_keys_clear_pending() {
     let _ = crate::viewer::update(&mut viewer, Input::Key(Key::Other), &mut recorder);
     assert!(!viewer.pending_g);
 }
+
+#[test]
+fn only_new_cells_render() {
+    let notebook = common::large_notebook(1000);
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    let apply = |viewer: &mut crate::viewer::Viewer,
+                 recorder: &mut common::RecordingRenderer<'_>,
+                 key: Key| {
+        let effect = crate::viewer::update(viewer, Input::Key(key), recorder);
+        assert_eq!(effect, Effect::None);
+    };
+    apply(&mut viewer, &mut recorder, Key::Bottom);
+    let mut bottom_calls = recorder.take_calls();
+    bottom_calls.sort_unstable();
+    assert_eq!(bottom_calls, vec![998, 999]);
+    apply(&mut viewer, &mut recorder, Key::GPrefix);
+    apply(&mut viewer, &mut recorder, Key::GPrefix);
+    assert_eq!(recorder.take_calls(), vec![0, 1]);
+    apply(&mut viewer, &mut recorder, Key::NextCell);
+    let after_next = recorder.take_calls();
+    assert!(!after_next.is_empty());
+    assert!(after_next.iter().all(|i| *i >= 1));
+    apply(&mut viewer, &mut recorder, Key::PrevCell);
+    let after_prev = recorder.take_calls();
+    assert!(after_prev.iter().all(|i| *i <= 1));
+    for _ in 0..32 {
+        apply(&mut viewer, &mut recorder, Key::Down);
+        let _ = recorder.take_calls();
+    }
+    assert!(!viewer.visible.contains_key(&0));
+    apply(&mut viewer, &mut recorder, Key::Up);
+    assert_eq!(recorder.take_calls(), vec![0]);
+}
+
+#[test]
+fn frames_do_not_render() {
+    let notebook = common::large_notebook(10);
+    let (viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    for _ in 0..10 {
+        let _ = common::frame(&viewer, &notebook);
+    }
+    assert!(recorder.take_calls().is_empty());
+}
+
+#[test]
+fn images_decode_once_for_repeated_frames() {
+    let bytes = common::png(64, 120);
+    let data = base64_simd::STANDARD.encode_to_string(&bytes);
+    let output = format!("{{\"output_type\":\"display_data\",\"data\":{{\"image/png\":\"{data}\"}},\"metadata\":{{}}}}");
+    let first = common::code_cell("a\nb\n", Some(1), &[output]);
+    let rest: Vec<String> = (0..2)
+        .map(|_| {
+            common::code_cell(
+                &(0..10).map(|n| format!("x = {n}\n")).collect::<String>(),
+                Some(1),
+                &[common::stream(
+                    "stdout",
+                    &(0..20).map(|n| format!("line {n}\n")).collect::<String>(),
+                )],
+            )
+        })
+        .collect();
+    let mut cells = vec![first];
+    cells.extend(rest);
+    let notebook = common::notebook(&cells);
+    let options = europa_core::RenderOptions::new(std::num::NonZeroU16::new(80).expect("non-zero"));
+    let renderer = crate::image_view::ImageRenderer::with_parts(
+        ratatui_image::picker::ProtocolType::Halfblocks,
+        europa_core::CellPixels::DEFAULT,
+        crate::image_protocol::ColorDepth::TrueColor,
+        crate::image_cache::DEFAULT_LIMIT,
+        Box::new(crate::image_view::RatatuiEncoder),
+    );
+    let (mut viewer, mut recorder) = common::open_with_images(&notebook, 80, 40, options, renderer);
+    let _ = recorder.take_calls();
+    go(&mut viewer, &mut recorder, Key::Down);
+    let keys: Vec<_> = viewer.visible.keys().copied().collect();
+    assert_eq!(keys, vec![0, 1]);
+    let Some(images) = recorder.images.as_mut() else {
+        panic!("images");
+    };
+    let _ = common::frame_in(&viewer, &notebook, images);
+    go(&mut viewer, &mut recorder, Key::Down);
+    let before = recorder.images.as_mut().expect("images").stats().decodes;
+    {
+        let images = recorder.images.as_mut().expect("images");
+        let _ = common::frame_in(&viewer, &notebook, images);
+    }
+    assert!(recorder.take_calls().is_empty());
+    let after = recorder.images.as_mut().expect("images").stats().decodes;
+    assert_eq!(after, before);
+}
+
+#[test]
+#[ignore]
+fn bench() {
+    use std::time::Instant;
+    let notebook = common::large_notebook(1000);
+    let started = Instant::now();
+    let (mut viewer, mut recorder) = common::open(&notebook, 80, 40);
+    let _ = recorder.take_calls();
+    let _ = common::frame(&viewer, &notebook);
+    println!("open and first frame: {:?}", started.elapsed());
+    for (name, key) in [
+        ("j", Key::Down),
+        ("k", Key::Up),
+        ("]", Key::NextCell),
+        ("[", Key::PrevCell),
+        ("gg", Key::Bottom),
+        ("G", Key::Bottom),
+    ] {
+        let started = Instant::now();
+        if name == "gg" {
+            go(&mut viewer, &mut recorder, Key::GPrefix);
+            go(&mut viewer, &mut recorder, Key::GPrefix);
+        } else {
+            go(&mut viewer, &mut recorder, key);
+        }
+        let _ = common::frame(&viewer, &notebook);
+        println!("{name}: {:?}", started.elapsed());
+    }
+}
