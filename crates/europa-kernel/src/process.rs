@@ -113,6 +113,13 @@ pub(crate) fn signal_group(pid: u32, signal: i32) {
 }
 
 /// Start a command on a watcher thread, for tests and kernels.
+///
+/// Spawning and `wait` run on the same watcher thread, which lives until
+/// the child ends, so a Linux death signal fires only when Europa itself
+/// dies and never when a runtime thread goes idle.
+///
+/// Only the SIGKILL tests set `EUROPA_KERNEL_TEST_NO_JPY_PARENT_PID` to
+/// skip the parent pid hand-off; it is never set in production.
 pub(crate) fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watched> {
     use std::os::unix::process::CommandExt;
     use std::process::Stdio;
@@ -135,6 +142,23 @@ pub(crate) fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watch
         // `PR_SET_PDEATHSIG` alone; it is never set in production.
         if std::env::var_os("EUROPA_KERNEL_TEST_NO_JPY_PARENT_PID").is_none() {
             command.env("JPY_PARENT_PID", parent_pid.to_string());
+        }
+        #[cfg(target_os = "linux")]
+        // SAFETY: runs after `fork` in the child. It only calls the
+        // async-signal-safe `prctl` and `getppid`, allocates nothing,
+        // and `_exit`s without running destructors when the parent is
+        // already gone, closing the race between setting the death
+        // signal and checking the parent.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::getppid() as u32 != parent_pid {
+                    libc::_exit(1)
+                }
+                Ok(())
+            });
         }
         let mut child = match command.spawn() {
             Ok(child) => child,
