@@ -1,0 +1,5 @@
+---
+source: crates/europa-kernel/tests/scripted_client.rs
+expression: outputs_json(&notebook)
+---
+[{"name":"stdout","output_type":"stream","text":["hi\n"]}]

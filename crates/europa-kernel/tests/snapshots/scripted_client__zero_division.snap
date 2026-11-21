@@ -1,0 +1,5 @@
+---
+source: crates/europa-kernel/tests/scripted_client.rs
+expression: outputs_json(&notebook)
+---
+[{"ename":"ZeroDivisionError","evalue":"division by zero","output_type":"error","traceback":["Traceback (most recent call last):"]}]
