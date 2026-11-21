@@ -59,8 +59,8 @@ impl KernelClient for ScriptedKernel {
         async move { Ok(id) }
     }
 
-    fn interrupt(&self) -> impl Future<Output = Result<(), KernelError>> + Send {
-        async move { Ok(()) }
+    async fn interrupt(&self) -> Result<(), KernelError> {
+        Ok(())
     }
 
     fn restart(&self) -> impl Future<Output = Result<KernelInfo, KernelError>> + Send {
@@ -68,8 +68,8 @@ impl KernelClient for ScriptedKernel {
         async move { Ok(info) }
     }
 
-    fn shutdown(&self) -> impl Future<Output = Result<(), KernelError>> + Send {
-        async move { Ok(()) }
+    async fn shutdown(&self) -> Result<(), KernelError> {
+        Ok(())
     }
 
     fn messages(&mut self) -> Option<mpsc::Receiver<KernelEvent>> {
@@ -91,11 +91,9 @@ async fn run_cell<K: KernelClient>(
     let applied = exec.apply(ExecEvent::Enqueue {
         cell_id: cell_id.to_owned(),
     });
-    let ExecEffect::Execute { .. } = applied.effect.expect("enqueue promotes") else {
-        panic!("enqueue promotes");
-    };
+    let ExecEffect::Execute { .. } = applied.effect.expect("enqueue promotes");
     let msg_id = client.execute("").await.expect("execute sends");
-    exec.apply(ExecEvent::Sent {
+    let _ = exec.apply(ExecEvent::Sent {
         cell_id: cell_id.to_owned(),
         msg_id: msg_id.clone(),
     });
@@ -107,14 +105,14 @@ async fn run_cell<K: KernelClient>(
             .expect("scripted events arrive");
         match &event {
             KernelEvent::Iopub(msg) => {
-                apply_iopub(exec, notebook, msg);
+                let _ = apply_iopub(exec, notebook, msg);
             }
             KernelEvent::Status { parent, state } => {
                 if parent.as_ref() == Some(&msg_id) && *state == KernelStatus::Idle {
                     idle_seen = true;
                 }
                 if let Some(exec_event) = event.exec_event() {
-                    exec.apply(exec_event);
+                    let _ = exec.apply(exec_event);
                 }
             }
             KernelEvent::ExecuteReply { parent, .. } => {
@@ -122,12 +120,12 @@ async fn run_cell<K: KernelClient>(
                     reply_seen = true;
                 }
                 if let Some(exec_event) = event.exec_event() {
-                    exec.apply(exec_event);
+                    let _ = exec.apply(exec_event);
                 }
             }
             _ => {
                 if let Some(exec_event) = event.exec_event() {
-                    exec.apply(exec_event);
+                    let _ = exec.apply(exec_event);
                 }
             }
         }
