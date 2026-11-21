@@ -1,5 +1,5 @@
 //! Terminal interface for Europa.
 
-fn main() {
-    println!("europa");
+fn main() -> std::process::ExitCode {
+    europa_tui::run(std::env::args_os())
 }
