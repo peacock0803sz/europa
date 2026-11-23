@@ -55,6 +55,18 @@ fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
     path
 }
 
+/// A script that runs the interpreter under test after a pause.
+///
+/// The pause keeps a restarted child in its handshake long enough to act on
+/// it there.
+fn slow_python(dir: &Path) -> PathBuf {
+    script(
+        dir,
+        "slow-python",
+        &format!("sleep 1\nexec '{}' \"$@\"", python().display()),
+    )
+}
+
 /// Whether `pid` is gone right now.
 fn is_gone(pid: u32) -> bool {
     // SAFETY: `kill` with signal 0 sends nothing and only probes.
@@ -194,30 +206,37 @@ async fn repeat_spawn() {
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn drop_kills() {
-    let (kernel, _) = LocalKernel::spawn(launch())
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    let kernel = spawn(launch()).await;
     let pid = kernel.process_id().expect("running");
     let file = kernel.connection_file().expect("file");
     drop(kernel);
-    assert_gone(pid);
     assert!(!file.exists());
+    assert_gone(pid);
+}
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+/// A runtime that runs tasks only inside `block_on`.
+///
+/// Between those calls no task runs, so whatever happens there is the work
+/// of synchronous code alone.
+fn idle_runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .expect("runtime");
-    let owned = runtime
-        .spawn(LocalKernel::spawn(launch()))
-        .await
-        .expect("joins");
-    let (owned, _) = owned.unwrap_or_else(|error| panic!("spawns: {error}"));
-    let pid = owned.process_id().expect("running");
-    let file = owned.connection_file().expect("file");
-    runtime.shutdown_background();
-    drop(owned);
-    assert_gone(pid);
+        .expect("runtime")
+}
+
+#[ignore]
+#[test]
+fn drop_kills_without_runtime() {
+    let runtime = idle_runtime();
+    let kernel = runtime.block_on(spawn(launch()));
+    let pid = kernel.process_id().expect("running");
+    let file = kernel.connection_file().expect("file");
+    // Nothing drives the owner task now, so only `Drop` itself can act.
+    drop(kernel);
     assert!(!file.exists());
+    assert_gone(pid);
+    drop(runtime);
 }
 
 /// Gather events until the reply and idle for `parent` both arrive.
@@ -394,6 +413,20 @@ fn lifecycle_counts(events: &[KernelEvent]) -> (usize, usize) {
     (died, restarted)
 }
 
+/// Wait until a restart has started a child other than `old_pid`.
+async fn wait_for_new_child(kernel: &LocalKernel, old_pid: u32) -> (u32, PathBuf) {
+    let start = Instant::now();
+    loop {
+        if let (Some(pid), Some(file)) = (kernel.process_id(), kernel.connection_file()) {
+            if pid != old_pid {
+                return (pid, file);
+            }
+        }
+        assert!(start.elapsed() < Duration::from_secs(30), "no new child");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn interrupt_running() {
@@ -506,30 +539,236 @@ async fn restart_flow() {
     assert!(!file.exists());
 }
 
+/// Whether `event` is output, a reply, or a status of the run `parent`.
+fn reports_on(event: &KernelEvent, parent: &MsgId) -> bool {
+    match event {
+        KernelEvent::Iopub(IopubMsg::Stream { parent: p, .. })
+        | KernelEvent::ExecuteReply { parent: p, .. }
+        | KernelEvent::Status {
+            parent: Some(p), ..
+        } => p == parent,
+        _ => false,
+    }
+}
+
+#[ignore]
+#[tokio::test(flavor = "multi_thread")]
+async fn restart_drops_old_runs() {
+    let mut kernel = spawn(launch()).await;
+    let events = kernel.messages().expect("channel");
+    let running = kernel
+        // One write, so the marker never arrives split from its newline.
+        .execute(
+            "import sys, time\nsys.stdout.write('started\\n')\nsys.stdout.flush()\ntime.sleep(2)\nprint('late', flush=True)",
+        )
+        .await
+        .expect("sends");
+    recv_match(&events, Duration::from_secs(10), |event| {
+        matches!(
+            event,
+            KernelEvent::Iopub(IopubMsg::Stream { parent: p, text, .. })
+                if p == &running && text.contains("started")
+        )
+    });
+    kernel
+        .restart()
+        .await
+        .unwrap_or_else(|error| panic!("restarts: {error}"));
+    let first = events.try_recv();
+    assert!(
+        matches!(first, Ok(KernelEvent::Restarted { .. })),
+        "Restarted comes first after the restart, got {first:?}"
+    );
+    // Anything of the old generation that still passed would show up here.
+    let later = drain(&events, Duration::from_millis(2500));
+    assert!(
+        !later.iter().any(|event| reports_on(event, &running)),
+        "the old run reports after the restart: {later:?}"
+    );
+    let pid = kernel.process_id().expect("running");
+    kernel.shutdown().await.expect("shutdown");
+    assert_gone_now(pid);
+}
+
+#[ignore]
+#[tokio::test(flavor = "multi_thread")]
+async fn restart_stuck_kernel() {
+    let mut args = launch();
+    args.request_timeout = Duration::from_secs(30);
+    args.shutdown_grace = Duration::from_secs(1);
+    let mut kernel = spawn(args).await;
+    let events = kernel.messages().expect("channel");
+    let old_pid = kernel.process_id().expect("running");
+    let old_file = kernel.connection_file().expect("file");
+    // A stopped kernel answers neither the request nor the shutdown request.
+    signal(old_pid, libc::SIGSTOP);
+    let waiting = kernel.kernel_info();
+    // Let the owner send the request before the restart begins.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let start = Instant::now();
+    let info = kernel
+        .restart()
+        .await
+        .unwrap_or_else(|error| panic!("restarts: {error}"));
+    let waited = waiting.await;
+    assert!(
+        matches!(waited, Err(KernelError::Restarting)),
+        "the waiting request fails with Restarting, got {waited:?}"
+    );
+    let took = start.elapsed();
+    assert!(
+        took >= Duration::from_millis(900) && took < Duration::from_secs(20),
+        "restart took {took:?} with a one second grace"
+    );
+    assert_eq!(info.language.name, "python");
+    assert_ne!(kernel.process_id(), Some(old_pid));
+    assert_gone_now(old_pid);
+    assert!(!old_file.exists());
+    let drained = drain(&events, Duration::from_millis(500));
+    assert_eq!(
+        lifecycle_counts(&drained),
+        (0, 1),
+        "one Restarted and no Died"
+    );
+    kernel.kernel_info().await.expect("the new kernel answers");
+    let pid = kernel.process_id().expect("running");
+    let file = kernel.connection_file().expect("file");
+    kernel.shutdown().await.expect("shutdown");
+    assert_gone_now(pid);
+    assert!(!file.exists());
+}
+
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn shutdown_during_restart() {
-    let (kernel, _) = LocalKernel::spawn(launch())
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    let before = connection_files();
+    let dir = tempfile::tempdir().expect("temp dir");
+    let kernel = spawn(KernelLaunch::new(slow_python(dir.path()), "python3")).await;
     let old_pid = kernel.process_id().expect("running");
+    let old_file = kernel.connection_file().expect("file");
     let kernel = Arc::new(kernel);
     let restarting = Arc::clone(&kernel);
-    let shutting = Arc::clone(&kernel);
-    let (restarted, shut) = tokio::join!(
-        tokio::spawn(async move { restarting.restart().await }),
-        tokio::spawn(async move { shutting.shutdown().await }),
-    );
-    let restart_result = restarted.expect("joins");
-    let shutdown_result = shut.expect("joins");
-    assert!(shutdown_result.is_ok(), "shutdown wins");
+    let restarted = tokio::spawn(async move { restarting.restart().await });
+    let (new_pid, new_file) = wait_for_new_child(&kernel, old_pid).await;
+    kernel.shutdown().await.expect("shutdown");
+    let restart_result = restarted.await.expect("joins");
     assert!(
         matches!(restart_result, Err(KernelError::Closed)),
         "restart is aborted, got {restart_result:?}"
     );
-    assert_gone(old_pid);
+    assert_gone_now(old_pid);
+    assert_gone_now(new_pid);
+    assert!(!old_file.exists());
+    assert!(!new_file.exists());
     assert!(kernel.process_id().is_none());
     assert!(kernel.connection_file().is_none());
+    assert_eq!(connection_files(), before);
+}
+
+#[ignore]
+#[tokio::test(flavor = "multi_thread")]
+async fn shutdown_while_stopping() {
+    let before = connection_files();
+    let mut args = launch();
+    args.shutdown_grace = Duration::from_secs(30);
+    let kernel = spawn(args).await;
+    let old_pid = kernel.process_id().expect("running");
+    let old_file = kernel.connection_file().expect("file");
+    // A stopped kernel ignores the shutdown request, so the restart stays in
+    // its stop phase for the whole grace period.
+    signal(old_pid, libc::SIGSTOP);
+    let kernel = Arc::new(kernel);
+    let restarting = Arc::clone(&kernel);
+    let restarted = tokio::spawn(async move { restarting.restart().await });
+    let start = Instant::now();
+    while !matches!(kernel.execute("1").await, Err(KernelError::Restarting)) {
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "restart never began"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let start = Instant::now();
+    kernel.shutdown().await.expect("shutdown");
+    assert!(
+        start.elapsed() < Duration::from_secs(10),
+        "shutdown waited out the grace period"
+    );
+    let restart_result = restarted.await.expect("joins");
+    assert!(
+        matches!(restart_result, Err(KernelError::Closed)),
+        "restart is aborted, got {restart_result:?}"
+    );
+    assert_gone_now(old_pid);
+    assert!(!old_file.exists());
+    assert!(kernel.process_id().is_none());
+    assert_eq!(connection_files(), before);
+}
+
+#[ignore]
+#[test]
+fn drop_during_restart() {
+    let before = connection_files();
+    let dir = tempfile::tempdir().expect("temp dir");
+    let runtime = idle_runtime();
+    let kernel = runtime.block_on(spawn(KernelLaunch::new(slow_python(dir.path()), "python3")));
+    let old_pid = kernel.process_id().expect("running");
+    // The restart is queued at the call, so its future is not needed.
+    drop(kernel.restart());
+    let (new_pid, new_file) = runtime.block_on(async {
+        let child = wait_for_new_child(&kernel, old_pid).await;
+        assert!(matches!(
+            kernel.execute("1").await,
+            Err(KernelError::Restarting)
+        ));
+        child
+    });
+    // The restart task now sits in its handshake, and nothing drives it, so
+    // only `Drop` itself can stop the new child.
+    drop(kernel);
+    assert!(!new_file.exists());
+    assert_gone(new_pid);
+    assert_gone(old_pid);
+    drop(runtime);
+    assert_eq!(connection_files(), before);
+}
+
+#[ignore]
+#[tokio::test(flavor = "multi_thread")]
+async fn spawn_dropped_during_handshake() {
+    let before = connection_files();
+    let dir = tempfile::tempdir().expect("temp dir");
+    let pid_file = dir.path().join("pid");
+    let slow = script(
+        dir.path(),
+        "pid-python",
+        &format!(
+            "echo $$ > '{}'\nsleep 1\nexec '{}' \"$@\"",
+            pid_file.display(),
+            python().display()
+        ),
+    );
+    let wrote_pid = async {
+        loop {
+            let text = std::fs::read_to_string(&pid_file).unwrap_or_default();
+            if let Some(pid) = text.strip_suffix('\n').and_then(|pid| pid.parse().ok()) {
+                return pid;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    // The script sleeps after writing its pid, so the spawn is still in its
+    // handshake when the pid wins and the spawn future is dropped.
+    let pid: u32 = tokio::select! {
+        spawned = LocalKernel::spawn(KernelLaunch::new(&slow, "python3")) => {
+            panic!("the spawn finished first: {:?}", spawned.map(|_| ()))
+        }
+        pid = tokio::time::timeout(Duration::from_secs(10), wrote_pid) => {
+            pid.expect("the script writes its pid")
+        }
+    };
+    assert_gone(pid);
+    assert_eq!(connection_files(), before);
 }
 
 #[ignore]
