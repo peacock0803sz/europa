@@ -34,6 +34,8 @@ jobs:
 
   kernel:
     runs-on: ${{ matrix.os }}
+    # A hung kernel test should fail the job, not hold the runner for hours.
+    timeout-minutes: 30
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -46,6 +48,8 @@ jobs:
         with:
           python-version: "3.15.2"
       - run: python -m pip install ipykernel==7.4.0
+      # The process group unit tests depend on the platform, so run them on macOS too.
+      - run: cargo test -p europa-kernel --lib
       - run: EUROPA_KERNEL_PYTHON=${{ env.pythonLocation }}/bin/python cargo test -p europa-kernel --test local_kernel -- --ignored --test-threads=1
 
   corpus:
