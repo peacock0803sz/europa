@@ -127,6 +127,8 @@ struct Current {
     pid: u32,
     /// Connection file of the child.
     path: PathBuf,
+    /// How the child ended, once it has.
+    exited: watch::Receiver<Option<ProcessExit>>,
 }
 
 /// The current child, shared by the handle, the owner, and restarts.
@@ -383,6 +385,7 @@ async fn start(launch: &KernelLaunch, current: &SharedCurrent) -> Result<Started
         *lock(current) = Some(Current {
             pid: watched.pid,
             path: conn.path().to_path_buf(),
+            exited: watched.exited.clone(),
         });
         GLOBAL.register(watched.pid, conn.path().to_path_buf());
         let session = new_id();
@@ -1006,9 +1009,10 @@ fn apply_restart(
 
 /// Stop the kernel and close.
 ///
-/// A ready kernel gets a shutdown request and the grace period, then its
-/// group is killed. A restart in progress is cancelled, and whichever child
-/// it holds is killed.
+/// A ready kernel gets a shutdown request and the grace period; past it,
+/// its group is killed and the exit waited for up to [`EXIT_WAIT`] more. A
+/// restart in progress is cancelled, and whichever child it holds is killed
+/// and waited for the same way.
 async fn handle_shutdown(
     owner: &mut Owner,
     restarting: &mut Option<Restarting>,
@@ -1026,9 +1030,7 @@ async fn handle_shutdown(
                 let _ = send_zmq(&mut live.control_send, frames).await;
             }
             if let Some(watched) = owner.watched.as_mut() {
-                if watched.wait_exit(owner.shutdown_grace).await.is_none() {
-                    watched.kill_group();
-                }
+                see_child_end(watched, owner.shutdown_grace).await;
             }
         }
         Admission::CleanUpDead => {}
@@ -1039,8 +1041,7 @@ async fn handle_shutdown(
         Admission::AbortRestartAndStop => {
             abort_restart(restarting).await;
             if let Some(current) = take_current(owner) {
-                signal_group(current.pid, libc::SIGKILL);
-                let _ = std::fs::remove_file(&current.path);
+                stop_current(current).await;
             }
         }
         Admission::Reject(error) => {
@@ -1064,6 +1065,15 @@ async fn see_child_end(watched: &mut Watched, grace: Duration) {
         watched.kill_group();
         let _ = watched.wait_exit(EXIT_WAIT).await;
     }
+}
+
+/// Kill the child a cancelled restart left behind and wait up to
+/// [`EXIT_WAIT`] for its exit.
+async fn stop_current(current: Current) {
+    signal_group(current.pid, libc::SIGKILL);
+    let mut exited = current.exited;
+    let _ = tokio::time::timeout(EXIT_WAIT, exited.wait_for(Option::is_some)).await;
+    let _ = std::fs::remove_file(&current.path);
 }
 
 /// Drop the current generation: receive tasks, sockets, watcher, and file.
