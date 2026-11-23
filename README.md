@@ -96,9 +96,12 @@ EUROPA_KERNEL_PYTHON=/path/to/python cargo test -p europa-kernel --test local_ke
 Europa never installs packages into your Python environment; bring your
 own `ipykernel`.
 
-No kernel is left behind: a normal shutdown asks the kernel to exit and
-only then forcefully stops it, dropping the kernel value stops its process
-group at once, and `kill_all_kernels` stops every live kernel from panic
-hooks and signal handlers. When Europa itself is killed with `SIGKILL`, the
-kernel still ends through the Linux parent-death signal and the
-`JPY_PARENT_PID` watch built into `ipykernel`.
+Europa stops kernels on every exit path it controls. A normal shutdown asks
+the kernel to exit and kills its process group only after the grace period,
+dropping the kernel value kills the group at once, and whenever a kernel
+ends, whatever is left of its group is killed too. `kill_all_kernels` is the
+best-effort cleanup meant for panic hooks and signal handling. If Europa
+itself is killed with `SIGKILL`, the kernel still ends through the Linux
+parent-death signal and, on both Linux and macOS, the `JPY_PARENT_PID` watch
+in `ipykernel`, which checks about once a second. Processes the kernel
+started and its connection file are left behind in that case.
