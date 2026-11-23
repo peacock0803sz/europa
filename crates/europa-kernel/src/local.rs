@@ -507,7 +507,7 @@ async fn run_owner(
             exit = wait_child_exited(owner.watched.as_ref().map(|watched| watched.exited.clone())),
                 if matches!(owner.state, KernelState::Ready) =>
             {
-                handle_child_exit(&mut owner, exit);
+                handle_child_exit(&mut owner, &mut inbound, exit);
             }
         }
     }
@@ -597,9 +597,22 @@ fn fail_pending(owner: &mut Owner, error: &KernelError) {
 }
 
 /// Turn an unexpected child exit into one `Died` event.
-fn handle_child_exit(owner: &mut Owner, exit: ProcessExit) {
+///
+/// Messages already queued for the owner are routed first. Frames still in
+/// the socket buffers end with the generation, so no frame of the dead
+/// kernel follows `Died`. The file and the current child are cleaned up
+/// before `Died` is sent, so whoever sees it finds the kernel already dead.
+fn handle_child_exit(
+    owner: &mut Owner,
+    inbound: &mut mpsc::UnboundedReceiver<Inbound>,
+    exit: ProcessExit,
+) {
     if !matches!(owner.state, KernelState::Ready) {
         return;
+    }
+    owner.stop_receivers();
+    while let Ok(message) = inbound.try_recv() {
+        route(owner, message);
     }
     let tail = owner
         .watched
@@ -612,6 +625,10 @@ fn handle_child_exit(owner: &mut Owner, exit: ProcessExit) {
                 .tail()
         })
         .unwrap_or_default();
+    let _ = take_current(owner);
+    drop_live(owner);
+    owner.state = next_state(&owner.state, KernelTransition::ChildExited { exit });
+    fail_pending(owner, &KernelError::Dead { exit });
     send_event(
         owner,
         KernelEvent::Died {
@@ -619,10 +636,6 @@ fn handle_child_exit(owner: &mut Owner, exit: ProcessExit) {
             stderr_tail: tail,
         },
     );
-    fail_pending(owner, &KernelError::Dead { exit });
-    let _ = take_current(owner);
-    drop_live(owner);
-    owner.state = next_state(&owner.state, KernelTransition::ChildExited { exit });
 }
 
 /// Sleep until a pending deadline, or never when idle.
@@ -1078,7 +1091,7 @@ async fn stop_current(current: Current) {
 
 /// Drop the current generation: receive tasks, sockets, watcher, and file.
 fn drop_live(owner: &mut Owner) {
-    owner.stop_receivers();
+    owner.end_generation();
     owner.live = None;
     owner.watched = None;
     if let Some(conn) = owner.conn.take() {
