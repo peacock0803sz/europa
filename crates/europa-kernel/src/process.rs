@@ -3,18 +3,26 @@
 //! Each kernel is started on its own watcher thread with
 //! `std::process::Command`, so Linux `PR_SET_PDEATHSIG` only fires when
 //! Europa itself dies. Standard error is kept in a capped buffer for failure
-//! reports, and stopping signals the whole process group.
+//! reports, and stopping signals the whole process group. When the kernel
+//! ends, the watcher also kills what is left of its group.
 
 use std::ffi::OsStr;
 use std::io;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::process::{ChildStderr, ExitStatus};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use europa_core::ProcessExit;
 
 /// Upper bound of bytes kept from standard error.
 const STDERR_LIMIT: usize = 65536;
+
+/// Longest wait for standard error to close after the child ends.
+///
+/// A process outside the kernel group may keep the pipe open; the exit is
+/// published anyway once this passes.
+const STDERR_DRAIN: Duration = Duration::from_millis(500);
 
 /// Capped tail of a child standard error stream.
 #[derive(Debug)]
@@ -76,11 +84,14 @@ impl Watched {
         )
     }
 
-    /// Send `SIGKILL` to the process group, unless already exited.
+    /// Send `SIGKILL` to the process group, unless its exit is already
+    /// published.
     ///
-    /// The check and the signal are not atomic: the child may end between
-    /// them while a grandchild keeps the group id alive, but a recycled
-    /// group id colliding in that window is unlikely, so this is accepted.
+    /// Between reaping the child and publishing its exit, the watcher kills
+    /// the group and waits for standard error to close. A signal sent in that
+    /// window reaches surviving members of the old group, which keep its id
+    /// reserved. With none left the id is free, and its reuse by a new group
+    /// within that short window is accepted.
     pub(crate) fn kill_group(&self) {
         if self.exited.borrow().is_none() {
             signal_group(self.pid, libc::SIGKILL);
@@ -120,6 +131,14 @@ pub(crate) fn signal_group(pid: u32, signal: i32) {
 /// the child ends, so a Linux death signal fires only when Europa itself
 /// dies and never when a runtime thread goes idle.
 ///
+/// When the child ends, the watcher reaps it and kills the rest of its
+/// process group. Members that outlive the child keep the group id reserved
+/// on Linux and macOS, so the signal, sent right after the reap, reaches
+/// them rather than a recycled group. The watcher then waits a little for
+/// standard error to close and publishes the exit. `waitid` with `WNOWAIT`
+/// would keep the zombie and its id in place instead, but macOS reports a
+/// stopped child to it as exited.
+///
 /// Only the SIGKILL tests set `EUROPA_KERNEL_TEST_NO_JPY_PARENT_PID` to
 /// skip the parent pid hand-off; it is never set in production.
 pub(crate) fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watched> {
@@ -128,12 +147,12 @@ pub(crate) fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watch
 
     let (exit_tx, exit_rx) = tokio::sync::watch::channel(None);
     let stderr = Arc::new(Mutex::new(StderrTail::new()));
-    let (pid_tx, pid_rx) = std::sync::mpsc::channel();
+    let (pid_tx, pid_rx) = mpsc::channel();
     let program = program.to_path_buf();
     let args: Vec<std::ffi::OsString> = args.iter().map(|arg| arg.to_os_string()).collect();
     let stderr_reader = Arc::clone(&stderr);
     let parent_pid = std::process::id();
-    std::thread::spawn(move || {
+    let watcher = move || {
         let mut command = std::process::Command::new(&program);
         command.args(&args);
         command.stdin(Stdio::null());
@@ -146,11 +165,11 @@ pub(crate) fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watch
             command.env("JPY_PARENT_PID", parent_pid.to_string());
         }
         #[cfg(target_os = "linux")]
-        // SAFETY: runs after `fork` in the child. It only calls the
-        // async-signal-safe `prctl` and `getppid`, allocates nothing,
-        // and `_exit`s without running destructors when the parent is
-        // already gone, closing the race between setting the death
-        // signal and checking the parent.
+        // SAFETY: runs after `fork` in the child. It only calls the raw
+        // system call wrappers `prctl`, `getppid`, and `_exit`, allocates
+        // nothing, and `_exit`s without running destructors when the
+        // parent is already gone, closing the race between setting the
+        // death signal and checking the parent.
         unsafe {
             command.pre_exec(move || {
                 if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
@@ -169,36 +188,20 @@ pub(crate) fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watch
                 return;
             }
         };
-        let _ = pid_tx.send(Ok(child.id()));
-        let piped = child.stderr.take();
-        let reader = std::thread::spawn(move || {
-            use std::io::Read;
-            if let Some(mut piped) = piped {
-                let mut chunk = [0_u8; 8192];
-                loop {
-                    match piped.read(&mut chunk) {
-                        Ok(0) => break,
-                        Ok(read) => stderr_reader
-                            .lock()
-                            .unwrap_or_else(|poison| poison.into_inner())
-                            .push(&chunk[..read]),
-                        Err(_) => break,
-                    }
-                }
-            }
-        });
-        let status = child.wait();
-        let _ = reader.join();
-        let exit = status.map(|status| {
-            use std::os::unix::process::ExitStatusExt;
-            match (status.code(), status.signal()) {
-                (Some(code), _) => ProcessExit::Code(code),
-                (None, Some(signal)) => ProcessExit::Signal(signal),
-                (None, None) => ProcessExit::Unknown,
-            }
-        });
-        let _ = exit_tx.send_replace(exit.ok());
-    });
+        let pid = child.id();
+        let _ = pid_tx.send(Ok(pid));
+        let drained = drain_stderr(child.stderr.take(), stderr_reader);
+        // A failed `wait` (for example with `SIGCHLD` ignored) is still
+        // published as `Unknown`, so the owner never mistakes the child for
+        // a running one.
+        let exit = child.wait().map_or(ProcessExit::Unknown, exit_of);
+        signal_group(pid, libc::SIGKILL);
+        let _ = drained.recv_timeout(STDERR_DRAIN);
+        let _ = exit_tx.send_replace(Some(exit));
+    };
+    std::thread::Builder::new()
+        .name("europa-kernel-watch".to_owned())
+        .spawn(watcher)?;
     pid_rx
         .recv()
         .map_err(|_| io::Error::other("watcher thread died"))?
@@ -207,6 +210,47 @@ pub(crate) fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watch
             exited: exit_rx,
             stderr,
         })
+}
+
+/// Copy standard error into `tail` on a thread of its own.
+///
+/// The returned receiver disconnects once the pipe closes. Without a reader
+/// thread the pipe is dropped, and the kernel's writes to it fail.
+fn drain_stderr(piped: Option<ChildStderr>, tail: Arc<Mutex<StderrTail>>) -> mpsc::Receiver<()> {
+    use std::io::Read;
+
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    let reader = move || {
+        let _done = done_tx;
+        let Some(mut piped) = piped else {
+            return;
+        };
+        let mut chunk = [0_u8; 8192];
+        loop {
+            match piped.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(read) => tail
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .push(&chunk[..read]),
+            }
+        }
+    };
+    let _ = std::thread::Builder::new()
+        .name("europa-kernel-stderr".to_owned())
+        .spawn(reader);
+    done_rx
+}
+
+/// Describe how a reaped child ended.
+fn exit_of(status: ExitStatus) -> ProcessExit {
+    use std::os::unix::process::ExitStatusExt;
+
+    match (status.code(), status.signal()) {
+        (Some(code), _) => ProcessExit::Code(code),
+        (None, Some(signal)) => ProcessExit::Signal(signal),
+        (None, None) => ProcessExit::Unknown,
+    }
 }
 
 #[cfg(test)]
@@ -273,13 +317,80 @@ mod tests {
         );
     }
 
+    /// Wait up to five seconds for `pid` to vanish.
+    fn vanishes(pid: i32) -> bool {
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(5) {
+            // SAFETY: signal 0 sends nothing and only probes.
+            if unsafe { libc::kill(pid, 0) } != 0 {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        false
+    }
+
+    /// Read the pid a script printed on standard error.
+    async fn printed_pid(watched: &Watched) -> i32 {
+        let start = std::time::Instant::now();
+        loop {
+            let text = watched.stderr.lock().expect("unpoisoned").tail();
+            if let Some(line) = text.lines().next() {
+                return line.trim().parse().expect("pid");
+            }
+            assert!(start.elapsed() < Duration::from_secs(5), "no pid printed");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }
+
     #[tokio::test]
     async fn kill_group_stops_a_sleeper() {
+        let mut watched = spawn_command(
+            Path::new("/bin/sh"),
+            &[OsStr::new("-c"), OsStr::new("sleep 30 & echo $! >&2; wait")],
+        )
+        .expect("spawns");
+        let grandchild = printed_pid(&watched).await;
+        watched.kill_group();
+        assert_eq!(
+            watched.wait_exit(Duration::from_secs(5)).await,
+            Some(ProcessExit::Signal(9))
+        );
+        assert!(vanishes(grandchild), "grandchild {grandchild} survives");
+    }
+
+    #[tokio::test]
+    async fn ends_the_group_with_its_leader() {
+        let mut watched = spawn_command(
+            Path::new("/bin/sh"),
+            &[
+                OsStr::new("-c"),
+                OsStr::new("sleep 30 & echo $! >&2; exit 0"),
+            ],
+        )
+        .expect("spawns");
+        // The background sleeper keeps standard error open until the group
+        // kill ends it, so the exit arrives long before the sleep would.
+        assert_eq!(
+            watched.wait_exit(Duration::from_secs(5)).await,
+            Some(ProcessExit::Code(0))
+        );
+        let grandchild = printed_pid(&watched).await;
+        assert!(vanishes(grandchild), "grandchild {grandchild} survives");
+    }
+
+    #[tokio::test]
+    async fn a_stopped_child_still_runs() {
         let mut watched = spawn_command(
             Path::new("/bin/sh"),
             &[OsStr::new("-c"), OsStr::new("sleep 30")],
         )
         .expect("spawns");
+        // SAFETY: `kill` only sends the signal to that one process.
+        unsafe { libc::kill(watched.pid as i32, libc::SIGSTOP) };
+        assert_eq!(watched.wait_exit(Duration::from_millis(500)).await, None);
+        // SAFETY: `kill` only sends the signal to that one process.
+        unsafe { libc::kill(watched.pid as i32, libc::SIGCONT) };
         watched.kill_group();
         assert_eq!(
             watched.wait_exit(Duration::from_secs(5)).await,
