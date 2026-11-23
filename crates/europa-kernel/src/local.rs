@@ -38,6 +38,12 @@ use crate::KernelClient;
 /// Longest wait after `SIGKILL` for the watcher to publish the exit.
 const EXIT_WAIT: Duration = Duration::from_secs(5);
 
+/// Pause after a failed receive before trying the socket again.
+///
+/// A broken peer stream can fail on every poll; pacing the retries keeps a
+/// dying kernel from spinning its receive task until the exit is seen.
+const RECV_RETRY: Duration = Duration::from_millis(10);
+
 /// Tell a missing `ipykernel` apart from any other early exit.
 pub(crate) fn classify(early: ProcessExit, stderr_tail: &str) -> SpawnErrorKind {
     if stderr_tail.contains("No module named ipykernel_launcher")
@@ -97,11 +103,11 @@ enum Command {
 /// a death, or a close already ended.
 enum Inbound {
     /// Something arrived on shell.
-    Shell(u64, Result<zeromq::ZmqMessage, zeromq::ZmqError>),
+    Shell(u64, zeromq::ZmqMessage),
     /// Something arrived on iopub.
-    Iopub(u64, Result<zeromq::ZmqMessage, zeromq::ZmqError>),
+    Iopub(u64, zeromq::ZmqMessage),
     /// Something arrived on control.
-    Control(u64, Result<zeromq::ZmqMessage, zeromq::ZmqError>),
+    Control(u64, zeromq::ZmqMessage),
 }
 
 /// Sockets kept by the owner task.
@@ -561,15 +567,21 @@ async fn abort_and_cleanup(owner: &mut Owner, restarting: &mut Option<Restarting
 }
 
 /// Forward one socket's messages to the owner until aborted.
+///
+/// Receive failures carry nothing to route, so they are only paced.
 async fn forward<S: SocketRecv>(
     mut socket: S,
     tx: mpsc::UnboundedSender<Inbound>,
-    tag: impl Fn(Result<zeromq::ZmqMessage, zeromq::ZmqError>) -> Inbound,
+    tag: impl Fn(zeromq::ZmqMessage) -> Inbound,
 ) {
     loop {
-        let received = socket.recv().await;
-        if tx.send(tag(received)).is_err() {
-            break;
+        match socket.recv().await {
+            Ok(message) => {
+                if tx.send(tag(message)).is_err() {
+                    break;
+                }
+            }
+            Err(_) => tokio::time::sleep(RECV_RETRY).await,
         }
     }
 }
@@ -759,11 +771,8 @@ fn send_event(owner: &Owner, event: KernelEvent) {
 }
 
 /// Route one shell message to its waiter or the event channel.
-fn handle_shell(owner: &mut Owner, incoming: Result<zeromq::ZmqMessage, zeromq::ZmqError>) {
-    let frames = match incoming {
-        Ok(message) => to_frames(message),
-        Err(_) => return,
-    };
+fn handle_shell(owner: &mut Owner, incoming: zeromq::ZmqMessage) {
+    let frames = to_frames(incoming);
     let message = match decode(&frames, &owner.key) {
         Ok(message) => message,
         Err(error) => {
@@ -786,15 +795,8 @@ fn handle_shell(owner: &mut Owner, incoming: Result<zeromq::ZmqMessage, zeromq::
 }
 
 /// Route one iopub or control message to its waiter or the event channel.
-fn handle_channel(
-    owner: &mut Owner,
-    channel: Channel,
-    incoming: Result<zeromq::ZmqMessage, zeromq::ZmqError>,
-) {
-    let frames = match incoming {
-        Ok(message) => to_frames(message),
-        Err(_) => return,
-    };
+fn handle_channel(owner: &mut Owner, channel: Channel, incoming: zeromq::ZmqMessage) {
+    let frames = to_frames(incoming);
     let message = match decode(&frames, &owner.key) {
         Ok(message) => message,
         Err(error) => {
