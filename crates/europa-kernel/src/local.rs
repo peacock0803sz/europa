@@ -134,8 +134,10 @@ struct Current {
 /// The current child, shared by the handle, the owner, and restarts.
 type SharedCurrent = Arc<Mutex<Option<Current>>>;
 
-/// A reply channel with the deadline of its request.
-type Pending<T> = (oneshot::Sender<Result<T, KernelError>>, Instant);
+/// A reply channel with the deadline of its request, if it has one.
+///
+/// A request timeout too long to add to the clock means no deadline.
+type Pending<T> = (oneshot::Sender<Result<T, KernelError>>, Option<Instant>);
 
 /// State held by the owner task.
 struct Owner {
@@ -641,13 +643,18 @@ async fn sleep_until(deadline: Option<Instant>) {
 }
 
 impl Owner {
-    /// Earliest pending deadline, if any request waits.
+    /// Earliest pending deadline, if any request has one.
     fn pending_deadline(&self) -> Option<Instant> {
         self.pending_info
             .values()
-            .map(|(_, at)| *at)
-            .chain(self.pending_interrupt.values().map(|(_, at)| *at))
+            .filter_map(|(_, at)| *at)
+            .chain(self.pending_interrupt.values().filter_map(|(_, at)| *at))
             .min()
+    }
+
+    /// Deadline for a request sent now.
+    fn deadline(&self) -> Option<Instant> {
+        Instant::now().checked_add(self.request_timeout)
     }
 
     /// Explain a failed send, preferring the exit when the child already
@@ -883,7 +890,7 @@ async fn handle_interrupt(owner: &mut Owner, reply: oneshot::Sender<Result<(), K
     let control = owner.live.as_mut().map(|live| &mut live.control_send);
     match send_on(control, frames).await {
         Ok(()) => {
-            let deadline = Instant::now() + owner.request_timeout;
+            let deadline = owner.deadline();
             owner.pending_interrupt.insert(msg_id, (reply, deadline));
         }
         Err(error) => {
@@ -905,7 +912,7 @@ async fn handle_kernel_info(
     let shell = owner.live.as_mut().map(|live| &mut live.shell_send);
     match send_on(shell, frames).await {
         Ok(()) => {
-            let deadline = Instant::now() + owner.request_timeout;
+            let deadline = owner.deadline();
             owner.pending_info.insert(msg_id, (reply, deadline));
         }
         Err(error) => {
@@ -1128,7 +1135,7 @@ fn expire_pending(owner: &mut Owner) {
 
 /// Fail the requests in `pending` whose deadline passed.
 fn expire<T>(pending: &mut HashMap<String, Pending<T>>, now: Instant, op: KernelOp) {
-    for (_, (reply, _)) in pending.extract_if(|_, (_, at)| *at <= now) {
+    for (_, (reply, _)) in pending.extract_if(|_, (_, at)| at.is_some_and(|at| at <= now)) {
         let _ = reply.send(Err(KernelError::Timeout { op }));
     }
 }
