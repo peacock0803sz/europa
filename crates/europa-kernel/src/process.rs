@@ -24,6 +24,13 @@ const STDERR_LIMIT: usize = 65536;
 /// published anyway once this passes.
 const STDERR_DRAIN: Duration = Duration::from_millis(500);
 
+/// Test-only switch that withholds `JPY_PARENT_PID` from the kernel.
+///
+/// It is read in every build because the integration tests link the normal
+/// library. When set, the kernel gets no `JPY_PARENT_PID`, not even an
+/// inherited one, which removes the only `SIGKILL` protection on macOS.
+const NO_JPY_PARENT_PID: &str = "EUROPA_KERNEL_TEST_NO_JPY_PARENT_PID";
+
 /// Capped tail of a child standard error stream.
 #[derive(Debug)]
 pub(crate) struct StderrTail {
@@ -152,9 +159,6 @@ pub(crate) fn signal_group(pid: u32, signal: i32) {
 /// standard error to close and publishes the exit. `waitid` with `WNOWAIT`
 /// would keep the zombie and its id in place instead, but macOS reports a
 /// stopped child to it as exited.
-///
-/// Only the SIGKILL tests set `EUROPA_KERNEL_TEST_NO_JPY_PARENT_PID` to
-/// skip the parent pid hand-off; it is never set in production.
 pub(crate) fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watched> {
     use std::os::unix::process::CommandExt;
     use std::process::Stdio;
@@ -173,9 +177,9 @@ pub(crate) fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watch
         command.stdout(Stdio::null());
         command.stderr(Stdio::piped());
         command.process_group(0);
-        // Only the SIGKILL tests set this variable, to prove Linux
-        // `PR_SET_PDEATHSIG` alone; it is never set in production.
-        if std::env::var_os("EUROPA_KERNEL_TEST_NO_JPY_PARENT_PID").is_none() {
+        if std::env::var_os(NO_JPY_PARENT_PID).is_some() {
+            command.env_remove("JPY_PARENT_PID");
+        } else {
             command.env("JPY_PARENT_PID", parent_pid.to_string());
         }
         #[cfg(target_os = "linux")]
