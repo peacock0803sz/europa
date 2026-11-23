@@ -109,6 +109,20 @@ impl Watched {
     }
 }
 
+impl Drop for Watched {
+    /// Stop a child that still runs when its handle goes away.
+    ///
+    /// This covers a spawn future dropped during the handshake, a restart
+    /// task that is aborted or panics, the owner's kill path after the
+    /// kernel handle is dropped, and an owner task dropped with its runtime.
+    /// Paths that wait for the published exit only forget the registry entry
+    /// here.
+    fn drop(&mut self) {
+        self.kill_group();
+        crate::registry::GLOBAL.unregister(self.pid);
+    }
+}
+
 /// Send a signal to a process group, ignoring failures.
 ///
 /// `ESRCH` means the group is gone, and macOS answers `EPERM` when only
@@ -396,6 +410,26 @@ mod tests {
             watched.wait_exit(Duration::from_secs(5)).await,
             Some(ProcessExit::Signal(9))
         );
+    }
+
+    #[tokio::test]
+    async fn dropping_the_handle_stops_the_child() {
+        let watched = spawn_command(
+            Path::new("/bin/sh"),
+            &[OsStr::new("-c"), OsStr::new("sleep 30")],
+        )
+        .expect("spawns");
+        let mut exited = watched.exited.clone();
+        drop(watched);
+        let settled = tokio::time::timeout(
+            Duration::from_secs(5),
+            exited.wait_for(|exit| exit.is_some()),
+        )
+        .await
+        .expect("ends in time")
+        .map(|exit| *exit)
+        .expect("watch stays readable");
+        assert_eq!(settled, Some(ProcessExit::Signal(9)));
     }
 
     #[test]
