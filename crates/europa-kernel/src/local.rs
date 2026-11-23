@@ -214,6 +214,8 @@ struct Started {
 /// A spawned local kernel.
 ///
 /// Create it inside a Tokio runtime; a task of its own drives the kernel.
+/// Each request is queued when its method is called, so requests run in
+/// call order, and dropping a returned future does not cancel the request.
 /// Dropping the kernel without [`KernelClient::shutdown`] synchronously
 /// sends `SIGKILL` to the current child's process group and removes the
 /// connection file, with no grace period and even after the runtime has
@@ -322,20 +324,12 @@ impl KernelClient for LocalKernel {
         self.ask(move |reply| Command::Execute { code, reply }, closed)
     }
 
-    async fn interrupt(&self) -> Result<(), KernelError> {
-        let (reply, answer) = oneshot::channel();
-        if self.commands.send(Command::Interrupt { reply }).is_err() {
-            return Err(KernelError::Closed);
-        }
-        answer.await.unwrap_or(Err(KernelError::Closed))
+    fn interrupt(&self) -> impl Future<Output = Result<(), KernelError>> + Send {
+        self.ask(|reply| Command::Interrupt { reply }, closed)
     }
 
-    async fn restart(&self) -> Result<KernelInfo, KernelError> {
-        let (reply, answer) = oneshot::channel();
-        if self.commands.send(Command::Restart { reply }).is_err() {
-            return Err(KernelError::Closed);
-        }
-        answer.await.unwrap_or(Err(KernelError::Closed))
+    fn restart(&self) -> impl Future<Output = Result<KernelInfo, KernelError>> + Send {
+        self.ask(|reply| Command::Restart { reply }, closed)
     }
 
     fn shutdown(&self) -> impl Future<Output = Result<(), KernelError>> + Send {
