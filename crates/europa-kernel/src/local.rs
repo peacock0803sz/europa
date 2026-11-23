@@ -131,6 +131,19 @@ struct Current {
     exited: watch::Receiver<Option<ProcessExit>>,
 }
 
+impl Current {
+    /// Send `SIGKILL` to the child's group unless its exit is published.
+    ///
+    /// Once the exit is published the group id may be free, and a handle
+    /// dropped long after its runtime stopped would otherwise signal
+    /// whatever reuses it.
+    fn kill(&self) {
+        if self.exited.borrow().is_none() {
+            signal_group(self.pid, libc::SIGKILL);
+        }
+    }
+}
+
 /// The current child, shared by the handle, the owner, and restarts.
 type SharedCurrent = Arc<Mutex<Option<Current>>>;
 
@@ -353,7 +366,7 @@ impl Drop for LocalKernel {
         let current = lock(&self.current).take();
         if let Some(current) = current {
             GLOBAL.unregister(current.pid);
-            signal_group(current.pid, libc::SIGKILL);
+            current.kill();
             let _ = std::fs::remove_file(&current.path);
         }
         let _ = self.commands.send(Command::Kill);
@@ -539,7 +552,7 @@ async fn abort_restart(restarting: &mut Option<Restarting>) {
 async fn abort_and_cleanup(owner: &mut Owner, restarting: &mut Option<Restarting>) {
     abort_restart(restarting).await;
     if let Some(current) = take_current(owner) {
-        signal_group(current.pid, libc::SIGKILL);
+        current.kill();
         let _ = std::fs::remove_file(&current.path);
     }
     // Dropping the watcher kills a child that still runs.
@@ -1025,7 +1038,7 @@ fn apply_restart(
             // The panicking task dropped its watcher, which killed its
             // child; forget the child and remove its file here.
             if let Some(current) = take_current(owner) {
-                signal_group(current.pid, libc::SIGKILL);
+                current.kill();
                 let _ = std::fs::remove_file(&current.path);
             }
             owner.state = next_state(&owner.state, KernelTransition::RestartFailed);
@@ -1103,7 +1116,7 @@ async fn see_child_end(watched: &mut Watched, grace: Duration) {
 /// Kill the child a cancelled restart left behind and wait up to
 /// [`EXIT_WAIT`] for its exit.
 async fn stop_current(current: Current) {
-    signal_group(current.pid, libc::SIGKILL);
+    current.kill();
     let mut exited = current.exited;
     let _ = tokio::time::timeout(EXIT_WAIT, exited.wait_for(Option::is_some)).await;
     let _ = std::fs::remove_file(&current.path);
@@ -1225,5 +1238,37 @@ mod tests {
     fn kernel_is_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
         assert_send_sync::<LocalKernel>();
+    }
+
+    #[tokio::test]
+    async fn current_signals_only_an_unpublished_exit() {
+        let mut watched = crate::process::spawn_command(
+            std::path::Path::new("/bin/sh"),
+            &[std::ffi::OsStr::new("-c"), std::ffi::OsStr::new("sleep 30")],
+        )
+        .expect("spawns");
+        // A published exit means the group id may already be reused.
+        let (_published, exited) = watch::channel(Some(ProcessExit::Code(0)));
+        let stale = Current {
+            pid: watched.pid,
+            path: PathBuf::new(),
+            exited,
+        };
+        stale.kill();
+        assert_eq!(
+            watched.wait_exit(Duration::from_millis(300)).await,
+            None,
+            "a published exit sends no signal"
+        );
+        let live = Current {
+            pid: watched.pid,
+            path: PathBuf::new(),
+            exited: watched.exited.clone(),
+        };
+        live.kill();
+        assert_eq!(
+            watched.wait_exit(Duration::from_secs(5)).await,
+            Some(ProcessExit::Signal(9))
+        );
     }
 }
