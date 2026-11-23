@@ -886,6 +886,9 @@ async fn handle_kernel_info(
 }
 
 /// Restart the kernel, stopping the old generation in a separate task.
+///
+/// Requests still waiting on the old kernel fail with
+/// [`KernelError::Restarting`], since its replies are dropped from now on.
 fn handle_restart(
     owner: &mut Owner,
     restarting: &mut Option<Restarting>,
@@ -918,6 +921,7 @@ fn handle_restart(
     };
     owner.state = next_state(&owner.state, KernelTransition::RestartStarted);
     owner.end_generation();
+    fail_pending(owner, &KernelError::Restarting);
     let task = tokio::spawn(run_restart(
         owner.launch.clone(),
         stop_old,
