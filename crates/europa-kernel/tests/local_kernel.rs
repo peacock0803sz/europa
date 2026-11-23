@@ -3,7 +3,11 @@
 //! These tests need a Python with `ipykernel` and never run inside plain
 //! `cargo test`: they are all `#[ignore]`d and take their interpreter from
 //! `EUROPA_KERNEL_PYTHON`. Without that variable they fail loudly instead
-//! of passing silently.
+//! of passing silently. The one exception is `survives_parent_sigkill_child`,
+//! the child side of the `SIGKILL` probes, which returns at once unless a
+//! probe started it. Run them with `--test-threads=1`: `kill_all` kills
+//! every kernel in the process, and several tests compare the count of
+//! connection files in the shared temporary directory.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -13,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use europa_core::{
     IopubMsg, KernelError, KernelEvent, KernelLaunch, KernelOp, KernelStatus, MsgId, ProcessExit,
-    SpawnErrorKind,
+    SpawnError, SpawnErrorKind,
 };
 use europa_kernel::{kill_all_kernels, KernelClient, LocalKernel};
 
@@ -37,19 +41,36 @@ fn bare_python(dir: &Path) -> PathBuf {
     venv.join("bin").join("python")
 }
 
-/// Wait until `kill(pid, 0)` reports the process is gone.
+/// Write an executable `/bin/sh` script into `dir`.
+///
+/// Scripts that `exec` the interpreter stand in for it. A symbolic link
+/// would not do: CPython looks for `pyvenv.cfg` next to the link, so the
+/// Python of a virtual environment would stop acting as one.
+fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = dir.join(name);
+    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("writes script");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    path
+}
+
+/// Whether `pid` is gone right now.
+fn is_gone(pid: u32) -> bool {
+    // SAFETY: `kill` with signal 0 sends nothing and only probes.
+    let probed = unsafe { libc::kill(pid as i32, 0) };
+    probed != 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+}
+
+/// Assert that `pid` is already gone, after calls that wait for the exit.
+fn assert_gone_now(pid: u32) {
+    assert!(is_gone(pid), "process {pid} still alive");
+}
+
+/// Wait until `pid` is gone, after calls that kill without waiting.
 fn assert_gone(pid: u32) {
     let start = Instant::now();
-    loop {
-        // SAFETY: `kill` with signal 0 sends nothing and only probes.
-        let probed = unsafe { libc::kill(pid as i32, 0) };
-        if probed != 0 {
-            assert_eq!(
-                std::io::Error::last_os_error().raw_os_error(),
-                Some(libc::ESRCH)
-            );
-            return;
-        }
+    while !is_gone(pid) {
         assert!(
             start.elapsed() < Duration::from_secs(5),
             "process {pid} still alive"
@@ -77,6 +98,20 @@ fn launch() -> KernelLaunch {
     KernelLaunch::new(python(), "python3")
 }
 
+/// Spawn a kernel or fail the test.
+async fn spawn(launch: KernelLaunch) -> LocalKernel {
+    LocalKernel::spawn(launch)
+        .await
+        .unwrap_or_else(|error| panic!("spawns: {error}"))
+        .0
+}
+
+/// Send `sig` to one process.
+fn signal(pid: u32, sig: i32) {
+    // SAFETY: `kill` only sends the signal to that one process.
+    unsafe { libc::kill(pid as i32, sig) };
+}
+
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn spawn_and_info() {
@@ -94,7 +129,7 @@ async fn spawn_and_info() {
     let pid = kernel.process_id().expect("running");
     let file = kernel.connection_file().expect("file");
     kernel.shutdown().await.expect("shutdown");
-    assert_gone(pid);
+    assert_gone_now(pid);
     assert!(!file.exists());
     kernel.shutdown().await.expect("second shutdown");
 }
@@ -151,7 +186,7 @@ async fn repeat_spawn() {
         let pid = kernel.process_id().expect("running");
         let file = kernel.connection_file().expect("file");
         kernel.shutdown().await.expect("shutdown");
-        assert_gone(pid);
+        assert_gone_now(pid);
         assert!(!file.exists());
     }
 }
@@ -216,6 +251,7 @@ fn collect_until(
                 }
                 out.push(event);
             }
+            Err(RecvTimeoutError::Timeout) => {}
             Err(error) => panic!("channel failed: {error}"),
         }
     }
@@ -272,24 +308,20 @@ async fn run_execute_sequence(kernel: &LocalKernel, events: &Receiver<KernelEven
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn execute_events() {
-    let (mut kernel, _) = LocalKernel::spawn(launch())
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    let mut kernel = spawn(launch()).await;
     let events = kernel.messages().expect("channel");
     run_execute_sequence(&kernel, &events).await;
     let pid = kernel.process_id().expect("running");
     let file = kernel.connection_file().expect("file");
     kernel.shutdown().await.expect("shutdown");
-    assert_gone(pid);
+    assert_gone_now(pid);
     assert!(!file.exists());
 }
 
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn execute_events_repeat() {
-    let (mut kernel, _) = LocalKernel::spawn(launch())
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    let mut kernel = spawn(launch()).await;
     let events = kernel.messages().expect("channel");
     for _ in 0..10 {
         run_execute_sequence(&kernel, &events).await;
@@ -297,16 +329,14 @@ async fn execute_events_repeat() {
     let pid = kernel.process_id().expect("running");
     let file = kernel.connection_file().expect("file");
     kernel.shutdown().await.expect("shutdown");
-    assert_gone(pid);
+    assert_gone_now(pid);
     assert!(!file.exists());
 }
 
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn dropped_receiver() {
-    let (mut kernel, _) = LocalKernel::spawn(launch())
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    let mut kernel = spawn(launch()).await;
     drop(kernel.messages());
     for _ in 0..3 {
         kernel.execute("1").await.expect("sends");
@@ -315,7 +345,7 @@ async fn dropped_receiver() {
     let pid = kernel.process_id().expect("running");
     let file = kernel.connection_file().expect("file");
     kernel.shutdown().await.expect("shutdown");
-    assert_gone(pid);
+    assert_gone_now(pid);
     assert!(!file.exists());
 }
 
@@ -351,21 +381,35 @@ fn drain(events: &Receiver<KernelEvent>, settle: Duration) -> Vec<KernelEvent> {
     }
 }
 
+/// Count the `Died` and `Restarted` events among `events`.
+fn lifecycle_counts(events: &[KernelEvent]) -> (usize, usize) {
+    let died = events
+        .iter()
+        .filter(|event| matches!(event, KernelEvent::Died { .. }))
+        .count();
+    let restarted = events
+        .iter()
+        .filter(|event| matches!(event, KernelEvent::Restarted { .. }))
+        .count();
+    (died, restarted)
+}
+
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn interrupt_running() {
-    let (mut kernel, _) = LocalKernel::spawn(launch())
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    let mut kernel = spawn(launch()).await;
     let events = kernel.messages().expect("channel");
     let running = kernel
-        .execute("import time; time.sleep(60)")
+        .execute("import time\nprint('started', flush=True)\ntime.sleep(60)")
         .await
         .expect("sends");
+    // Interrupt only once the cell itself runs: a SIGINT that lands while the
+    // kernel prepares the cell is logged instead of raised in it.
     recv_match(&events, Duration::from_secs(10), |event| {
         matches!(
             event,
-            KernelEvent::Status { parent: Some(p), state: KernelStatus::Busy } if p == &running
+            KernelEvent::Iopub(IopubMsg::Stream { parent: p, text, .. })
+                if p == &running && text.contains("started")
         )
     });
     kernel.interrupt().await.expect("interrupt");
@@ -380,31 +424,40 @@ async fn interrupt_running() {
     let pid = kernel.process_id().expect("running");
     let file = kernel.connection_file().expect("file");
     kernel.shutdown().await.expect("shutdown");
-    assert_gone(pid);
+    assert_gone_now(pid);
     assert!(!file.exists());
 }
 
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn restart_flow() {
-    let (mut kernel, _) = LocalKernel::spawn(launch())
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    let mut kernel = spawn(launch()).await;
     let events = kernel.messages().expect("channel");
     let old_pid = kernel.process_id().expect("running");
     let old_file = kernel.connection_file().expect("file");
     let kernel = Arc::new(kernel);
     let restarting = Arc::clone(&kernel);
     let restarted = tokio::spawn(async move { restarting.restart().await });
-    let mut restarting_seen = false;
+    let mut execute_rejected = false;
+    let mut info_rejected = false;
+    let mut interrupt_rejected = false;
     let outcome = tokio::time::timeout(Duration::from_secs(30), async {
-        loop {
-            if restarted.is_finished() {
-                break;
-            }
+        while !restarted.is_finished() {
             match kernel.execute("1").await {
                 Err(KernelError::Restarting) => {
-                    restarting_seen = true;
+                    execute_rejected = true;
+                    // The restart still runs, so these are turned away too
+                    // unless it ends right now.
+                    match kernel.kernel_info().await {
+                        Err(KernelError::Restarting) => info_rejected = true,
+                        Ok(_) => {}
+                        Err(error) => panic!("unexpected info failure: {error:?}"),
+                    }
+                    match kernel.interrupt().await {
+                        Err(KernelError::Restarting) => interrupt_rejected = true,
+                        Ok(()) => {}
+                        Err(error) => panic!("unexpected interrupt failure: {error:?}"),
+                    }
                 }
                 Err(error) => panic!("unexpected execute failure: {error:?}"),
                 Ok(_) => {}
@@ -419,29 +472,29 @@ async fn restart_flow() {
         .expect("joins")
         .unwrap_or_else(|error| panic!("restarts: {error}"));
     assert!(
-        restarting_seen,
+        execute_rejected,
         "expected Restarting while restart runs; restart may have finished before any execute was rejected"
+    );
+    assert!(
+        info_rejected,
+        "expected kernel_info to fail with Restarting"
+    );
+    assert!(
+        interrupt_rejected,
+        "expected interrupt to fail with Restarting"
     );
     assert_eq!(info.language.name, "python");
     let new_pid = kernel.process_id().expect("running");
     assert_ne!(new_pid, old_pid);
-    assert_gone(old_pid);
+    assert_gone_now(old_pid);
     let new_file = kernel.connection_file().expect("file");
     assert_ne!(new_file, old_file);
     assert!(!old_file.exists());
     let drained = drain(&events, Duration::from_millis(500));
     assert_eq!(
-        drained
-            .iter()
-            .filter(|event| matches!(event, KernelEvent::Restarted { .. }))
-            .count(),
-        1
-    );
-    assert!(
-        !drained
-            .iter()
-            .any(|event| matches!(event, KernelEvent::Died { .. })),
-        "no Died across a restart"
+        lifecycle_counts(&drained),
+        (0, 1),
+        "one Restarted and no Died"
     );
     let again = kernel.execute("print(1)").await.expect("sends");
     collect_until(&events, &again, Duration::from_secs(10));
@@ -449,7 +502,7 @@ async fn restart_flow() {
     let file = kernel.connection_file().expect("file");
     let kernel = Arc::try_unwrap(kernel).unwrap_or_else(|_| panic!("sole owner"));
     kernel.shutdown().await.expect("shutdown");
-    assert_gone(pid);
+    assert_gone_now(pid);
     assert!(!file.exists());
 }
 
@@ -482,13 +535,26 @@ async fn shutdown_during_restart() {
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn death_and_recover() {
-    let (mut kernel, _) = LocalKernel::spawn(launch())
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    let mut kernel = spawn(launch()).await;
     let events = kernel.messages().expect("channel");
     let pid = kernel.process_id().expect("running");
-    // SAFETY: `kill` with SIGKILL only terminates the child.
-    unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+    let file = kernel.connection_file().expect("file");
+    // A stopped kernel cannot answer, so the request still waits when the
+    // kernel dies.
+    signal(pid, libc::SIGSTOP);
+    let waiting = kernel.kernel_info();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    signal(pid, libc::SIGKILL);
+    let start = Instant::now();
+    let waited = waiting.await;
+    assert!(
+        matches!(waited, Err(KernelError::Dead { .. })),
+        "the waiting request fails with Dead, got {waited:?}"
+    );
+    assert!(
+        start.elapsed() < Duration::from_secs(5),
+        "the waiting request outlived the death"
+    );
     let got = recv_match(&events, Duration::from_secs(10), |event| {
         matches!(event, KernelEvent::Died { .. })
     });
@@ -501,6 +567,13 @@ async fn death_and_recover() {
             }
         ),
         "got {got:?}"
+    );
+    assert_gone_now(pid);
+    assert!(!file.exists());
+    assert_eq!(
+        lifecycle_counts(&drain(&events, Duration::from_millis(500))),
+        (0, 0),
+        "exactly one Died"
     );
     assert!(matches!(
         kernel.execute("1").await,
@@ -526,8 +599,7 @@ async fn death_and_recover() {
     kernel.execute("1").await.expect("runs again");
     kernel.kernel_info().await.expect("info again");
     let pid = kernel.process_id().expect("running");
-    // SAFETY: `kill` with SIGKILL only terminates the child.
-    unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+    signal(pid, libc::SIGKILL);
     recv_match(&events, Duration::from_secs(10), |event| {
         matches!(event, KernelEvent::Died { .. })
     });
@@ -537,27 +609,57 @@ async fn death_and_recover() {
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn restart_failure() {
+    let before = connection_files();
     let dir = tempfile::tempdir().expect("temp dir");
-    let wrapper = dir.path().join("python-wrapper");
-    std::fs::write(
-        &wrapper,
-        format!("#!/bin/sh\nexec {} \"$@\"\n", python().display()),
-    )
-    .expect("writes wrapper");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).expect("chmod");
-    }
-    let (kernel, _) = LocalKernel::spawn(KernelLaunch::new(&wrapper, "python3"))
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
-    std::fs::remove_file(&wrapper).expect("removes wrapper");
+    let flag = dir.path().join("fail");
+    let wrapper = script(
+        dir.path(),
+        "python-wrapper",
+        &format!(
+            "if [ -e '{}' ]; then exit 3; fi\nexec '{}' \"$@\"",
+            flag.display(),
+            python().display()
+        ),
+    );
+    let mut kernel = spawn(KernelLaunch::new(&wrapper, "python3")).await;
+    let events = kernel.messages().expect("channel");
+    let old_pid = kernel.process_id().expect("running");
+    let old_file = kernel.connection_file().expect("file");
+
+    // The new child starts and exits before its handshake.
+    std::fs::write(&flag, "").expect("writes flag");
     let error = kernel.restart().await.expect_err("restart fails");
     assert!(
         matches!(
             error,
-            KernelError::Spawn(europa_core::SpawnError {
+            KernelError::Spawn(SpawnError {
+                kind: SpawnErrorKind::EarlyExit {
+                    exit: ProcessExit::Code(3)
+                },
+                ..
+            })
+        ),
+        "got {error:?}"
+    );
+    assert_gone_now(old_pid);
+    assert!(!old_file.exists());
+    assert!(
+        kernel.process_id().is_none(),
+        "no child after failed restart"
+    );
+    assert!(matches!(
+        kernel.execute("1").await,
+        Err(KernelError::Dead { .. })
+    ));
+
+    // The interpreter is gone, so restarting from dead fails before a child
+    // starts.
+    std::fs::remove_file(&wrapper).expect("removes wrapper");
+    let error = kernel.restart().await.expect_err("restart fails again");
+    assert!(
+        matches!(
+            error,
+            KernelError::Spawn(SpawnError {
                 kind: SpawnErrorKind::InterpreterNotFound,
                 ..
             })
@@ -568,31 +670,39 @@ async fn restart_failure() {
         kernel.execute("1").await,
         Err(KernelError::Dead { .. })
     ));
-    let pid = kernel.process_id();
-    assert!(pid.is_none(), "no child after failed restart");
+    assert_eq!(
+        lifecycle_counts(&drain(&events, Duration::from_millis(500))),
+        (0, 0),
+        "failed restarts emit neither Died nor Restarted"
+    );
     kernel.shutdown().await.expect("shutdown");
+    assert_eq!(connection_files(), before);
 }
 
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn kill_all() {
-    let (mut first, _) = LocalKernel::spawn(launch())
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
-    let (mut second, _) = LocalKernel::spawn(launch())
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    let mut first = spawn(launch()).await;
+    let mut second = spawn(launch()).await;
     let _ = first.messages();
     let _ = second.messages();
+    let replaced = first.process_id().expect("running");
+    // A restarted generation must be registered as well.
+    first
+        .restart()
+        .await
+        .unwrap_or_else(|error| panic!("restarts: {error}"));
     let first_pid = first.process_id().expect("running");
+    assert_ne!(first_pid, replaced);
     let second_pid = second.process_id().expect("running");
     let first_file = first.connection_file().expect("file");
     let second_file = second.connection_file().expect("file");
     kill_all_kernels();
-    assert_gone(first_pid);
-    assert_gone(second_pid);
+    // Checked at once, before the owners notice the deaths and clean up.
     assert!(!first_file.exists());
     assert!(!second_file.exists());
+    assert_gone(first_pid);
+    assert_gone(second_pid);
 }
 
 #[ignore]
@@ -600,43 +710,100 @@ async fn kill_all() {
 async fn request_timeout() {
     let mut args = launch();
     args.request_timeout = Duration::from_secs(1);
-    let (kernel, _) = LocalKernel::spawn(args)
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
+    args.shutdown_grace = Duration::from_secs(1);
+
+    let mut kernel = spawn(args.clone()).await;
+    let events = kernel.messages().expect("channel");
     let pid = kernel.process_id().expect("running");
-    // SAFETY: `kill` with SIGSTOP only stops the child.
-    unsafe { libc::kill(pid as i32, libc::SIGSTOP) };
+    signal(pid, libc::SIGSTOP);
+    let start = Instant::now();
     assert!(matches!(
         kernel.kernel_info().await,
         Err(KernelError::Timeout {
             op: KernelOp::KernelInfo
         })
     ));
+    let waited = start.elapsed();
+    assert!(
+        waited >= Duration::from_millis(900) && waited < Duration::from_secs(5),
+        "info waited {waited:?}"
+    );
+    signal(pid, libc::SIGCONT);
+    kernel.kernel_info().await.expect("info after resume");
+    assert_eq!(
+        lifecycle_counts(&drain(&events, Duration::from_millis(500))),
+        (0, 0),
+        "a timeout is no death"
+    );
+    let file = kernel.connection_file().expect("file");
+    kernel.shutdown().await.expect("shutdown");
+    assert_gone_now(pid);
+    assert!(!file.exists());
+
+    // This kernel never resumes, so the interrupt it receives is never
+    // handled, and shutdown has to kill it after the grace period.
+    let stuck = spawn(args).await;
+    let stuck_pid = stuck.process_id().expect("running");
+    let stuck_file = stuck.connection_file().expect("file");
+    signal(stuck_pid, libc::SIGSTOP);
+    let start = Instant::now();
     assert!(matches!(
-        kernel.interrupt().await,
+        stuck.interrupt().await,
         Err(KernelError::Timeout {
             op: KernelOp::Interrupt
         })
     ));
-    let mut args = launch();
-    args.shutdown_grace = Duration::from_secs(1);
-    let (slow, _) = LocalKernel::spawn(args)
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
-    let slow_pid = slow.process_id().expect("running");
-    let slow_file = slow.connection_file().expect("file");
-    // SAFETY: `kill` with SIGSTOP only stops the child.
-    unsafe { libc::kill(slow_pid as i32, libc::SIGSTOP) };
-    slow.shutdown().await.expect("forced shutdown");
-    assert_gone(slow_pid);
-    assert!(!slow_file.exists());
-    // SAFETY: `kill` with SIGCONT only resumes the child.
-    unsafe { libc::kill(pid as i32, libc::SIGCONT) };
-    kernel.kernel_info().await.expect("info after resume");
-    let file = kernel.connection_file().expect("file");
-    kernel.shutdown().await.expect("shutdown");
-    assert_gone(pid);
-    assert!(!file.exists());
+    let waited = start.elapsed();
+    assert!(
+        waited >= Duration::from_millis(900) && waited < Duration::from_secs(5),
+        "interrupt waited {waited:?}"
+    );
+    // The owner handles no deadline while it shuts down, so this request is
+    // still waiting when the kernel closes.
+    let pending = stuck.kernel_info();
+    let start = Instant::now();
+    stuck.shutdown().await.expect("forced shutdown");
+    let waited = start.elapsed();
+    assert!(
+        waited >= Duration::from_millis(900) && waited < Duration::from_secs(10),
+        "shutdown took {waited:?}"
+    );
+    let pending = pending.await;
+    assert!(
+        matches!(pending, Err(KernelError::Closed)),
+        "a request waiting at close fails with Closed, got {pending:?}"
+    );
+    assert_gone_now(stuck_pid);
+    assert!(!stuck_file.exists());
+}
+
+/// Cleans up after a kernel whose parent was killed, even when the test
+/// fails.
+struct OrphanCleanup {
+    /// Kernel group to kill, until the test has seen the kernel end.
+    pid: Option<u32>,
+    /// Connection file that nobody else is left to remove.
+    file: PathBuf,
+}
+
+impl Drop for OrphanCleanup {
+    fn drop(&mut self) {
+        if let Some(pid) = self.pid {
+            // SAFETY: `killpg` only sends the signal to that group.
+            unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+        }
+        let _ = std::fs::remove_file(&self.file);
+    }
+}
+
+/// Kills and reaps a child process when dropped.
+struct KillOnDrop(std::process::Child);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 /// Kill a child copy of this test binary and wait for its kernel to go.
@@ -656,43 +823,37 @@ async fn run_sigkill_probe(extra_env: Option<(&str, &str)>) {
     if let Some((key, value)) = extra_env {
         command.env(key, value);
     }
-    let mut child = command.spawn().expect("spawns child");
-    let stdout = child.stdout.take().expect("piped");
-    let lines = BufReader::new(stdout).lines();
-    let start = Instant::now();
+    let mut child = KillOnDrop(command.spawn().expect("spawns child"));
+    let stdout = child.0.stdout.take().expect("piped");
+    let mut kernel_file = None;
     let mut kernel_pid = None;
-    for line in lines {
+    for line in BufReader::new(stdout).lines() {
         let line = line.expect("reads");
-        if let Some(pid) = line.strip_prefix("kernel-pid=") {
-            kernel_pid = Some(pid.parse().expect("number"));
+        // libtest may print the test name in front of our text on one line.
+        if let Some((_, file)) = line.split_once("kernel-file=") {
+            kernel_file = Some(PathBuf::from(file.trim()));
+        }
+        if let Some((_, pid)) = line.split_once("kernel-pid=") {
+            kernel_pid = Some(pid.trim().parse::<u32>().expect("number"));
             break;
         }
-        assert!(
-            start.elapsed() < Duration::from_secs(30),
-            "no kernel pid line"
-        );
     }
-    let kernel_pid: u32 = kernel_pid.expect("pid line");
-    // SAFETY: `kill` with SIGKILL only terminates the child test process.
-    unsafe { libc::kill(child.id() as i32, libc::SIGKILL) };
-    let _ = child.wait();
+    let kernel_pid = kernel_pid.expect("pid line");
+    let mut orphan = OrphanCleanup {
+        pid: Some(kernel_pid),
+        file: kernel_file.expect("file line"),
+    };
+    signal(child.0.id(), libc::SIGKILL);
+    let _ = child.0.wait();
     let start = Instant::now();
-    loop {
-        // SAFETY: `kill` with signal 0 sends nothing and only probes.
-        let probed = unsafe { libc::kill(kernel_pid as i32, 0) };
-        if probed != 0 {
-            assert_eq!(
-                std::io::Error::last_os_error().raw_os_error(),
-                Some(libc::ESRCH)
-            );
-            return;
-        }
+    while !is_gone(kernel_pid) {
         assert!(
             start.elapsed() < Duration::from_secs(10),
             "kernel {kernel_pid} survives parent SIGKILL"
         );
         std::thread::sleep(Duration::from_millis(100));
     }
+    orphan.pid = None;
 }
 
 #[ignore]
@@ -714,11 +875,12 @@ async fn survives_parent_sigkill_child() {
     if std::env::var_os("EUROPA_KERNEL_SIGKILL_CHILD").is_none() {
         return;
     }
-    let (_kernel, _) = LocalKernel::spawn(launch())
-        .await
-        .unwrap_or_else(|error| panic!("spawns: {error}"));
-    let pid = _kernel.process_id().expect("running");
+    let kernel = spawn(launch()).await;
+    let pid = kernel.process_id().expect("running");
+    let file = kernel.connection_file().expect("file");
+    println!("kernel-file={}", file.display());
     println!("kernel-pid={pid}");
     std::io::stdout().flush().expect("flush");
     tokio::time::sleep(Duration::from_secs(60)).await;
+    drop(kernel);
 }
