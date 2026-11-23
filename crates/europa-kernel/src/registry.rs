@@ -1,44 +1,49 @@
 //! Process-wide registry of live kernels.
 //!
-//! `kill_all_kernels` walks this list from panic hooks and signal handlers,
-//! so it never waits on a lock and only sends `SIGKILL`.
+//! `kill_all_kernels` walks this list for panic hooks and signal handling,
+//! so it never waits on a lock and never waits for a kernel to exit.
 
 use std::path::PathBuf;
+use std::sync::{Mutex, TryLockError};
 
 /// Pids and connection files of kernels started in this process.
 pub(crate) struct Registry {
     /// Live children in spawn order.
-    live: std::sync::Mutex<Vec<(u32, PathBuf)>>,
+    live: Mutex<Vec<(u32, PathBuf)>>,
 }
 
 impl Registry {
     /// Make an empty registry.
     pub(crate) const fn new() -> Self {
         Self {
-            live: std::sync::Mutex::new(Vec::new()),
+            live: Mutex::new(Vec::new()),
         }
     }
 
     /// Remember a new child.
     pub(crate) fn register(&self, pid: u32, path: PathBuf) {
-        if let Ok(mut live) = self.live.lock() {
-            live.push((pid, path));
-        }
+        self.live
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .push((pid, path));
     }
 
-    /// Forget a reaped child.
+    /// Forget a child that ended or is being killed.
     pub(crate) fn unregister(&self, pid: u32) {
-        if let Ok(mut live) = self.live.lock() {
-            live.retain(|(known, _)| *known != pid);
-        }
+        self.live
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .retain(|(known, _)| *known != pid);
     }
 
     /// `SIGKILL` every known group and remove every known file.
     ///
-    /// Takes no lock when one is held elsewhere; best effort only.
+    /// Does nothing when the lock is held elsewhere; best effort only.
     pub(crate) fn kill_all(&self) {
-        let Ok(live) = self.live.try_lock() else {
-            return;
+        let live = match self.live.try_lock() {
+            Ok(live) => live,
+            Err(TryLockError::Poisoned(poison)) => poison.into_inner(),
+            Err(TryLockError::WouldBlock) => return,
         };
         for (pid, path) in live.iter() {
             crate::process::signal_group(*pid, libc::SIGKILL);
@@ -50,10 +55,15 @@ impl Registry {
 /// Kernels started in this process.
 pub(crate) static GLOBAL: Registry = Registry::new();
 
-/// `SIGKILL` every live kernel group and remove every live file.
+/// Best-effort `SIGKILL` of every live kernel process group, then removal of
+/// each connection file.
 ///
-/// Takes no lock when one is held, so panic hooks and signal handlers can
-/// call it. It never waits for a grace period.
+/// Meant for panic hooks and signal handling. It never blocks: when the
+/// registry lock is held, even by the interrupted thread itself, it returns
+/// without killing anything. It only calls `try_lock`, `kill`, and
+/// `unlink`, and it does not wait for the kernels to exit. A long connection
+/// file path makes the removal allocate, so a raw signal handler should
+/// prefer a flag that a normal thread acts on.
 pub fn kill_all_kernels() {
     GLOBAL.kill_all();
 }
@@ -96,7 +106,14 @@ mod tests {
     #[test]
     fn skips_when_locked() {
         let registry = Registry::new();
-        let _held = registry.live.lock().expect("locks");
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("k.json");
+        std::fs::write(&path, "{}").expect("writes");
+        // No process has this group id, so a signal would find nothing.
+        registry.register(u32::MAX >> 1, path.clone());
+        let held = registry.live.lock().expect("locks");
         registry.kill_all();
+        drop(held);
+        assert!(path.exists(), "kill_all ran despite the held lock");
     }
 }
