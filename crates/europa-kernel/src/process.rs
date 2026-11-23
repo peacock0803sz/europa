@@ -98,18 +98,20 @@ impl Watched {
     }
 }
 
-/// Send a signal to a process group, ignoring missing groups.
+/// Send a signal to a process group, ignoring failures.
+///
+/// `ESRCH` means the group is gone, and macOS answers `EPERM` when only
+/// zombies are left in it; neither leaves anything to stop. It calls only
+/// the async-signal-safe `kill`, so panic hooks and signal handlers may use
+/// it.
 pub(crate) fn signal_group(pid: u32, signal: i32) {
-    // SAFETY: `killpg` only sends a signal and touches no memory. A
-    // positive pid names a process group, and `ESRCH` for a missing group
-    // is ignored by the caller contract.
-    let sent = unsafe { libc::killpg(pid as i32, signal) };
-    if sent != 0 {
-        debug_assert_eq!(
-            std::io::Error::last_os_error().raw_os_error(),
-            Some(libc::ESRCH)
-        );
+    // Negated, 0 would name our own group and 1 every process we may signal.
+    if pid <= 1 {
+        return;
     }
+    // SAFETY: `kill` only sends a signal and touches no memory. The negated
+    // pid names the process group whose id is `pid`.
+    unsafe { libc::kill(-(pid as i32), signal) };
 }
 
 /// Start a command on a watcher thread, for tests and kernels.
