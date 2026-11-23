@@ -656,6 +656,19 @@ impl Owner {
             .min()
     }
 
+    /// Explain a failed send, preferring the exit when the child already
+    /// ended and the owner has not seen it yet.
+    fn send_failure(&self, error: KernelError) -> KernelError {
+        match self
+            .watched
+            .as_ref()
+            .and_then(|watched| *watched.exited.borrow())
+        {
+            Some(exit) => KernelError::Dead { exit },
+            None => error,
+        }
+    }
+
     /// Install a generation that finished its handshake, returning its info.
     ///
     /// Its receive tasks tag messages with the current generation.
@@ -823,7 +836,7 @@ fn frame(
     (msg_id, encode(&message, key))
 }
 
-/// Send a request, reporting any failure as [`KernelError::Closed`].
+/// Send a request, reporting a failed socket as [`KernelError::Io`].
 async fn send_on(
     socket: Option<&mut zeromq::DealerSendHalf>,
     frames: Vec<Vec<u8>>,
@@ -833,7 +846,9 @@ async fn send_on(
     };
     send_zmq(socket, frames)
         .await
-        .map_err(|_| KernelError::Closed)
+        .map_err(|error| KernelError::Io {
+            message: error.to_string(),
+        })
 }
 
 /// Run code when admitted, answering with the request id at once.
@@ -857,7 +872,11 @@ async fn handle_execute(
     let (msg_id, frames) = frame("execute_request", &owner.session, &owner.key, content);
     let shell = owner.live.as_mut().map(|live| &mut live.shell_send);
     let sent = send_on(shell, frames).await;
-    let _ = reply.send(sent.map(|()| MsgId::new(msg_id)));
+    let answer = match sent {
+        Ok(()) => Ok(MsgId::new(msg_id)),
+        Err(error) => Err(owner.send_failure(error)),
+    };
+    let _ = reply.send(answer);
 }
 
 /// Interrupt the running execution when admitted.
@@ -874,7 +893,7 @@ async fn handle_interrupt(owner: &mut Owner, reply: oneshot::Sender<Result<(), K
             owner.pending_interrupt.insert(msg_id, (reply, deadline));
         }
         Err(error) => {
-            let _ = reply.send(Err(error));
+            let _ = reply.send(Err(owner.send_failure(error)));
         }
     }
 }
@@ -896,7 +915,7 @@ async fn handle_kernel_info(
             owner.pending_info.insert(msg_id, (reply, deadline));
         }
         Err(error) => {
-            let _ = reply.send(Err(error));
+            let _ = reply.send(Err(owner.send_failure(error)));
         }
     }
 }
