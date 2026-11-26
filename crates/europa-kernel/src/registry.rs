@@ -61,7 +61,9 @@ pub(crate) static GLOBAL: Registry = Registry::new();
 /// Meant for panic hooks and signal handling. It never blocks: when the
 /// registry lock is held, even by the interrupted thread itself, it returns
 /// without killing anything. It only calls `try_lock`, `kill`, and
-/// `unlink`, and it does not wait for the kernels to exit. A long connection
+/// `unlink`, and it does not wait for the kernels to exit. A kernel that has
+/// just ended may stay listed until its owner forgets it, so in that short
+/// window a signal can reach its freed group id. A long connection
 /// file path makes the removal allocate, so a raw signal handler should
 /// prefer a flag that a normal thread acts on.
 pub fn kill_all_kernels() {

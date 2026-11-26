@@ -98,9 +98,11 @@ own `ipykernel`.
 
 Europa stops kernels on every exit path it controls. A normal shutdown asks
 the kernel to exit and kills its process group only after the grace period,
-dropping the kernel value kills the group at once, and whenever a kernel
+dropping the kernel value kills the group at once, or right after the
+spawn returns when a restart is still spawning it, and whenever a kernel
 ends, whatever is left of its group is killed too. `kill_all_kernels` is the
-best-effort cleanup meant for panic hooks and signal handling. If Europa
+best-effort cleanup meant for panic hooks and signal handling; from a raw
+signal handler, set a flag that a normal thread acts on. If Europa
 itself is killed with `SIGKILL`, the kernel still ends through the Linux
 parent-death signal and, on both Linux and macOS, the `JPY_PARENT_PID` watch
 in `ipykernel`, which checks about once a second. Processes the kernel

@@ -127,7 +127,9 @@ struct LiveSockets {
 /// The child a kernel runs now.
 ///
 /// Whoever replaces the child updates this at once, so `Drop` and a
-/// cancelled restart always find the child to stop.
+/// cancelled restart find the child to stop. While a restart is inside
+/// `Watched::spawn` it is empty; a child spawned then is stopped by
+/// `abort_restart` instead.
 struct Current {
     /// Child pid, which is also its process group id.
     pid: u32,
@@ -240,7 +242,8 @@ struct Started {
 /// Dropping the kernel without [`KernelClient::shutdown`] synchronously
 /// sends `SIGKILL` to the current child's process group and removes the
 /// connection file, with no grace period and even after the runtime has
-/// stopped.
+/// stopped. A child a restart is still spawning is left to the owner task,
+/// which stops it once the spawn returns.
 pub struct LocalKernel {
     /// Commands for the owner task.
     commands: mpsc::UnboundedSender<Command>,
@@ -367,8 +370,8 @@ impl KernelClient for LocalKernel {
 
 impl Drop for LocalKernel {
     fn drop(&mut self) {
-        // Unregister before killing so that `kill_all_kernels` never keeps a
-        // pid whose group may already be reaped and free.
+        // Unregister before killing so that this path leaves no pid in the
+        // registry for `kill_all_kernels` whose group may be reaped and free.
         let current = lock(&self.current).take();
         if let Some(current) = current {
             GLOBAL.unregister(current.pid);
@@ -566,7 +569,8 @@ async fn abort_and_cleanup(owner: &mut Owner, restarting: &mut Option<Restarting
     finish_close(owner);
 }
 
-/// Forward one socket's messages to the owner until aborted.
+/// Forward one socket's messages to the owner until aborted or the owner is
+/// gone.
 ///
 /// Receive failures carry nothing to route, so they are only paced.
 async fn forward<S: SocketRecv>(

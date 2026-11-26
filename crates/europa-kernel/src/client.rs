@@ -44,7 +44,8 @@ pub trait KernelClient {
     /// same way instead of queueing, except `shutdown`, which cancels the
     /// restart so that it returns [`KernelError::Closed`]. On failure it
     /// returns [`KernelError::Spawn`] and leaves the kernel dead until the
-    /// next restart.
+    /// next restart. A failed restart sends neither [`KernelEvent::Died`]
+    /// nor [`KernelEvent::Restarted`].
     fn restart(&self) -> impl Future<Output = Result<KernelInfo, KernelError>> + Send;
 
     /// Ask the kernel to exit and wait until it is gone.
@@ -54,7 +55,8 @@ pub trait KernelClient {
     /// process group and waits up to five more seconds; it returns `Ok`
     /// after that even if the child has not ended. During a restart it
     /// cancels the restart and kills whichever child the restart holds,
-    /// with the same wait. A second call succeeds without doing anything.
+    /// with the same wait. A dead kernel gets no request and is only
+    /// cleaned up. A second call succeeds without doing anything.
     fn shutdown(&self) -> impl Future<Output = Result<(), KernelError>> + Send;
 
     /// Take the event channel, only the first call returns `Some`.
