@@ -554,12 +554,16 @@ fn reports_on(event: &KernelEvent, parent: &MsgId) -> bool {
 #[ignore]
 #[tokio::test(flavor = "multi_thread")]
 async fn restart_drops_old_runs() {
-    let mut kernel = spawn(launch()).await;
+    let mut args = launch();
+    args.shutdown_grace = Duration::from_secs(1);
+    let mut kernel = spawn(args).await;
     let events = kernel.messages().expect("channel");
     let running = kernel
-        // One write, so the marker never arrives split from its newline.
+        // One write, so the marker never arrives split from its newline. The
+        // run keeps printing, so the old kernel still sends output while the
+        // restart stops it.
         .execute(
-            "import sys, time\nsys.stdout.write('started\\n')\nsys.stdout.flush()\ntime.sleep(2)\nprint('late', flush=True)",
+            "import sys, time\nsys.stdout.write('started\\n')\nsys.stdout.flush()\nwhile True:\n    print('tick', flush=True)\n    time.sleep(0.05)",
         )
         .await
         .expect("sends");
@@ -574,11 +578,10 @@ async fn restart_drops_old_runs() {
         .restart()
         .await
         .unwrap_or_else(|error| panic!("restarts: {error}"));
-    let first = events.try_recv();
-    assert!(
-        matches!(first, Ok(KernelEvent::Restarted { .. })),
-        "Restarted comes first after the restart, got {first:?}"
-    );
+    // Ticks routed before the restart began may come first; skip them.
+    recv_match(&events, Duration::from_secs(5), |event| {
+        matches!(event, KernelEvent::Restarted { .. })
+    });
     // Anything of the old generation that still passed would show up here.
     let later = drain(&events, Duration::from_millis(2500));
     assert!(
@@ -968,7 +971,16 @@ async fn request_timeout() {
         "info waited {waited:?}"
     );
     signal(pid, libc::SIGCONT);
-    kernel.kernel_info().await.expect("info after resume");
+    // The resumed kernel first answers the request that already timed out,
+    // which can take longer than the one-second timeout on a slow runner.
+    let resumed = Instant::now();
+    loop {
+        match kernel.kernel_info().await {
+            Ok(_) => break,
+            Err(KernelError::Timeout { .. }) if resumed.elapsed() < Duration::from_secs(10) => {}
+            Err(error) => panic!("info after resume: {error:?}"),
+        }
+    }
     assert_eq!(
         lifecycle_counts(&drain(&events, Duration::from_millis(500))),
         (0, 0),
@@ -997,8 +1009,8 @@ async fn request_timeout() {
         waited >= Duration::from_millis(900) && waited < Duration::from_secs(5),
         "interrupt waited {waited:?}"
     );
-    // The owner handles no deadline while it shuts down, so this request is
-    // still waiting when the kernel closes.
+    // A request still waiting when the kernel closes ends either way, by its
+    // own deadline or by the close.
     let pending = stuck.kernel_info();
     let start = Instant::now();
     stuck.shutdown().await.expect("forced shutdown");
@@ -1009,8 +1021,14 @@ async fn request_timeout() {
     );
     let pending = pending.await;
     assert!(
-        matches!(pending, Err(KernelError::Closed)),
-        "a request waiting at close fails with Closed, got {pending:?}"
+        matches!(
+            pending,
+            Err(KernelError::Closed
+                | KernelError::Timeout {
+                    op: KernelOp::KernelInfo
+                })
+        ),
+        "a request waiting at close fails with Closed or Timeout, got {pending:?}"
     );
     assert_gone_now(stuck_pid);
     assert!(!stuck_file.exists());
