@@ -539,6 +539,38 @@ async fn restart_flow() {
     assert!(!file.exists());
 }
 
+#[ignore]
+#[tokio::test(flavor = "multi_thread")]
+async fn restart_during_restart() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut kernel = spawn(KernelLaunch::new(slow_python(dir.path()), "python3")).await;
+    let events = kernel.messages().expect("channel");
+    let kernel = Arc::new(kernel);
+    let restarting = Arc::clone(&kernel);
+    let restarted = tokio::spawn(async move { restarting.restart().await });
+    // The new child sleeps a second before it starts, so the restart still
+    // runs here.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let second = kernel.restart().await;
+    assert!(
+        matches!(second, Err(KernelError::Restarting)),
+        "a second restart is turned away, got {second:?}"
+    );
+    restarted
+        .await
+        .expect("joins")
+        .unwrap_or_else(|error| panic!("restarts: {error}"));
+    assert_eq!(
+        lifecycle_counts(&drain(&events, Duration::from_millis(500))),
+        (0, 1),
+        "only the first restart runs"
+    );
+    let pid = kernel.process_id().expect("running");
+    let kernel = Arc::try_unwrap(kernel).unwrap_or_else(|_| panic!("sole owner"));
+    kernel.shutdown().await.expect("shutdown");
+    assert_gone_now(pid);
+}
+
 /// Whether `event` is output, a reply, or a status of the run `parent`.
 fn reports_on(event: &KernelEvent, parent: &MsgId) -> bool {
     match event {
@@ -945,6 +977,32 @@ async fn kill_all() {
     assert!(!second_file.exists());
     assert_gone(first_pid);
     assert_gone(second_pid);
+}
+
+#[ignore]
+#[tokio::test(flavor = "multi_thread")]
+async fn unbounded_request_timeout() {
+    let mut args = launch();
+    args.request_timeout = Duration::MAX;
+    let kernel = spawn(args).await;
+    // Requests have no deadline here, so bound them in the test to fail
+    // rather than hang if a reply is lost.
+    let bounded = Duration::from_secs(30);
+    tokio::time::timeout(bounded, kernel.kernel_info())
+        .await
+        .expect("info answers")
+        .expect("info");
+    tokio::time::timeout(bounded, kernel.interrupt())
+        .await
+        .expect("interrupt answers")
+        .expect("interrupt");
+    tokio::time::timeout(bounded, kernel.kernel_info())
+        .await
+        .expect("info answers after interrupt")
+        .expect("info after interrupt");
+    let pid = kernel.process_id().expect("running");
+    kernel.shutdown().await.expect("shutdown");
+    assert_gone_now(pid);
 }
 
 #[ignore]
