@@ -211,3 +211,51 @@ async fn leaves_environment_untouched() {
     );
     assert!(!text.contains("install it:"), "{text}");
 }
+
+/// A `.venv` beside the notebook that records whether it was run.
+fn marked_venv(root: &Path) -> PathBuf {
+    let marker = root.join("started");
+    script_venv(
+        &root.join("repo/nb/.venv"),
+        &format!(": > '{}'", marker.display()),
+    );
+    marker
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs EUROPA_KERNEL_PYTHON"]
+async fn config_takes_precedence() {
+    let (_dir, root, notebook) = repository();
+    let marker = marked_venv(&root);
+    let request = DiscoveryRequest::new(&notebook, Some(python()), DiscoveryEnv::default());
+    let found = discover_python(&request).await.expect("finds one");
+    assert_eq!(
+        (found.source, found.python),
+        (PythonSource::Config, python())
+    );
+    assert!(!marker.exists(), "the .venv was probed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs EUROPA_KERNEL_PYTHON"]
+async fn config_unusable_stops() {
+    let (_dir, root, notebook) = repository();
+    let marker = marked_venv(&root);
+    let bare = bare_venv(&root.join("bare"));
+    let request = DiscoveryRequest::new(&notebook, Some(bare), DiscoveryEnv::default());
+    let result = discover_python(&request).await;
+    assert!(
+        matches!(result, Err(DiscoveryError::ConfigUnusable { .. })),
+        "{result:?}"
+    );
+
+    let relative = Some(PathBuf::from("py/bin/python"));
+    let request = DiscoveryRequest::new(&notebook, relative, DiscoveryEnv::default());
+    assert_eq!(
+        discover_python(&request).await,
+        Err(DiscoveryError::ConfigNotAbsolute {
+            path: "py/bin/python".into(),
+        })
+    );
+    assert!(!marker.exists(), "the .venv was probed");
+}
