@@ -93,7 +93,8 @@ impl DiscoveryEnv {
 
 /// Where a candidate interpreter came from.
 ///
-/// The variants are declared in the order the search tries them.
+/// The variants are declared in the order the search tries them, except that
+/// `DotVenv` and `Venv` take turns for each directory level, nearest first.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PythonSource {
@@ -150,9 +151,9 @@ pub struct CandidateReport {
 
 /// Why a candidate cannot be used.
 ///
-/// A probe process runs only before `CannotImport`, `TimedOut`, and a
-/// `NotExecutable` that reports a failed start. Everything else is decided
-/// without starting one.
+/// Only `CannotImport`, `TimedOut`, and a `NotExecutable` that reports why
+/// starting failed follow an attempted probe. The others are decided without
+/// one.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "reason", rename_all = "snake_case")]
 pub enum Rejection {
@@ -487,8 +488,8 @@ pub enum DiscoveryPlan {
         notebook: PathBuf,
         /// Ancestor directories that were searched.
         scope: AncestorScope,
-        /// Candidates in the order of [`PythonSource`], starting with `Config`
-        /// rejected as `NotSet`.
+        /// Candidates in the order [`PythonSource`] describes, starting with
+        /// `Config` rejected as `NotSet`.
         steps: Vec<DiscoveryStep>,
         /// Material for suggesting a new virtual environment.
         recipe: VenvRecipe,
