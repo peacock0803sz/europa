@@ -136,9 +136,15 @@
 //!
 //! Kernel launch arguments, events, states, and errors live in [`kernel`],
 //! which the kernel adapter and its callers share.
+//!
+//! The search for a Python that has `ipykernel` is described by the types in
+//! [`discovery`]: the kernel adapter lists the candidates in a
+//! [`DiscoveryPlan`], [`DiscoveryFold`] chooses among them, and a failed search
+//! explains itself through [`DiscoveryError`].
 #![deny(missing_docs)]
 
 mod canonical;
+pub mod discovery;
 pub mod error;
 pub mod exec;
 pub mod io;
@@ -150,6 +156,11 @@ pub mod notebook;
 pub mod pos;
 pub mod render;
 
+pub use discovery::{
+    AncestorScope, CandidateReport, Discovery, DiscoveryEnv, DiscoveryError, DiscoveryFold,
+    DiscoveryPlan, DiscoveryRequest, DiscoveryStep, FoldNext, InstallHint, ProbeOutcome,
+    PythonSource, Rejection, VenvRecipe,
+};
 pub use error::ParseError;
 pub use exec::{Applied, CellExecState, ExecEffect, ExecEvent, ExecState, MsgId, ReplyStatus};
 pub use io::{parse, serialize};
