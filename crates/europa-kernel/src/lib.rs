@@ -20,5 +20,6 @@ mod registry;
 mod wire;
 
 pub use client::KernelClient;
+pub use discover::discover_python;
 pub use local::LocalKernel;
 pub use registry::kill_all_kernels;

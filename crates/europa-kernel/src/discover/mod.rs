@@ -6,4 +6,14 @@
 //! whether it imports `ipykernel`. The core `DiscoveryFold` joins them: it
 //! walks the candidates and asks for one probe at a time.
 
+use europa_core::{Discovery, DiscoveryError, DiscoveryRequest};
+
+mod facts;
 mod plan;
+mod probe;
+
+/// Find the Python that runs the kernel of a notebook.
+pub async fn discover_python(request: &DiscoveryRequest) -> Result<Discovery, DiscoveryError> {
+    let _ = request;
+    todo!()
+}
