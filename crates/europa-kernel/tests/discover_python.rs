@@ -10,7 +10,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use europa_core::{DiscoveryEnv, DiscoveryRequest, PythonSource};
+use europa_core::{
+    CandidateReport, Discovery, DiscoveryEnv, DiscoveryError, DiscoveryRequest, InstallHint,
+    PythonSource, Rejection,
+};
 use europa_kernel::discover_python;
 use tempfile::TempDir;
 
@@ -74,4 +77,137 @@ async fn finds_dot_venv() {
     let again = discover_python(&request).await;
     std::env::set_current_dir(here).expect("returns");
     assert_eq!(again, Ok(found));
+}
+
+/// An environment of the interpreter under test that lacks `ipykernel`.
+fn bare_venv(dir: &Path) -> PathBuf {
+    let status = std::process::Command::new(python())
+        .args(["-m", "venv", "--without-pip"])
+        .arg(dir)
+        .status()
+        .expect("venv spawns");
+    assert!(status.success());
+    // A group-writable directory of a shared group would be skipped unprobed.
+    set_mode(dir, 0o755);
+    dir.join("bin/python")
+}
+
+/// The report of `source` in a search that found nothing usable.
+fn report_of(result: &Result<Discovery, DiscoveryError>, source: PythonSource) -> &CandidateReport {
+    let Err(DiscoveryError::NoneUsable { reports, .. }) = result else {
+        panic!("not a failed search: {result:?}");
+    };
+    reports
+        .iter()
+        .find(|report| report.source == source)
+        .unwrap_or_else(|| panic!("no report of {source:?} in {reports:?}"))
+}
+
+/// Assert that `.venv` was probed and lacks `ipykernel`.
+fn assert_lacks_ipykernel(result: &Result<Discovery, DiscoveryError>) {
+    let report = report_of(result, PythonSource::DotVenv);
+    let Rejection::CannotImport { stderr_tail, .. } = &report.rejection else {
+        panic!("{report:?}");
+    };
+    assert!(
+        stderr_tail.contains("No module named 'ipykernel'"),
+        "{stderr_tail}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs EUROPA_KERNEL_PYTHON"]
+async fn reports_missing_ipykernel() {
+    let (_dir, root, notebook) = repository();
+    let bare = bare_venv(&root.join("repo/nb/.venv"));
+    let request = DiscoveryRequest::new(&notebook, None, DiscoveryEnv::default());
+    let result = discover_python(&request).await;
+    assert_lacks_ipykernel(&result);
+    assert_eq!(
+        report_of(&result, PythonSource::DotVenv).install,
+        Some(InstallHint::Pip)
+    );
+    let text = result.expect_err("nothing is usable").to_string();
+    assert!(
+        text.contains(&format!(
+            "install it: {} -m pip install ipykernel",
+            bare.display()
+        )),
+        "{text}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs EUROPA_KERNEL_PYTHON"]
+async fn ignores_cwd_module() {
+    let (_dir, root, notebook) = repository();
+    bare_venv(&root.join("repo/nb/.venv"));
+    let elsewhere = tempfile::tempdir().expect("temp dir");
+    for dir in [elsewhere.path(), &root.join("repo/nb")] {
+        std::fs::write(dir.join("ipykernel.py"), "").expect("writes");
+    }
+    let request = DiscoveryRequest::new(&notebook, None, DiscoveryEnv::default());
+    let here = std::env::current_dir().expect("current dir");
+    std::env::set_current_dir(elsewhere.path()).expect("enters");
+    let result = discover_python(&request).await;
+    std::env::set_current_dir(here).expect("returns");
+    assert_lacks_ipykernel(&result);
+}
+
+/// Names of the distributions that the interpreter under test sees.
+fn distributions() -> String {
+    let output = std::process::Command::new(python())
+        .args([
+            "-c",
+            "import importlib.metadata as m; \
+             print(sorted(d.metadata['Name'] for d in m.distributions()))",
+        ])
+        .output()
+        .expect("python spawns");
+    assert!(output.status.success());
+    String::from_utf8(output.stdout).expect("UTF-8")
+}
+
+/// Every path below `dir`.
+fn listing(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).expect("lists") {
+        let path = entry.expect("entry").path();
+        if path.is_dir() {
+            found.extend(listing(&path));
+        }
+        found.push(path);
+    }
+    found.sort();
+    found
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs EUROPA_KERNEL_PYTHON"]
+async fn leaves_environment_untouched() {
+    let (_dir, root, notebook) = repository();
+    let bare = root.join("bare");
+    let python = bare_venv(&bare);
+    let env = DiscoveryEnv {
+        path: Some(bare.join("bin").into_os_string()),
+        ..DiscoveryEnv::default()
+    };
+    // `lib` holds `site-packages`, where an install would land.
+    let before = (distributions(), listing(&bare.join("lib")));
+    let request = DiscoveryRequest::new(&notebook, None, env);
+    let result = discover_python(&request).await;
+    assert_eq!((distributions(), listing(&bare.join("lib"))), before);
+    assert!(!root.join("repo/.venv").exists());
+    assert!(!root.join("repo/nb/.venv").exists());
+    assert_eq!(
+        report_of(&result, PythonSource::PathPython3).python,
+        Some(python.with_file_name("python3"))
+    );
+    assert_eq!(report_of(&result, PythonSource::PathPython3).install, None);
+    let text = result.expect_err("nothing is usable").to_string();
+    assert!(
+        text.contains(&format!("-m venv {}", root.join("repo/.venv").display())),
+        "{text}"
+    );
+    assert!(!text.contains("install it:"), "{text}");
 }
