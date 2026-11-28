@@ -65,6 +65,8 @@ fn busy(result: &Result<Discovery, DiscoveryError>) -> bool {
 }
 
 /// Search, once more when a script was busy.
+// It returns what `discover_python` returns, large error included.
+#[allow(clippy::result_large_err)]
 async fn discover(request: &DiscoveryRequest) -> Result<Discovery, DiscoveryError> {
     let result = discover_python(request).await;
     if busy(&result) {
