@@ -2,7 +2,10 @@
 
 use std::path::PathBuf;
 
-use europa_core::{AncestorScope, DiscoveryPlan};
+use europa_core::{
+    AncestorScope, CandidateReport, DiscoveryPlan, DiscoveryStep, InstallHint, PythonSource,
+    Rejection, VenvRecipe,
+};
 
 /// What the file system and the environment showed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,8 +106,7 @@ pub(crate) enum FileState {
 /// environment that fails this is never run, because whoever can write it
 /// chooses what runs.
 pub(crate) fn owned(owner: &OwnerFact, euid: u32) -> bool {
-    let _ = (owner, euid);
-    todo!()
+    owner.uid == euid && owner.mode & 0o002 == 0 && (owner.mode & 0o020 == 0 || owner.group_private)
 }
 
 /// Put the candidates in the order the search tries them.
@@ -115,16 +117,126 @@ pub(crate) fn owned(owner: &OwnerFact, euid: u32) -> bool {
 /// `PATH`. A virtual environment of a level that is not [`owned`] is rejected,
 /// as is any interpreter file that cannot be run.
 pub(crate) fn plan(facts: Facts) -> DiscoveryPlan {
-    let _ = facts;
-    todo!()
+    if facts.config != EnvPython::NotSet {
+        todo!()
+    }
+    let recipe = recipe(&facts);
+    let mut steps = vec![reject(PythonSource::Config, None, Rejection::NotSet)];
+    for level in facts.levels {
+        for (source, venv) in [
+            (PythonSource::DotVenv, level.dot_venv),
+            (PythonSource::Venv, level.venv),
+        ] {
+            if let Some(venv) = venv {
+                steps.push(ancestor(source, venv, facts.euid));
+            }
+        }
+    }
+    steps.push(variable(PythonSource::VirtualEnv, facts.virtual_env));
+    steps.push(variable(PythonSource::CondaPrefix, facts.conda_prefix));
+    steps.push(on_path(PythonSource::PathPython3, facts.path_python3));
+    steps.push(on_path(PythonSource::PathPython, facts.path_python));
+    DiscoveryPlan::Search {
+        notebook: facts.notebook,
+        scope: facts.scope,
+        steps,
+        recipe,
+    }
+}
+
+/// Step of a virtual environment found in an ancestor directory.
+fn ancestor(source: PythonSource, venv: VenvFact, euid: u32) -> DiscoveryStep {
+    if !owned(&venv.owner, euid) {
+        return reject(source, Some(venv.python), Rejection::NotOwned);
+    }
+    interpreter(source, venv.python, venv.file, venv.uv)
+}
+
+/// Step of an interpreter named by a variable.
+///
+/// The user chose it, so its owner is not checked.
+fn variable(source: PythonSource, named: EnvPython) -> DiscoveryStep {
+    match named {
+        EnvPython::NotSet => reject(source, None, Rejection::NotSet),
+        EnvPython::NotAbsolute(value) => reject(source, Some(value), Rejection::NotAbsolute),
+        EnvPython::Python { python, file, uv } => interpreter(source, python, file, uv),
+    }
+}
+
+/// Step of an interpreter file, probed only when it can run.
+fn interpreter(source: PythonSource, python: PathBuf, file: FileState, uv: bool) -> DiscoveryStep {
+    let not_executable = |detail: &str| Rejection::NotExecutable {
+        detail: detail.to_owned(),
+    };
+    let rejection = match file {
+        FileState::Missing => Rejection::NotFound,
+        FileState::BrokenLink => not_executable("broken symbolic link"),
+        FileState::NotExecutable => not_executable("not executable"),
+        FileState::Present => {
+            let install = if uv {
+                InstallHint::Uv
+            } else {
+                InstallHint::Pip
+            };
+            return DiscoveryStep::Probe {
+                source,
+                python,
+                install: Some(install),
+            };
+        }
+    };
+    reject(source, Some(python), rejection)
+}
+
+/// Step of a command looked up on `PATH`.
+///
+/// It gets no install hint: a Python found there is often managed by the
+/// system, which refuses direct installs.
+fn on_path(source: PythonSource, python: Option<PathBuf>) -> DiscoveryStep {
+    match python {
+        Some(python) => DiscoveryStep::Probe {
+            source,
+            python,
+            install: None,
+        },
+        None => reject(source, None, Rejection::NotFound),
+    }
+}
+
+/// Step that is already known to be unusable.
+fn reject(source: PythonSource, python: Option<PathBuf>, rejection: Rejection) -> DiscoveryStep {
+    DiscoveryStep::Rejected {
+        report: CandidateReport {
+            source,
+            python,
+            rejection,
+            install: None,
+        },
+    }
+}
+
+/// Where and with what to create a virtual environment that the next search
+/// finds.
+fn recipe(facts: &Facts) -> VenvRecipe {
+    let python = facts
+        .path_python3
+        .clone()
+        .or_else(|| facts.path_python.clone())
+        .unwrap_or_else(|| "python3".into());
+    let root = facts
+        .scope
+        .repo_root
+        .as_ref()
+        .unwrap_or(&facts.scope.notebook_dir);
+    VenvRecipe {
+        python,
+        venv_dir: root.join(".venv"),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use europa_core::{
-        CandidateReport, DiscoveryStep, InstallHint, PythonSource, Rejection, VenvRecipe,
-    };
     use std::path::Path;
 
     const NB: &str = "/home/u/proj/nb";
