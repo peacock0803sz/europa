@@ -1,19 +1,32 @@
 //! One probe: does an interpreter import `ipykernel`?
 
+use std::ffi::OsStr;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use europa_core::ProbeOutcome;
+use europa_core::{ProbeOutcome, ProcessExit};
 
+use crate::process::{spawn_command, Watched};
 use crate::registry::Registry;
+
+/// Python that imports `ipykernel` from the environment alone.
+///
+/// With `-c`, an empty string heads `sys.path` and stands for the current
+/// directory; removing it keeps a file there from passing for the module. The
+/// line is valid Python 2 as well, so an old interpreter fails on the import
+/// rather than on the syntax.
+const PROBE_CODE: &str =
+    "import sys; sys.path[:] = [p for p in sys.path if p != '']; import ipykernel";
+
+/// Lines of standard error kept in a report.
+const TAIL_LINES: usize = 5;
 
 /// Start `python` once and report whether it imports `ipykernel`.
 ///
 /// The child is listed in `registry` while it runs, and it is stopped when it
 /// outlives `timeout` or when the future is dropped.
 pub(crate) async fn probe(python: &Path, timeout: Duration, registry: &Registry) -> ProbeOutcome {
-    let _ = (python, timeout, registry);
-    todo!()
+    probe_with(python, timeout, registry, || {}).await
 }
 
 /// [`probe`] with a hook between the start of the child and its registration.
@@ -26,8 +39,70 @@ pub(crate) async fn probe_with(
     registry: &Registry,
     before_register: impl FnOnce(),
 ) -> ProbeOutcome {
-    let _ = (python, timeout, registry, before_register);
-    todo!()
+    if registry.is_stopped() {
+        return refusal();
+    }
+    // The clock includes the start, so one candidate never takes longer than
+    // `timeout`.
+    let started = Instant::now();
+    let args = [OsStr::new("-B"), OsStr::new("-c"), OsStr::new(PROBE_CODE)];
+    // From the root directory, relative `PYTHONPATH` entries do not depend on
+    // where Europa was started.
+    let watched = match spawn_command(python, &args, Some(Path::new("/"))) {
+        Ok(watched) => watched,
+        Err(error) => {
+            return ProbeOutcome::NotExecutable {
+                detail: error.to_string(),
+            }
+        }
+    };
+    before_register();
+    let pid = watched.pid;
+    registry.register(pid, None);
+    // A stop that ran before the registration did not see this child, which
+    // dropping the handle ends.
+    let outcome = if registry.is_stopped() {
+        drop(watched);
+        refusal()
+    } else {
+        outcome(watched, timeout, timeout.saturating_sub(started.elapsed())).await
+    };
+    registry.unregister(pid);
+    outcome
+}
+
+/// Wait up to `remaining` for the probe and judge how it ended.
+///
+/// Returning drops the handle, which stops a child that still runs.
+async fn outcome(mut watched: Watched, timeout: Duration, remaining: Duration) -> ProbeOutcome {
+    match watched.wait_exit(remaining).await {
+        None => ProbeOutcome::TimedOut { after: timeout },
+        Some(ProcessExit::Code(0)) => ProbeOutcome::Usable,
+        Some(exit) => {
+            let tail = watched
+                .stderr
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .tail();
+            ProbeOutcome::CannotImport {
+                exit,
+                stderr_tail: last_lines(&tail),
+            }
+        }
+    }
+}
+
+/// Outcome of a probe that an emergency stop did not allow.
+fn refusal() -> ProbeOutcome {
+    ProbeOutcome::NotExecutable {
+        detail: "Europa is stopping".to_owned(),
+    }
+}
+
+/// The last [`TAIL_LINES`] lines of `text`, without a trailing newline.
+fn last_lines(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n")
 }
 
 #[cfg(test)]
