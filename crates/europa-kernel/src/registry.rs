@@ -1,10 +1,10 @@
-//! Process-wide registry of live kernels.
+//! Process-wide registry of live kernels and discovery probes.
 //!
 //! `kill_all_kernels` walks this list for panic hooks and signal handling,
-//! so it never waits on a lock and never waits for a kernel to exit.
+//! so it never waits on a lock and never waits for a child to exit.
 
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, TryLockError};
 
 /// Pids and connection files of children started in this process.
@@ -43,13 +43,18 @@ impl Registry {
 
     /// Whether an emergency stop happened.
     pub(crate) fn is_stopped(&self) -> bool {
-        todo!()
+        self.stopped.load(Ordering::SeqCst)
     }
 
-    /// `SIGKILL` every known group and remove every known file.
+    /// Mark the registry stopped, then `SIGKILL` every known group and remove
+    /// every known file.
     ///
-    /// Does nothing when the lock is held elsewhere; best effort only.
+    /// Only the mark is set when the lock is held elsewhere; the rest is best
+    /// effort.
     pub(crate) fn kill_all(&self) {
+        // The mark comes before the list is read, and a probe reads it after
+        // registering, so a child cannot slip between the two unnoticed.
+        self.stopped.store(true, Ordering::SeqCst);
         let live = match self.live.try_lock() {
             Ok(live) => live,
             Err(TryLockError::Poisoned(poison)) => poison.into_inner(),
@@ -64,20 +69,22 @@ impl Registry {
     }
 }
 
-/// Kernels started in this process.
+/// Kernels and probes started in this process.
 pub(crate) static GLOBAL: Registry = Registry::new();
 
-/// Best-effort `SIGKILL` of every live kernel process group, then removal of
-/// each connection file.
+/// Best-effort `SIGKILL` of every live kernel and discovery probe process
+/// group, then removal of each connection file.
 ///
-/// Meant for panic hooks and signal handling. It never blocks: when the
-/// registry lock is held, even by the interrupted thread itself, it returns
-/// without killing anything. It only calls `try_lock`, `kill`, and
-/// `unlink`, and it does not wait for the kernels to exit. A kernel that has
-/// just ended may stay listed until its owner forgets it, so in that short
-/// window a signal can reach its freed group id. A long connection
-/// file path makes the removal allocate, so a raw signal handler should
-/// prefer a flag that a normal thread acts on.
+/// Meant for panic hooks and signal handling. After it, discovery starts no
+/// new probe for the rest of the process. It never blocks: when the registry
+/// lock is held, even by the interrupted thread itself, it returns without
+/// killing anything, though probes still stop starting. Besides setting an
+/// atomic flag, it only calls `try_lock`, `kill`, and `unlink`, and it does
+/// not wait for the children to exit. A child that has just ended may stay
+/// listed until its owner forgets it, so in that short window a signal can
+/// reach its freed group id. A long connection file path makes the removal
+/// allocate, so a raw signal handler should prefer a flag that a normal
+/// thread acts on.
 pub fn kill_all_kernels() {
     GLOBAL.kill_all();
 }
