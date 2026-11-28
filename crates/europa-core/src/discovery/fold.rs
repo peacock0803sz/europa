@@ -110,7 +110,10 @@ impl DiscoveryFold {
                 },
                 steps,
             ),
-            DiscoveryPlan::Config { .. } | DiscoveryPlan::ConfigNotAbsolute { .. } => todo!(),
+            DiscoveryPlan::Config { step } => (Kind::Config, vec![step]),
+            DiscoveryPlan::ConfigNotAbsolute { path } => {
+                (Kind::ConfigNotAbsolute { path }, Vec::new())
+            }
         };
         Self {
             kind,
@@ -198,7 +201,7 @@ impl DiscoveryFold {
 
     /// Error of a search that ran out of candidates.
     fn failure(&mut self) -> DiscoveryError {
-        let reports = std::mem::take(&mut self.reports);
+        let mut reports = std::mem::take(&mut self.reports);
         match &self.kind {
             Kind::Search {
                 notebook,
@@ -210,7 +213,12 @@ impl DiscoveryFold {
                 reports,
                 recipe: recipe.clone(),
             },
-            Kind::Config | Kind::ConfigNotAbsolute { .. } => todo!(),
+            Kind::Config => DiscoveryError::ConfigUnusable {
+                report: reports.pop().expect("the setting was reported"),
+            },
+            Kind::ConfigNotAbsolute { path } => {
+                DiscoveryError::ConfigNotAbsolute { path: path.clone() }
+            }
         }
     }
 }
