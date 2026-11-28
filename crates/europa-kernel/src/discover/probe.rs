@@ -258,17 +258,13 @@ mod tests {
         static REGISTRY: Registry = Registry::new();
         let dir = tempfile::tempdir().expect("temp dir");
         let python = write(&dir, "python", b"\x7fXYZ");
-        // Linux hands such a file to `/bin/sh`, while macOS refuses to start
-        // it.
-        match run(&python, LONG, &REGISTRY).await {
-            ProbeOutcome::CannotImport { stderr_tail, .. } if cfg!(target_os = "linux") => {
-                assert!(!stderr_tail.is_empty());
-            }
-            ProbeOutcome::NotExecutable { detail } if cfg!(target_os = "macos") => {
-                assert!(!detail.is_empty());
-            }
-            other => panic!("{other:?}"),
-        }
+        // Linux and macOS both hand a file without a `#!` line to `/bin/sh`,
+        // whose complaint then explains the failure.
+        let outcome = run(&python, LONG, &REGISTRY).await;
+        let ProbeOutcome::CannotImport { stderr_tail, .. } = outcome else {
+            panic!("{outcome:?}");
+        };
+        assert!(!stderr_tail.is_empty());
     }
 
     #[tokio::test(flavor = "multi_thread")]
