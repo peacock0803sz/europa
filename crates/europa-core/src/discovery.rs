@@ -42,8 +42,12 @@ impl DiscoveryRequest {
         config_python: Option<PathBuf>,
         env: DiscoveryEnv,
     ) -> Self {
-        let _ = (notebook, config_python, env);
-        todo!()
+        Self {
+            notebook: notebook.into(),
+            config_python,
+            env,
+            probe_timeout: Duration::from_secs(10),
+        }
     }
 }
 
@@ -69,8 +73,20 @@ impl DiscoveryEnv {
     where
         I: IntoIterator<Item = (OsString, OsString)>,
     {
-        let _ = vars;
-        todo!()
+        let mut env = Self::default();
+        for (name, value) in vars {
+            if value.is_empty() {
+                continue;
+            }
+            if name == "VIRTUAL_ENV" {
+                env.virtual_env = Some(value.into());
+            } else if name == "CONDA_PREFIX" {
+                env.conda_prefix = Some(value.into());
+            } else if name == "PATH" {
+                env.path = Some(value);
+            }
+        }
+        env
     }
 }
 
@@ -99,8 +115,16 @@ pub enum PythonSource {
 impl fmt::Display for PythonSource {
     /// Write the heading that error messages use for this source.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = f;
-        todo!()
+        // `pad` lets error messages align the headings with a width.
+        f.pad(match self {
+            Self::Config => "kernel.python",
+            Self::DotVenv => ".venv",
+            Self::Venv => "venv",
+            Self::VirtualEnv => "$VIRTUAL_ENV",
+            Self::CondaPrefix => "$CONDA_PREFIX",
+            Self::PathPython3 => "python3 on PATH",
+            Self::PathPython => "python on PATH",
+        })
     }
 }
 
