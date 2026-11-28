@@ -4,12 +4,16 @@
 //! so it never waits on a lock and never waits for a kernel to exit.
 
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Mutex, TryLockError};
 
-/// Pids and connection files of kernels started in this process.
+/// Pids and connection files of children started in this process.
 pub(crate) struct Registry {
-    /// Live children in spawn order.
-    live: Mutex<Vec<(u32, PathBuf)>>,
+    /// Live children in spawn order, with the connection file of those that
+    /// have one.
+    live: Mutex<Vec<(u32, Option<PathBuf>)>>,
+    /// Set once by an emergency stop and never cleared.
+    stopped: AtomicBool,
 }
 
 impl Registry {
@@ -17,11 +21,12 @@ impl Registry {
     pub(crate) const fn new() -> Self {
         Self {
             live: Mutex::new(Vec::new()),
+            stopped: AtomicBool::new(false),
         }
     }
 
     /// Remember a new child.
-    pub(crate) fn register(&self, pid: u32, path: PathBuf) {
+    pub(crate) fn register(&self, pid: u32, path: Option<PathBuf>) {
         self.live
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
@@ -36,6 +41,11 @@ impl Registry {
             .retain(|(known, _)| *known != pid);
     }
 
+    /// Whether an emergency stop happened.
+    pub(crate) fn is_stopped(&self) -> bool {
+        todo!()
+    }
+
     /// `SIGKILL` every known group and remove every known file.
     ///
     /// Does nothing when the lock is held elsewhere; best effort only.
@@ -47,7 +57,9 @@ impl Registry {
         };
         for (pid, path) in live.iter() {
             crate::process::signal_group(*pid, libc::SIGKILL);
-            let _ = std::fs::remove_file(path);
+            if let Some(path) = path {
+                let _ = std::fs::remove_file(path);
+            }
         }
     }
 }
@@ -90,9 +102,10 @@ mod tests {
             let child = spawn_command(
                 Path::new("/bin/sh"),
                 &[OsStr::new("-c"), OsStr::new("sleep 30")],
+                None,
             )
             .expect("spawns");
-            registry.register(child.pid, path);
+            registry.register(child.pid, Some(path));
             watched.push((child, index));
         }
         registry.kill_all();
@@ -112,7 +125,7 @@ mod tests {
         let path = dir.path().join("k.json");
         std::fs::write(&path, "{}").expect("writes");
         // No process has this group id, so a signal would find nothing.
-        registry.register(u32::MAX >> 1, path.clone());
+        registry.register(u32::MAX >> 1, Some(path.clone()));
         let held = registry.live.lock().expect("locks");
         registry.kill_all();
         drop(held);
