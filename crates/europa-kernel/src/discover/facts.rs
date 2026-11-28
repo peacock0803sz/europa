@@ -777,17 +777,27 @@ mod tests {
     }
 
     #[test]
-    fn agrees_with_id_about_a_private_primary_group() {
+    fn reads_the_account_database_as_id_does() {
         let user = account::current_user().expect("an account entry");
-        let own = account::group(user.primary_gid);
-        if !group_is_private(user.primary_gid, own.as_ref(), &user) {
-            return;
-        }
+        let own = account::group(user.primary_gid).expect("the primary group");
         let id = |flag: &str| std::process::Command::new("id").arg(flag).output();
         let (Ok(group), Ok(name)) = (id("-gn"), id("-un")) else {
             eprintln!("skipped: no id command");
             return;
         };
-        assert_eq!(group.stdout, name.stdout);
+        let line = |text: &str| format!("{text}\n").into_bytes();
+        assert_eq!(name.stdout, line(&user.name));
+        assert_eq!(group.stdout, line(&own.name));
+        if group_is_private(user.primary_gid, Some(&own), &user) {
+            assert_eq!(group.stdout, name.stdout);
+        }
+    }
+
+    #[test]
+    fn never_reads_a_pyvenv_cfg_that_is_no_file() {
+        let (_dir, root) = tree();
+        executable(&root.join(".venv/bin/python"));
+        symlink("/dev/zero", root.join(".venv/pyvenv.cfg")).expect("links");
+        assert!(!nearest(&root).dot_venv.expect(".venv").uv);
     }
 }
