@@ -117,9 +117,17 @@ pub(crate) fn owned(owner: &OwnerFact, euid: u32) -> bool {
 /// `PATH`. A virtual environment of a level that is not [`owned`] is rejected,
 /// as is any interpreter file that cannot be run.
 pub(crate) fn plan(facts: Facts) -> DiscoveryPlan {
-    if facts.config != EnvPython::NotSet {
-        todo!()
+    match facts.config {
+        EnvPython::NotSet => search(facts),
+        EnvPython::NotAbsolute(path) => DiscoveryPlan::ConfigNotAbsolute { path },
+        EnvPython::Python { python, file, uv } => DiscoveryPlan::Config {
+            step: interpreter(PythonSource::Config, python, file, uv),
+        },
     }
+}
+
+/// Plan over every source, for a search without a setting.
+fn search(facts: Facts) -> DiscoveryPlan {
     let recipe = recipe(&facts);
     let mut steps = vec![reject(PythonSource::Config, None, Rejection::NotSet)];
     for level in facts.levels {
