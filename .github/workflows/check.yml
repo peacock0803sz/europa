@@ -51,6 +51,9 @@ jobs:
       # The process group unit tests depend on the platform, so run them on macOS too.
       - run: cargo test -p europa-kernel --lib
       - run: EUROPA_KERNEL_PYTHON=${{ env.pythonLocation }}/bin/python cargo test -p europa-kernel --test local_kernel -- --ignored --test-threads=1
+      - run: EUROPA_KERNEL_PYTHON=${{ env.pythonLocation }}/bin/python cargo test -p europa-kernel --test discover_python -- --ignored --test-threads=1
+      # Discovery with fake interpreters also spawns processes, so run it on macOS too.
+      - run: cargo test -p europa-kernel --test discover_wiring --test discover_kill
 
   corpus:
     runs-on: ubuntu-latest
