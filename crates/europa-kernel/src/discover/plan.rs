@@ -563,6 +563,55 @@ mod tests {
         }
     }
 
+    /// Facts with every source present and the setting `config`.
+    fn configured(config: EnvPython) -> Facts {
+        let mut facts = facts();
+        facts.levels = vec![level(NB, Some(venv("/home/u/proj/nb/.venv")), None)];
+        facts.virtual_env = env_python("/v/bin/python", FileState::Present, false);
+        facts.path_python3 = Some("/usr/bin/python3".into());
+        facts.config = config;
+        facts
+    }
+
+    #[test]
+    fn takes_only_a_set_config() {
+        for (uv, install) in [(false, InstallHint::Pip), (true, InstallHint::Uv)] {
+            let config = env_python("/env/bin/python", FileState::Present, uv);
+            assert_eq!(
+                plan(configured(config)),
+                DiscoveryPlan::Config {
+                    step: probe(PythonSource::Config, "/env/bin/python", Some(install)),
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_a_config_that_cannot_run() {
+        let config = env_python("/env/bin/python", FileState::Missing, false);
+        assert_eq!(
+            plan(configured(config)),
+            DiscoveryPlan::Config {
+                step: rejected(
+                    PythonSource::Config,
+                    Some("/env/bin/python"),
+                    Rejection::NotFound
+                ),
+            }
+        );
+    }
+
+    #[test]
+    fn fails_at_once_on_a_relative_config() {
+        let config = EnvPython::NotAbsolute("py/bin/python".into());
+        assert_eq!(
+            plan(configured(config)),
+            DiscoveryPlan::ConfigNotAbsolute {
+                path: "py/bin/python".into(),
+            }
+        );
+    }
+
     #[test]
     fn creates_the_new_environment_by_the_notebook_outside_a_repository() {
         let mut facts = facts();
