@@ -321,6 +321,80 @@ fn reports_every_candidate_when_none_works() {
     );
 }
 
+/// A plan whose only candidate is the setting, waiting for a probe.
+fn configured() -> DiscoveryPlan {
+    DiscoveryPlan::Config {
+        step: probe(
+            PythonSource::Config,
+            "/env/bin/python",
+            Some(InstallHint::Pip),
+        ),
+    }
+}
+
+#[test]
+fn chooses_a_usable_setting() {
+    let (result, probed) = run(configured(), &[("/env/bin/python", ProbeOutcome::Usable)]);
+    assert_eq!(
+        result,
+        Ok(Discovery {
+            python: "/env/bin/python".into(),
+            source: PythonSource::Config,
+            skipped: Vec::new(),
+        })
+    );
+    assert_eq!(probed, [PathBuf::from("/env/bin/python")]);
+}
+
+#[test]
+fn stops_at_a_setting_that_cannot_import() {
+    let (result, _) = run(configured(), &[("/env/bin/python", missing_module())]);
+    let mut config = report(
+        PythonSource::Config,
+        Some("/env/bin/python"),
+        cannot_import(),
+    );
+    config.install = Some(InstallHint::Pip);
+    assert_eq!(
+        result,
+        Err(DiscoveryError::ConfigUnusable { report: config })
+    );
+}
+
+#[test]
+fn stops_at_a_rejected_setting_without_a_probe() {
+    let plan = DiscoveryPlan::Config {
+        step: rejected(PythonSource::Config, "/env/bin/python", Rejection::NotFound),
+    };
+    let (result, probed) = run(plan, &[]);
+    assert_eq!(
+        result,
+        Err(DiscoveryError::ConfigUnusable {
+            report: report(
+                PythonSource::Config,
+                Some("/env/bin/python"),
+                Rejection::NotFound
+            ),
+        })
+    );
+    assert!(probed.is_empty());
+}
+
+#[test]
+fn fails_at_once_on_a_relative_setting() {
+    let plan = DiscoveryPlan::ConfigNotAbsolute {
+        path: "py/bin/python".into(),
+    };
+    let (result, probed) = run(plan, &[]);
+    assert_eq!(
+        result,
+        Err(DiscoveryError::ConfigNotAbsolute {
+            path: "py/bin/python".into(),
+        })
+    );
+    assert!(probed.is_empty());
+}
+
 #[test]
 fn explains_a_failed_search_from_the_unset_setting_on() {
     let (result, _) = run(all_sources_plan(), &all_sources_outcomes());
