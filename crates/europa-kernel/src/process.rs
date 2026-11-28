@@ -470,4 +470,16 @@ mod tests {
             format!("{}\n", std::process::id())
         );
     }
+
+    #[tokio::test]
+    async fn starts_in_the_given_directory() {
+        let mut watched = spawn_command(
+            Path::new("/bin/sh"),
+            &[OsStr::new("-c"), OsStr::new("pwd >&2")],
+            Some(Path::new("/")),
+        )
+        .expect("spawns");
+        watched.wait_exit(Duration::from_secs(5)).await;
+        assert_eq!(watched.stderr.lock().expect("unpoisoned").tail(), "/\n");
+    }
 }

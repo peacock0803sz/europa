@@ -118,6 +118,31 @@ mod tests {
         assert!(dir.path().read_dir().expect("lists").next().is_none());
     }
 
+    #[tokio::test(flavor = "multi_thread")]
+    async fn kills_a_child_without_a_file() {
+        let registry = Registry::new();
+        let mut child = spawn_command(
+            Path::new("/bin/sh"),
+            &[OsStr::new("-c"), OsStr::new("sleep 30")],
+            None,
+        )
+        .expect("spawns");
+        registry.register(child.pid, None);
+        registry.kill_all();
+        assert_eq!(
+            child.wait_exit(Duration::from_secs(5)).await,
+            Some(ProcessExit::Signal(9))
+        );
+    }
+
+    #[test]
+    fn remembers_an_emergency_stop() {
+        let registry = Registry::new();
+        assert!(!registry.is_stopped());
+        registry.kill_all();
+        assert!(registry.is_stopped());
+    }
+
     #[test]
     fn skips_when_locked() {
         let registry = Registry::new();
@@ -130,5 +155,6 @@ mod tests {
         registry.kill_all();
         drop(held);
         assert!(path.exists(), "kill_all ran despite the held lock");
+        assert!(registry.is_stopped(), "the stop needs no lock");
     }
 }
