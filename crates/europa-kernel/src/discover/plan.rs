@@ -118,3 +118,355 @@ pub(crate) fn plan(facts: Facts) -> DiscoveryPlan {
     let _ = facts;
     todo!()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use europa_core::{
+        CandidateReport, DiscoveryStep, InstallHint, PythonSource, Rejection, VenvRecipe,
+    };
+    use std::path::Path;
+
+    const NB: &str = "/home/u/proj/nb";
+    const PROJ: &str = "/home/u/proj";
+
+    fn facts() -> Facts {
+        Facts {
+            notebook: "/home/u/proj/nb/a.ipynb".into(),
+            scope: AncestorScope {
+                notebook_dir: NB.into(),
+                repo_root: Some(PROJ.into()),
+            },
+            levels: Vec::new(),
+            config: EnvPython::NotSet,
+            virtual_env: EnvPython::NotSet,
+            conda_prefix: EnvPython::NotSet,
+            path_python3: None,
+            path_python: None,
+            euid: 1000,
+        }
+    }
+
+    fn owner(uid: u32, mode: u32, group_private: bool) -> OwnerFact {
+        OwnerFact {
+            uid,
+            mode,
+            group_private,
+        }
+    }
+
+    fn venv(root: &str) -> VenvFact {
+        VenvFact {
+            root: root.into(),
+            owner: owner(1000, 0o40755, false),
+            python: Path::new(root).join("bin/python"),
+            file: FileState::Present,
+            uv: false,
+        }
+    }
+
+    fn level(dir: &str, dot_venv: Option<VenvFact>, venv: Option<VenvFact>) -> LevelFact {
+        LevelFact {
+            dir: dir.into(),
+            dot_venv,
+            venv,
+        }
+    }
+
+    fn env_python(python: &str, file: FileState, uv: bool) -> EnvPython {
+        EnvPython::Python {
+            python: python.into(),
+            file,
+            uv,
+        }
+    }
+
+    fn steps(facts: Facts) -> Vec<DiscoveryStep> {
+        match plan(facts) {
+            DiscoveryPlan::Search { steps, .. } => steps,
+            other => panic!("not a search: {other:?}"),
+        }
+    }
+
+    /// The step of a `.venv` that is the only one in the notebook directory.
+    fn dot_venv_step(dot_venv: VenvFact) -> DiscoveryStep {
+        let mut facts = facts();
+        facts.levels = vec![level(NB, Some(dot_venv), None)];
+        steps(facts).swap_remove(1)
+    }
+
+    fn rejected(source: PythonSource, python: Option<&str>, rejection: Rejection) -> DiscoveryStep {
+        DiscoveryStep::Rejected {
+            report: CandidateReport {
+                source,
+                python: python.map(PathBuf::from),
+                rejection,
+                install: None,
+            },
+        }
+    }
+
+    fn probe(source: PythonSource, python: &str, install: Option<InstallHint>) -> DiscoveryStep {
+        DiscoveryStep::Probe {
+            source,
+            python: python.into(),
+            install,
+        }
+    }
+
+    fn config_not_set() -> DiscoveryStep {
+        rejected(PythonSource::Config, None, Rejection::NotSet)
+    }
+
+    #[test]
+    fn orders_every_source() {
+        use PythonSource::*;
+
+        let mut facts = facts();
+        facts.levels = vec![
+            level(
+                NB,
+                Some(venv("/home/u/proj/nb/.venv")),
+                Some(venv("/home/u/proj/nb/venv")),
+            ),
+            level(PROJ, Some(venv("/home/u/proj/.venv")), None),
+        ];
+        facts.virtual_env = env_python("/v/bin/python", FileState::Present, false);
+        facts.conda_prefix = env_python("/c/bin/python", FileState::Present, false);
+        facts.path_python3 = Some("/usr/bin/python3".into());
+        facts.path_python = Some("/usr/bin/python".into());
+        let pip = Some(InstallHint::Pip);
+        assert_eq!(
+            steps(facts),
+            [
+                config_not_set(),
+                probe(DotVenv, "/home/u/proj/nb/.venv/bin/python", pip.clone()),
+                probe(Venv, "/home/u/proj/nb/venv/bin/python", pip.clone()),
+                probe(DotVenv, "/home/u/proj/.venv/bin/python", pip.clone()),
+                probe(VirtualEnv, "/v/bin/python", pip.clone()),
+                probe(CondaPrefix, "/c/bin/python", pip),
+                probe(PathPython3, "/usr/bin/python3", None),
+                probe(PathPython, "/usr/bin/python", None),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_environments_others_can_change() {
+        for unsafe_owner in [
+            owner(1001, 0o40755, false),
+            owner(1001, 0o40775, true),
+            owner(1000, 0o40757, false),
+            owner(1000, 0o40777, true),
+            owner(1000, 0o40775, false),
+        ] {
+            assert!(!owned(&unsafe_owner, 1000), "{unsafe_owner:?}");
+            let mut dot_venv = venv("/home/u/proj/nb/.venv");
+            dot_venv.owner = unsafe_owner.clone();
+            assert_eq!(
+                dot_venv_step(dot_venv),
+                rejected(
+                    PythonSource::DotVenv,
+                    Some("/home/u/proj/nb/.venv/bin/python"),
+                    Rejection::NotOwned
+                ),
+                "{unsafe_owner:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn probes_environments_only_the_user_can_change() {
+        for safe_owner in [owner(1000, 0o40775, true), owner(1000, 0o40755, false)] {
+            assert!(owned(&safe_owner, 1000), "{safe_owner:?}");
+            let mut dot_venv = venv("/home/u/proj/nb/.venv");
+            dot_venv.owner = safe_owner.clone();
+            assert_eq!(
+                dot_venv_step(dot_venv),
+                probe(
+                    PythonSource::DotVenv,
+                    "/home/u/proj/nb/.venv/bin/python",
+                    Some(InstallHint::Pip)
+                ),
+                "{safe_owner:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn judges_ownership_before_the_interpreter_file() {
+        let mut dot_venv = venv("/home/u/proj/nb/.venv");
+        dot_venv.owner = owner(1001, 0o40755, false);
+        dot_venv.file = FileState::Missing;
+        assert_eq!(
+            dot_venv_step(dot_venv),
+            rejected(
+                PythonSource::DotVenv,
+                Some("/home/u/proj/nb/.venv/bin/python"),
+                Rejection::NotOwned
+            )
+        );
+    }
+
+    #[test]
+    fn probes_environment_and_path_candidates_whoever_runs() {
+        use PythonSource::*;
+
+        let mut facts = facts();
+        facts.euid = 4242;
+        facts.virtual_env = env_python("/v/bin/python", FileState::Present, false);
+        facts.conda_prefix = env_python("/c/bin/python", FileState::Present, false);
+        facts.path_python3 = Some("/usr/bin/python3".into());
+        facts.path_python = Some("/usr/bin/python".into());
+        let pip = Some(InstallHint::Pip);
+        assert_eq!(
+            steps(facts),
+            [
+                config_not_set(),
+                probe(VirtualEnv, "/v/bin/python", pip.clone()),
+                probe(CondaPrefix, "/c/bin/python", pip),
+                probe(PathPython3, "/usr/bin/python3", None),
+                probe(PathPython, "/usr/bin/python", None),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_interpreters_that_cannot_run() {
+        use PythonSource::*;
+
+        let not_executable = |detail: &str| Rejection::NotExecutable {
+            detail: detail.to_owned(),
+        };
+        for (file, rejection) in [
+            (FileState::Missing, Rejection::NotFound),
+            (
+                FileState::BrokenLink,
+                not_executable("broken symbolic link"),
+            ),
+            (FileState::NotExecutable, not_executable("not executable")),
+        ] {
+            let mut facts = facts();
+            let mut dot_venv = venv("/home/u/proj/nb/.venv");
+            dot_venv.file = file.clone();
+            facts.levels = vec![level(NB, Some(dot_venv), None)];
+            facts.virtual_env = env_python("/v/bin/python", file.clone(), false);
+            facts.conda_prefix = env_python("/c/bin/python", file, false);
+            assert_eq!(
+                steps(facts)[1..4],
+                [
+                    rejected(
+                        DotVenv,
+                        Some("/home/u/proj/nb/.venv/bin/python"),
+                        rejection.clone()
+                    ),
+                    rejected(VirtualEnv, Some("/v/bin/python"), rejection.clone()),
+                    rejected(CondaPrefix, Some("/c/bin/python"), rejection),
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn reports_what_is_not_set_or_not_found() {
+        use PythonSource::*;
+
+        assert_eq!(
+            steps(facts()),
+            [
+                config_not_set(),
+                rejected(VirtualEnv, None, Rejection::NotSet),
+                rejected(CondaPrefix, None, Rejection::NotSet),
+                rejected(PathPython3, None, Rejection::NotFound),
+                rejected(PathPython, None, Rejection::NotFound),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_relative_variables() {
+        use PythonSource::*;
+
+        let mut facts = facts();
+        facts.virtual_env = EnvPython::NotAbsolute("rel/v".into());
+        facts.conda_prefix = EnvPython::NotAbsolute("rel/c".into());
+        assert_eq!(
+            steps(facts)[1..3],
+            [
+                rejected(VirtualEnv, Some("rel/v"), Rejection::NotAbsolute),
+                rejected(CondaPrefix, Some("rel/c"), Rejection::NotAbsolute),
+            ]
+        );
+    }
+
+    #[test]
+    fn suggests_uv_only_for_uv_environments() {
+        let mut facts = facts();
+        let mut dot_venv = venv("/home/u/proj/nb/.venv");
+        dot_venv.uv = true;
+        facts.levels = vec![level(
+            NB,
+            Some(dot_venv),
+            Some(venv("/home/u/proj/nb/venv")),
+        )];
+        facts.virtual_env = env_python("/v/bin/python", FileState::Present, true);
+        facts.conda_prefix = env_python("/c/bin/python", FileState::Present, false);
+        facts.path_python3 = Some("/usr/bin/python3".into());
+        facts.path_python = Some("/usr/bin/python".into());
+        let installs: Vec<Option<InstallHint>> = steps(facts)
+            .into_iter()
+            .filter_map(|step| match step {
+                DiscoveryStep::Probe { install, .. } => Some(install),
+                DiscoveryStep::Rejected { .. } => None,
+            })
+            .collect();
+        let (uv, pip) = (Some(InstallHint::Uv), Some(InstallHint::Pip));
+        assert_eq!(installs, [uv.clone(), pip.clone(), uv, pip, None, None]);
+    }
+
+    #[test]
+    fn creates_the_new_environment_with_a_path_python() {
+        for (python3, python, expected) in [
+            (
+                Some("/usr/bin/python3"),
+                Some("/opt/python"),
+                "/usr/bin/python3",
+            ),
+            (None, Some("/opt/python"), "/opt/python"),
+            (None, None, "python3"),
+        ] {
+            let mut facts = facts();
+            facts.path_python3 = python3.map(PathBuf::from);
+            facts.path_python = python.map(PathBuf::from);
+            let DiscoveryPlan::Search { recipe, .. } = plan(facts) else {
+                panic!("not a search");
+            };
+            assert_eq!(
+                recipe,
+                VenvRecipe {
+                    python: expected.into(),
+                    venv_dir: "/home/u/proj/.venv".into(),
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn creates_the_new_environment_by_the_notebook_outside_a_repository() {
+        let mut facts = facts();
+        facts.scope.repo_root = None;
+        let expected_scope = facts.scope.clone();
+        let DiscoveryPlan::Search {
+            notebook,
+            scope,
+            recipe,
+            ..
+        } = plan(facts)
+        else {
+            panic!("not a search");
+        };
+        assert_eq!(notebook, PathBuf::from("/home/u/proj/nb/a.ipynb"));
+        assert_eq!(scope, expected_scope);
+        assert_eq!(recipe.venv_dir, PathBuf::from("/home/u/proj/nb/.venv"));
+    }
+}
