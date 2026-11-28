@@ -13,6 +13,9 @@ mod plan;
 mod probe;
 
 /// Find the Python that runs the kernel of a notebook.
+// A failure carries the report of every candidate and is built once per search,
+// so its size costs nothing that boxing the public type would be worth.
+#[allow(clippy::result_large_err)]
 pub async fn discover_python(request: &DiscoveryRequest) -> Result<Discovery, DiscoveryError> {
     let _ = request;
     todo!()
