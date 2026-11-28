@@ -9,6 +9,10 @@ use europa_core::{
     VenvRecipe,
 };
 
+mod common;
+
+use common::discovery::{all_sources_error, all_sources_outcomes, all_sources_plan};
+
 /// One probed candidate for each source that is searched without a setting.
 const SEARCHED: [(PythonSource, &str); 6] = [
     (PythonSource::DotVenv, "/p/.venv/bin/python"),
@@ -315,6 +319,21 @@ fn reports_every_candidate_when_none_works() {
             recipe: recipe(),
         })
     );
+}
+
+#[test]
+fn explains_a_failed_search_from_the_unset_setting_on() {
+    let (result, _) = run(all_sources_plan(), &all_sources_outcomes());
+    let error = result.expect_err("nothing is usable");
+    let text = error.to_string();
+    let first = text
+        .lines()
+        .skip_while(|line| *line != "Checked in this order:")
+        .nth(1)
+        .expect("a first candidate");
+    assert!(first.trim_start().starts_with("kernel.python "), "{first}");
+    assert!(first.ends_with(" not set"), "{first}");
+    assert_eq!(error, all_sources_error());
 }
 
 #[test]

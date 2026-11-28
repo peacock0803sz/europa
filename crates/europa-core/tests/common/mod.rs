@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub mod discovery;
+
 use europa_core::notebook::CodeCell;
 use europa_core::{
     Cell, ExecEvent, ExecState, IopubApplied, IopubMsg, JsonMap, MsgId, Notebook, Output,
