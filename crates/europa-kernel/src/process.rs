@@ -147,7 +147,9 @@ pub(crate) fn signal_group(pid: u32, signal: i32) {
     unsafe { libc::kill(-(pid as i32), signal) };
 }
 
-/// Start a command on a watcher thread, for tests and kernels.
+/// Start a command on a watcher thread, for tests, probes, and kernels.
+///
+/// The command starts in `cwd`, or in the current directory without one.
 ///
 /// Spawning and `wait` run on the same watcher thread, which lives until
 /// the child ends, so a Linux death signal fires only when Europa itself
@@ -168,18 +170,20 @@ pub(crate) fn spawn_command(
     use std::os::unix::process::CommandExt;
     use std::process::Stdio;
 
-    let _ = cwd;
-
     let (exit_tx, exit_rx) = tokio::sync::watch::channel(None);
     let stderr = Arc::new(Mutex::new(StderrTail::new()));
     let (pid_tx, pid_rx) = mpsc::channel();
     let program = program.to_path_buf();
+    let cwd = cwd.map(Path::to_path_buf);
     let args: Vec<std::ffi::OsString> = args.iter().map(|arg| arg.to_os_string()).collect();
     let stderr_reader = Arc::clone(&stderr);
     let parent_pid = std::process::id();
     let watcher = move || {
         let mut command = std::process::Command::new(&program);
         command.args(&args);
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
+        }
         command.stdin(Stdio::null());
         command.stdout(Stdio::null());
         command.stderr(Stdio::piped());
