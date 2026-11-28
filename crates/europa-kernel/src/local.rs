@@ -405,7 +405,7 @@ async fn start(launch: &KernelLaunch, current: &SharedCurrent) -> Result<Started
             path: conn.path().to_path_buf(),
             exited: watched.exited.clone(),
         });
-        GLOBAL.register(watched.pid, conn.path().to_path_buf());
+        GLOBAL.register(watched.pid, Some(conn.path().to_path_buf()));
         let session = new_id();
         let shaken = handshake(
             &ports,
@@ -1251,6 +1251,7 @@ mod tests {
         let mut watched = crate::process::spawn_command(
             std::path::Path::new("/bin/sh"),
             &[std::ffi::OsStr::new("-c"), std::ffi::OsStr::new("sleep 30")],
+            None,
         )
         .expect("spawns");
         // A published exit means the group id may already be reused.

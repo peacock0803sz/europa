@@ -43,6 +43,34 @@ a terminal that cannot be used, 129 for SIGHUP and 143 for SIGTERM.
 | `G` | Last cell |
 | `q`, `Ctrl-C` | Quit |
 
+### Python discovery
+
+The viewer does not run cells yet. The library that starts kernels already
+chooses their Python: it takes the first of these that can import
+`ipykernel`.
+
+1. The `kernel.python` setting, an absolute path. When it is set, nothing else
+   is tried. Europa does not read a configuration file yet.
+2. `.venv`
+3. `venv`
+4. The environment in `$VIRTUAL_ENV`
+5. The environment in `$CONDA_PREFIX`
+6. `python3` on `PATH`
+7. `python` on `PATH`
+
+`.venv` and `venv` are looked for in the notebook's directory and then in each
+parent up to the root of its Git repository, nearest first. Outside a
+repository only the notebook's directory counts. Such a directory is skipped
+without being run when another user owns it or can write to it; write access
+for your own private group is accepted. The other candidates are yours to
+choose and are not checked this way.
+
+Each candidate is started once and has 10 seconds to import `ipykernel`, with
+the current directory left off its import path. Empty and relative `PATH`
+entries are ignored. When no candidate works, the error lists every one with
+the reason and what to do next. Europa never installs packages or creates
+virtual environments.
+
 At startup the terminal is asked for its background color in the same
 single query as the graphics protocol. When it answers, light or dark
 colors are chosen for stderr, errors and code blocks. Without an answer
@@ -91,6 +119,19 @@ interpreter and run the ignored tests serially:
 
 ```sh
 EUROPA_KERNEL_PYTHON=/path/to/python cargo test -p europa-kernel --test local_kernel -- --ignored --test-threads=1
+```
+
+Python discovery has integration tests of the same kind:
+
+```sh
+EUROPA_KERNEL_PYTHON=/path/to/python cargo test -p europa-kernel --test discover_python -- --ignored --test-threads=1
+```
+
+Its end-to-end tests with fake interpreters need no Python. Plain `cargo test`
+runs them, and so does:
+
+```sh
+cargo test -p europa-kernel --test discover_wiring --test discover_kill
 ```
 
 Europa never installs packages into your Python environment; bring your

@@ -88,6 +88,7 @@ impl Watched {
                 OsStr::new("-f"),
                 connection_file.as_os_str(),
             ],
+            None,
         )
     }
 
@@ -146,7 +147,9 @@ pub(crate) fn signal_group(pid: u32, signal: i32) {
     unsafe { libc::kill(-(pid as i32), signal) };
 }
 
-/// Start a command on a watcher thread, for tests and kernels.
+/// Start a command on a watcher thread, for tests, probes, and kernels.
+///
+/// The command starts in `cwd`, or in the current directory without one.
 ///
 /// Spawning and `wait` run on the same watcher thread, which lives until
 /// the child ends, so a Linux death signal fires only when Europa itself
@@ -159,7 +162,11 @@ pub(crate) fn signal_group(pid: u32, signal: i32) {
 /// standard error to close and publishes the exit. `waitid` with `WNOWAIT`
 /// would keep the zombie and its id in place instead, but macOS reports a
 /// stopped child to it as exited.
-pub(crate) fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watched> {
+pub(crate) fn spawn_command(
+    program: &Path,
+    args: &[&OsStr],
+    cwd: Option<&Path>,
+) -> io::Result<Watched> {
     use std::os::unix::process::CommandExt;
     use std::process::Stdio;
 
@@ -167,12 +174,16 @@ pub(crate) fn spawn_command(program: &Path, args: &[&OsStr]) -> io::Result<Watch
     let stderr = Arc::new(Mutex::new(StderrTail::new()));
     let (pid_tx, pid_rx) = mpsc::channel();
     let program = program.to_path_buf();
+    let cwd = cwd.map(Path::to_path_buf);
     let args: Vec<std::ffi::OsString> = args.iter().map(|arg| arg.to_os_string()).collect();
     let stderr_reader = Arc::clone(&stderr);
     let parent_pid = std::process::id();
     let watcher = move || {
         let mut command = std::process::Command::new(&program);
         command.args(&args);
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
+        }
         command.stdin(Stdio::null());
         command.stdout(Stdio::null());
         command.stderr(Stdio::piped());
@@ -313,6 +324,7 @@ mod tests {
         let mut watched = spawn_command(
             Path::new("/bin/sh"),
             &[OsStr::new("-c"), OsStr::new("echo err >&2; exit 3")],
+            None,
         )
         .expect("spawns");
         assert_eq!(
@@ -327,6 +339,7 @@ mod tests {
         let mut watched = spawn_command(
             Path::new("/bin/sh"),
             &[OsStr::new("-c"), OsStr::new("kill -9 $$")],
+            None,
         )
         .expect("spawns");
         assert_eq!(
@@ -366,6 +379,7 @@ mod tests {
         let mut watched = spawn_command(
             Path::new("/bin/sh"),
             &[OsStr::new("-c"), OsStr::new("sleep 30 & echo $! >&2; wait")],
+            None,
         )
         .expect("spawns");
         let grandchild = printed_pid(&watched).await;
@@ -385,6 +399,7 @@ mod tests {
                 OsStr::new("-c"),
                 OsStr::new("sleep 30 & echo $! >&2; exit 0"),
             ],
+            None,
         )
         .expect("spawns");
         // The background sleeper keeps standard error open until the group
@@ -402,6 +417,7 @@ mod tests {
         let mut watched = spawn_command(
             Path::new("/bin/sh"),
             &[OsStr::new("-c"), OsStr::new("sleep 30")],
+            None,
         )
         .expect("spawns");
         // SAFETY: `kill` only sends the signal to that one process.
@@ -421,6 +437,7 @@ mod tests {
         let watched = spawn_command(
             Path::new("/bin/sh"),
             &[OsStr::new("-c"), OsStr::new("sleep 30")],
+            None,
         )
         .expect("spawns");
         let mut exited = watched.exited.clone();
@@ -438,7 +455,7 @@ mod tests {
 
     #[test]
     fn reports_a_missing_program() {
-        let error = spawn_command(Path::new("/nonexistent-europa-python"), &[])
+        let error = spawn_command(Path::new("/nonexistent-europa-python"), &[], None)
             .expect_err("missing program fails");
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
     }
@@ -448,6 +465,7 @@ mod tests {
         let mut watched = spawn_command(
             Path::new("/bin/sh"),
             &[OsStr::new("-c"), OsStr::new("echo \"$JPY_PARENT_PID\" >&2")],
+            None,
         )
         .expect("spawns");
         watched.wait_exit(Duration::from_secs(5)).await;
@@ -455,5 +473,17 @@ mod tests {
             watched.stderr.lock().expect("unpoisoned").tail(),
             format!("{}\n", std::process::id())
         );
+    }
+
+    #[tokio::test]
+    async fn starts_in_the_given_directory() {
+        let mut watched = spawn_command(
+            Path::new("/bin/sh"),
+            &[OsStr::new("-c"), OsStr::new("pwd >&2")],
+            Some(Path::new("/")),
+        )
+        .expect("spawns");
+        watched.wait_exit(Duration::from_secs(5)).await;
+        assert_eq!(watched.stderr.lock().expect("unpoisoned").tail(), "/\n");
     }
 }
