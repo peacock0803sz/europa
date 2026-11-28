@@ -2,18 +2,56 @@
 //! Python.
 
 use std::ffi::OsStr;
-use std::path::PathBuf;
+use std::io::Read;
+use std::os::unix::fs::MetadataExt;
+use std::path::{Component, Path, PathBuf};
 
-use europa_core::DiscoveryRequest;
+use europa_core::{AncestorScope, DiscoveryRequest};
 
-use super::plan::Facts;
+use super::plan::{EnvPython, Facts, FileState, LevelFact, OwnerFact, VenvFact};
+
+/// Bytes of `pyvenv.cfg` that are read; real files hold a few lines.
+const VENV_CONFIG_LIMIT: u64 = 64 * 1024;
 
 /// Collect what [`plan`](super::plan::plan) needs to know about `request`.
 ///
 /// With a `kernel.python` setting, only that interpreter is looked at.
 pub(crate) fn gather(request: &DiscoveryRequest) -> Facts {
-    let _ = request;
-    todo!()
+    // This fails only for an empty path or without a current directory, and
+    // then no level is searched.
+    let notebook =
+        std::path::absolute(&request.notebook).unwrap_or_else(|_| request.notebook.clone());
+    let notebook_dir = resolve(notebook.parent().unwrap_or(&notebook));
+    let mut facts = Facts {
+        notebook,
+        scope: AncestorScope {
+            notebook_dir,
+            repo_root: None,
+        },
+        levels: Vec::new(),
+        config: EnvPython::NotSet,
+        virtual_env: EnvPython::NotSet,
+        conda_prefix: EnvPython::NotSet,
+        path_python3: None,
+        path_python: None,
+        euid: account::euid(),
+    };
+    if let Some(python) = &request.config_python {
+        facts.config = configured(python);
+        return facts;
+    }
+    // A relative directory would be searched from wherever Europa runs.
+    if facts.scope.notebook_dir.is_absolute() {
+        facts.scope.repo_root = repo_root(&facts.scope.notebook_dir);
+        facts.levels = levels(&facts.scope);
+    }
+    facts.virtual_env = activated(request.env.virtual_env.as_deref());
+    facts.conda_prefix = activated(request.env.conda_prefix.as_deref());
+    let dirs = request.env.path.as_deref().map(path_dirs);
+    let dirs = dirs.unwrap_or_default();
+    facts.path_python3 = first_executable(&dirs, "python3");
+    facts.path_python = first_executable(&dirs, "python");
+    facts
 }
 
 /// Split a `PATH` value, leaving out empty and relative entries.
@@ -21,8 +59,147 @@ pub(crate) fn gather(request: &DiscoveryRequest) -> Facts {
 /// Both kinds name the current directory, so searching them would run whatever
 /// `python3` lies where Europa was started.
 pub(crate) fn path_dirs(path: &OsStr) -> Vec<PathBuf> {
-    let _ = path;
-    todo!()
+    std::env::split_paths(path)
+        .filter(|dir| dir.is_absolute())
+        .collect()
+}
+
+/// The real directory behind `dir`, or `dir` with its dots folded away when it
+/// cannot be resolved.
+fn resolve(dir: &Path) -> PathBuf {
+    std::fs::canonicalize(dir).unwrap_or_else(|_| {
+        let mut folded = PathBuf::new();
+        for part in dir.components() {
+            match part {
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    folded.pop();
+                }
+                part => folded.push(part),
+            }
+        }
+        folded
+    })
+}
+
+/// Nearest directory at or above `dir` that holds a `.git` file or directory.
+fn repo_root(dir: &Path) -> Option<PathBuf> {
+    dir.ancestors()
+        .find(|level| {
+            std::fs::metadata(level.join(".git")).is_ok_and(|git| git.is_dir() || git.is_file())
+        })
+        .map(Path::to_path_buf)
+}
+
+/// The directories from the notebook's up to the repository root, or the
+/// notebook's alone outside a repository.
+fn levels(scope: &AncestorScope) -> Vec<LevelFact> {
+    let top = scope.repo_root.as_ref().unwrap_or(&scope.notebook_dir);
+    scope
+        .notebook_dir
+        .ancestors()
+        .take_while(|dir| dir.starts_with(top))
+        .map(|dir| LevelFact {
+            dir: dir.to_path_buf(),
+            dot_venv: venv(&dir.join(".venv")),
+            venv: venv(&dir.join("venv")),
+        })
+        .collect()
+}
+
+/// The virtual environment at `path`, when that leads to a directory.
+fn venv(path: &Path) -> Option<VenvFact> {
+    if !std::fs::metadata(path).ok()?.is_dir() {
+        return None;
+    }
+    // Everything after this uses the resolved directory, so swapping a link
+    // after the owner was checked does not change what runs.
+    let root = std::fs::canonicalize(path).ok()?;
+    let directory = std::fs::metadata(&root).ok()?;
+    let python = root.join("bin/python");
+    Some(VenvFact {
+        owner: OwnerFact {
+            uid: directory.uid(),
+            mode: directory.mode(),
+            group_private: private_to_user(directory.gid()),
+        },
+        file: file_state(&python),
+        uv: created_by_uv(&root),
+        root,
+        python,
+    })
+}
+
+/// The interpreter that the `kernel.python` value names.
+fn configured(python: &Path) -> EnvPython {
+    if !python.is_absolute() {
+        return EnvPython::NotAbsolute(python.to_path_buf());
+    }
+    // An interpreter of a virtual environment sits two levels below its root.
+    let root = python.parent().and_then(Path::parent);
+    EnvPython::Python {
+        python: python.to_path_buf(),
+        file: file_state(python),
+        uv: root.is_some_and(created_by_uv),
+    }
+}
+
+/// The interpreter of the environment that a variable names.
+fn activated(value: Option<&Path>) -> EnvPython {
+    match value {
+        None => EnvPython::NotSet,
+        Some(root) if root.as_os_str().is_empty() => EnvPython::NotSet,
+        Some(root) if !root.is_absolute() => EnvPython::NotAbsolute(root.to_path_buf()),
+        Some(root) => {
+            let python = root.join("bin/python");
+            EnvPython::Python {
+                file: file_state(&python),
+                uv: created_by_uv(root),
+                python,
+            }
+        }
+    }
+}
+
+/// The first executable called `name` in `dirs`, as a shell would find it.
+fn first_executable(dirs: &[PathBuf], name: &str) -> Option<PathBuf> {
+    dirs.iter()
+        .map(|dir| dir.join(name))
+        .find(|command| file_state(command) == FileState::Present)
+}
+
+/// Whether the file at `python` can be run, following symbolic links.
+fn file_state(python: &Path) -> FileState {
+    match std::fs::metadata(python) {
+        Ok(file) if file.is_file() && file.mode() & 0o111 != 0 => FileState::Present,
+        Ok(_) => FileState::NotExecutable,
+        Err(_) if std::fs::symlink_metadata(python).is_ok() => FileState::BrokenLink,
+        Err(_) => FileState::Missing,
+    }
+}
+
+/// Whether `pyvenv.cfg` in `root` has a `uv` key.
+fn created_by_uv(root: &Path) -> bool {
+    let config = root.join("pyvenv.cfg");
+    // The directory may be anyone's: opening a pipe would hang, and a link to
+    // an endless device would never finish.
+    if !std::fs::metadata(&config).is_ok_and(|file| file.is_file()) {
+        return false;
+    }
+    let mut text = String::new();
+    let read = std::fs::File::open(config)
+        .and_then(|file| file.take(VENV_CONFIG_LIMIT).read_to_string(&mut text));
+    read.is_ok()
+        && text.lines().any(|line| {
+            line.split_once('=')
+                .is_some_and(|(key, _)| key.trim() == "uv")
+        })
+}
+
+/// Whether the group `gid` is the effective user's private group.
+fn private_to_user(gid: u32) -> bool {
+    account::current_user()
+        .is_some_and(|user| group_is_private(gid, account::group(gid).as_ref(), &user))
 }
 
 /// A group, as the account database describes it.
@@ -46,28 +223,138 @@ struct UserInfo {
 /// That holds for a user private group: the primary group, named after the
 /// user, with no other member. A group that cannot be looked up does not count.
 fn group_is_private(dir_gid: u32, group: Option<&GroupInfo>, user: &UserInfo) -> bool {
-    let _ = (dir_gid, group, user);
-    todo!()
+    group.is_some_and(|group| {
+        dir_gid == user.primary_gid
+            && group.name == user.name
+            && group.members.iter().all(|member| *member == user.name)
+    })
 }
 
 /// The few calls into the account database.
 mod account {
+    use std::ffi::{c_char, c_int, CStr};
+    use std::mem::MaybeUninit;
+    use std::ptr;
+
     use super::{GroupInfo, UserInfo};
+
+    /// Largest buffer offered for one account entry.
+    const BUFFER_LIMIT: usize = 1 << 20;
 
     /// The user this process acts as.
     pub(super) fn euid() -> u32 {
-        todo!()
+        // SAFETY: `geteuid` takes nothing, cannot fail, and touches no memory.
+        unsafe { libc::geteuid() }
     }
 
     /// Account entry of the effective user.
     pub(super) fn current_user() -> Option<UserInfo> {
-        todo!()
+        let uid = euid();
+        with_buffer(|buffer| {
+            let mut entry = MaybeUninit::<libc::passwd>::uninit();
+            let mut found = ptr::null_mut();
+            // SAFETY: the pointers refer to values that live through the call,
+            // and the length passed is that of `buffer`.
+            let code = unsafe {
+                libc::getpwuid_r(
+                    uid,
+                    entry.as_mut_ptr(),
+                    buffer.as_mut_ptr(),
+                    buffer.len(),
+                    &mut found,
+                )
+            };
+            if code != 0 {
+                return Err(code);
+            }
+            if found.is_null() {
+                return Ok(None);
+            }
+            // SAFETY: a non-null result says that `entry` was filled in.
+            let entry = unsafe { entry.assume_init() };
+            // SAFETY: the name is a C string inside `buffer`, which is not
+            // touched before the copy is taken.
+            let name = unsafe { CStr::from_ptr(entry.pw_name) };
+            Ok(name.to_str().ok().map(|name| UserInfo {
+                name: name.to_owned(),
+                primary_gid: entry.pw_gid,
+            }))
+        })
     }
 
     /// Account entry of a group.
+    ///
+    /// A name that is not UTF-8 gives `None`, so no member goes unnoticed.
     pub(super) fn group(gid: u32) -> Option<GroupInfo> {
-        let _ = gid;
-        todo!()
+        with_buffer(|buffer| {
+            let mut entry = MaybeUninit::<libc::group>::uninit();
+            let mut found = ptr::null_mut();
+            // SAFETY: the pointers refer to values that live through the call,
+            // and the length passed is that of `buffer`.
+            let code = unsafe {
+                libc::getgrgid_r(
+                    gid,
+                    entry.as_mut_ptr(),
+                    buffer.as_mut_ptr(),
+                    buffer.len(),
+                    &mut found,
+                )
+            };
+            if code != 0 {
+                return Err(code);
+            }
+            if found.is_null() {
+                return Ok(None);
+            }
+            // SAFETY: a non-null result says that `entry` was filled in.
+            let entry = unsafe { entry.assume_init() };
+            // SAFETY: the name is a C string inside `buffer`, which is not
+            // touched before the copy is taken.
+            let name = unsafe { CStr::from_ptr(entry.gr_name) };
+            let Ok(name) = name.to_str() else {
+                return Ok(None);
+            };
+            let mut members = Vec::new();
+            let mut next: *const *mut c_char = entry.gr_mem;
+            while !next.is_null() {
+                // SAFETY: `gr_mem` is an array inside `buffer` that ends with a
+                // null pointer; macOS may leave it unaligned.
+                let member = unsafe { next.read_unaligned() };
+                if member.is_null() {
+                    break;
+                }
+                // SAFETY: each member is a C string inside `buffer`.
+                let Ok(member) = unsafe { CStr::from_ptr(member) }.to_str() else {
+                    return Ok(None);
+                };
+                members.push(member.to_owned());
+                // SAFETY: this element was not the terminating null, so another
+                // one follows.
+                next = unsafe { next.add(1) };
+            }
+            Ok(Some(GroupInfo {
+                name: name.to_owned(),
+                members,
+            }))
+        })
+    }
+
+    /// Run a reentrant lookup, growing its buffer while that is too small.
+    ///
+    /// Any other error counts as no entry.
+    fn with_buffer<T>(
+        mut lookup: impl FnMut(&mut [c_char]) -> Result<Option<T>, c_int>,
+    ) -> Option<T> {
+        let mut buffer = vec![0; 1024];
+        loop {
+            match lookup(&mut buffer) {
+                Ok(found) => return found,
+                Err(libc::ERANGE) if buffer.len() < BUFFER_LIMIT => {
+                    buffer.resize(buffer.len() * 2, 0);
+                }
+                Err(_) => return None,
+            }
+        }
     }
 }
 
