@@ -82,3 +82,28 @@ target/release/examples/image_probe sample.ipynb --protocol halfblock
 ```
 
 `j` and `k` scroll and `q` quits. Without `--protocol` the terminal decides.
+
+## Development
+
+The kernel integration tests need a Python with `ipykernel` and never run
+inside plain `cargo test`. Point `EUROPA_KERNEL_PYTHON` at such an
+interpreter and run the ignored tests serially:
+
+```sh
+EUROPA_KERNEL_PYTHON=/path/to/python cargo test -p europa-kernel --test local_kernel -- --ignored --test-threads=1
+```
+
+Europa never installs packages into your Python environment; bring your
+own `ipykernel`.
+
+Europa stops kernels on every exit path it controls. A normal shutdown asks
+the kernel to exit and kills its process group only after the grace period,
+dropping the kernel value kills the group at once, or right after the
+spawn returns when a restart is still spawning it, and whenever a kernel
+ends, whatever is left of its group is killed too. `kill_all_kernels` is the
+best-effort cleanup meant for panic hooks and signal handling; from a raw
+signal handler, set a flag that a normal thread acts on. If Europa
+itself is killed with `SIGKILL`, the kernel still ends through the Linux
+parent-death signal and, on both Linux and macOS, the `JPY_PARENT_PID` watch
+in `ipykernel`, which checks about once a second. Processes the kernel
+started and its connection file are left behind in that case.

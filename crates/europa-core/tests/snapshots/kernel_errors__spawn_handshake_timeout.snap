@@ -1,0 +1,5 @@
+---
+source: crates/europa-core/tests/kernel_errors.rs
+expression: "spawn(SpawnErrorKind::HandshakeTimeout { after: Duration::from_secs(30), },\n\"\").to_string()"
+---
+Failed to spawn kernel with /opt/venv/bin/python: handshake timed out after 30s. The kernel may be slow to start or blocked by a firewall on 127.0.0.1.

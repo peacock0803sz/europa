@@ -1,0 +1,5 @@
+---
+source: crates/europa-core/tests/kernel_errors.rs
+expression: "KernelError::Closed.to_string()"
+---
+Kernel is closed.

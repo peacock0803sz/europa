@@ -1,0 +1,5 @@
+---
+source: crates/europa-core/tests/kernel_errors.rs
+expression: "KernelError::Io { message: \"broken\".to_owned(), }.to_string()"
+---
+Kernel I/O failed: broken.
