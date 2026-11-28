@@ -10,9 +10,10 @@ mod fold;
 
 use std::ffi::OsString;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::kernel::exit_text;
 use crate::ProcessExit;
 
 pub use fold::{DiscoveryFold, FoldNext};
@@ -270,12 +271,180 @@ pub enum DiscoveryError {
 
 impl fmt::Display for DiscoveryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = f;
-        todo!()
+        match self {
+            Self::ConfigNotAbsolute { path } => write!(
+                f,
+                "kernel.python must be an absolute path, but it is set to {}.\n\
+                 Set it to the absolute path of a Python that has ipykernel.",
+                path.display()
+            ),
+            Self::ConfigUnusable { report } => write_config_unusable(f, report),
+            Self::NoneUsable {
+                notebook,
+                scope,
+                reports,
+                recipe,
+            } => {
+                writeln!(
+                    f,
+                    "No Python with ipykernel was found for {}.\n",
+                    notebook.display()
+                )?;
+                write_candidates(f, scope, reports)?;
+                write_next_steps(f, reports, recipe)
+            }
+        }
     }
 }
 
 impl std::error::Error for DiscoveryError {}
+
+/// Message for a `kernel.python` interpreter that cannot be used.
+fn write_config_unusable(f: &mut fmt::Formatter<'_>, report: &CandidateReport) -> fmt::Result {
+    let python = report.python.as_deref().unwrap_or(Path::new(""));
+    writeln!(
+        f,
+        "kernel.python is set to {}, but it cannot be used: {}",
+        python.display(),
+        reason(report)
+    )?;
+    for line in stderr_lines(&report.rejection) {
+        writeln!(f, "  {line}")?;
+    }
+    writeln!(f, "\nNext steps:")?;
+    if let Some(command) = install_command(report) {
+        writeln!(f, "  - Install ipykernel: {command}")?;
+        write!(f, "  - Or change")?;
+    } else {
+        write!(f, "  - Change")?;
+    }
+    write!(
+        f,
+        " kernel.python to the absolute path of a Python that has ipykernel.\n\n\
+         Europa checked only kernel.python because it is set, and does not install packages or create environments."
+    )
+}
+
+/// Every inspected candidate, in the order it was inspected.
+fn write_candidates(
+    f: &mut fmt::Formatter<'_>,
+    scope: &AncestorScope,
+    reports: &[CandidateReport],
+) -> fmt::Result {
+    let has_venv = reports
+        .iter()
+        .any(|report| matches!(report.source, PythonSource::DotVenv | PythonSource::Venv));
+    writeln!(f, "Checked in this order:")?;
+    for report in reports {
+        match &report.python {
+            Some(python) => {
+                writeln!(f, "  {:<19}{}", report.source, python.display())?;
+                writeln!(f, "{:21}{}", "", reason(report))?;
+                for line in stderr_lines(&report.rejection) {
+                    writeln!(f, "{:23}{line}", "")?;
+                }
+                if let Some(command) = install_command(report) {
+                    writeln!(f, "{:21}install it: {command}", "")?;
+                }
+            }
+            None => writeln!(f, "  {:<19}{}", report.source, reason(report))?,
+        }
+        // One line stands for the levels that had no environment to report.
+        if !has_venv && report.source == PythonSource::Config {
+            write!(
+                f,
+                "  {:<19}none found from {}",
+                ".venv, venv",
+                scope.notebook_dir.display()
+            )?;
+            match &scope.repo_root {
+                Some(root) => writeln!(f, " up to {}", root.display())?,
+                None => writeln!(f, " (outside a Git repository)")?,
+            }
+        }
+    }
+    Ok(())
+}
+
+/// What the user can do when no candidate works.
+fn write_next_steps(
+    f: &mut fmt::Formatter<'_>,
+    reports: &[CandidateReport],
+    recipe: &VenvRecipe,
+) -> fmt::Result {
+    writeln!(f, "\nNext steps:")?;
+    if reports.iter().any(|report| report.install.is_some()) {
+        writeln!(f, "  - Install ipykernel with one of the commands above.")?;
+    } else {
+        writeln!(
+            f,
+            "  - Create a virtual environment where Europa looks for one, then install ipykernel into it:"
+        )?;
+        writeln!(
+            f,
+            "      {} -m venv {}",
+            recipe.python.display(),
+            recipe.venv_dir.display()
+        )?;
+        writeln!(
+            f,
+            "      {} -m pip install ipykernel",
+            recipe.venv_dir.join("bin/python").display()
+        )?;
+    }
+    write!(
+        f,
+        "  - Or set kernel.python in the Europa config to the absolute path of a Python that has ipykernel.\n\n\
+         Europa does not install packages or create environments."
+    )
+}
+
+/// The line saying why a candidate cannot be used.
+fn reason(report: &CandidateReport) -> String {
+    match &report.rejection {
+        Rejection::NotSet => "not set".to_owned(),
+        Rejection::NotFound => {
+            let on_path = matches!(
+                report.source,
+                PythonSource::PathPython3 | PythonSource::PathPython
+            );
+            if on_path && report.python.is_none() {
+                "not found on PATH".to_owned()
+            } else {
+                "not found".to_owned()
+            }
+        }
+        Rejection::NotAbsolute => "not an absolute path".to_owned(),
+        Rejection::NotOwned => "skipped: owned by another user or writable by others".to_owned(),
+        Rejection::NotExecutable { detail } => format!("cannot be executed: {detail}"),
+        Rejection::CannotImport { exit, .. } => {
+            format!("ipykernel cannot be imported ({})", exit_text(*exit))
+        }
+        Rejection::TimedOut { after } if after.as_secs() > 0 => {
+            format!("timed out after {}s", after.as_secs())
+        }
+        Rejection::TimedOut { after } => format!("timed out after {}ms", after.as_millis()),
+        Rejection::AlreadyChecked => "already checked above".to_owned(),
+    }
+}
+
+/// Lines of standard error to show under the reason.
+fn stderr_lines(rejection: &Rejection) -> std::str::Lines<'_> {
+    match rejection {
+        Rejection::CannotImport { stderr_tail, .. } => stderr_tail.lines(),
+        _ => "".lines(),
+    }
+}
+
+/// The command that installs `ipykernel` into the candidate, if one is
+/// suggested.
+fn install_command(report: &CandidateReport) -> Option<String> {
+    let python = report.python.as_ref()?.display();
+    Some(match report.install.as_ref()? {
+        InstallHint::Uv => format!("uv pip install --python {python} ipykernel"),
+        InstallHint::Pip => format!("{python} -m pip install ipykernel"),
+    })
+}
 
 /// One entry of the ordered candidate list.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

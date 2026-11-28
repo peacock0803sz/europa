@@ -1,0 +1,31 @@
+---
+source: crates/europa-core/tests/discovery_errors.rs
+expression: text
+---
+No Python with ipykernel was found for /home/user/proj/notebooks/a.ipynb.
+
+Checked in this order:
+  kernel.python      not set
+  .venv              /home/user/proj/.venv/bin/python
+                     ipykernel cannot be imported (exited with code 1)
+                       Traceback (most recent call last):
+                         File "<string>", line 1, in <module>
+                       ModuleNotFoundError: No module named 'ipykernel'
+                     install it: uv pip install --python /home/user/proj/.venv/bin/python ipykernel
+  venv               /home/user/proj/venv/bin/python
+                     not found
+  $VIRTUAL_ENV       not set
+  $CONDA_PREFIX      /home/user/proj/conda/bin/python
+                     timed out after 10s
+  python3 on PATH    /home/user/proj/tools/bin/python3
+                     ipykernel cannot be imported (exited with code 1)
+                       Traceback (most recent call last):
+                         File "<string>", line 1, in <module>
+                       ModuleNotFoundError: No module named 'ipykernel'
+  python on PATH     not found on PATH
+
+Next steps:
+  - Install ipykernel with one of the commands above.
+  - Or set kernel.python in the Europa config to the absolute path of a Python that has ipykernel.
+
+Europa does not install packages or create environments.

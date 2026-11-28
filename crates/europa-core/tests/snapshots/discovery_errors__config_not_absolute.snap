@@ -1,0 +1,6 @@
+---
+source: crates/europa-core/tests/discovery_errors.rs
+expression: error.to_string()
+---
+kernel.python must be an absolute path, but it is set to py/bin/python.
+Set it to the absolute path of a Python that has ipykernel.
