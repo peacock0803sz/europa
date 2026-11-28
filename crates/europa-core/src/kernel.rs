@@ -420,7 +420,7 @@ impl fmt::Display for SpawnError {
 }
 
 /// Short human text for how a child ended.
-fn exit_text(exit: ProcessExit) -> String {
+pub(crate) fn exit_text(exit: ProcessExit) -> String {
     match exit {
         ProcessExit::Code(code) => format!("exited with code {code}"),
         ProcessExit::Signal(signal) => format!("killed by signal {signal}"),

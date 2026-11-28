@@ -1,0 +1,14 @@
+---
+source: crates/europa-core/tests/discovery_errors.rs
+expression: text
+---
+kernel.python is set to /home/user/proj/conda/bin/python, but it cannot be used: ipykernel cannot be imported (exited with code 1)
+  Traceback (most recent call last):
+    File "<string>", line 1, in <module>
+  ModuleNotFoundError: No module named 'ipykernel'
+
+Next steps:
+  - Install ipykernel: /home/user/proj/conda/bin/python -m pip install ipykernel
+  - Or change kernel.python to the absolute path of a Python that has ipykernel.
+
+Europa checked only kernel.python because it is set, and does not install packages or create environments.
