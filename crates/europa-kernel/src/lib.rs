@@ -5,13 +5,13 @@
 //! through the trait and read [`europa_core::KernelEvent`] values from the
 //! `std::sync::mpsc` channel, so the UI can swap the real kernel for a scripted one
 //! without changing its code.
+//!
+//! Which Python a kernel runs on is found by [`discover_python`].
 #![deny(missing_docs)]
 
 mod client;
 mod connection;
 mod convert;
-// Only tests reach this module until `discover_python` calls into it.
-#[allow(dead_code)]
 mod discover;
 mod handshake;
 mod local;
