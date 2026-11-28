@@ -10,6 +10,9 @@
 mod client;
 mod connection;
 mod convert;
+// Only tests reach this module until `discover_python` calls into it.
+#[allow(dead_code)]
+mod discover;
 mod handshake;
 mod local;
 mod process;
