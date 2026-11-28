@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use super::{
     AncestorScope, CandidateReport, Discovery, DiscoveryError, DiscoveryPlan, DiscoveryStep,
-    InstallHint, ProbeOutcome, PythonSource, VenvRecipe,
+    InstallHint, ProbeOutcome, PythonSource, Rejection, VenvRecipe,
 };
 
 /// Chooses which candidate to probe next and builds the result.
@@ -96,18 +96,121 @@ impl DiscoveryFold {
     /// Start before the first candidate of `plan`.
     #[must_use]
     pub fn new(plan: DiscoveryPlan) -> Self {
-        let _ = plan;
-        todo!()
+        let (kind, steps) = match plan {
+            DiscoveryPlan::Search {
+                notebook,
+                scope,
+                steps,
+                recipe,
+            } => (
+                Kind::Search {
+                    notebook,
+                    scope,
+                    recipe,
+                },
+                steps,
+            ),
+            DiscoveryPlan::Config { .. } | DiscoveryPlan::ConfigNotAbsolute { .. } => todo!(),
+        };
+        Self {
+            kind,
+            steps: steps.into(),
+            reports: Vec::new(),
+            probed: BTreeSet::new(),
+            phase: Phase::Walking,
+        }
     }
 
     /// Take steps until a probe is needed or the search ends.
     pub fn advance(&mut self) -> FoldNext {
-        todo!()
+        match std::mem::replace(&mut self.phase, Phase::Finished) {
+            Phase::Walking => {}
+            Phase::Passed(candidate) => {
+                return FoldNext::Done(Ok(Discovery {
+                    python: candidate.python,
+                    source: candidate.source,
+                    skipped: std::mem::take(&mut self.reports),
+                }));
+            }
+            Phase::Waiting(_) => panic!("advance called before record"),
+            Phase::Finished => panic!("advance called after Done"),
+        }
+        while let Some(step) = self.steps.pop_front() {
+            match step {
+                DiscoveryStep::Rejected { report } => self.reports.push(report),
+                DiscoveryStep::Probe { source, python, .. } if self.probed.contains(&python) => {
+                    self.reports.push(CandidateReport {
+                        source,
+                        python: Some(python),
+                        rejection: Rejection::AlreadyChecked,
+                        install: None,
+                    });
+                }
+                DiscoveryStep::Probe {
+                    source,
+                    python,
+                    install,
+                } => {
+                    self.phase = Phase::Waiting(Candidate {
+                        source,
+                        python: python.clone(),
+                        install,
+                    });
+                    return FoldNext::Probe(python);
+                }
+            }
+        }
+        FoldNext::Done(Err(self.failure()))
     }
 
     /// Give the result of the probe that `advance` asked for.
     pub fn record(&mut self, outcome: ProbeOutcome) {
-        let _ = outcome;
-        todo!()
+        let Phase::Waiting(candidate) = std::mem::replace(&mut self.phase, Phase::Walking) else {
+            panic!("record called without a pending probe");
+        };
+        let (rejection, install, ran) = match outcome {
+            ProbeOutcome::Usable => {
+                self.phase = Phase::Passed(candidate);
+                return;
+            }
+            ProbeOutcome::NotExecutable { detail } => {
+                (Rejection::NotExecutable { detail }, None, false)
+            }
+            ProbeOutcome::CannotImport { exit, stderr_tail } => (
+                Rejection::CannotImport { exit, stderr_tail },
+                candidate.install,
+                true,
+            ),
+            ProbeOutcome::TimedOut { after } => (Rejection::TimedOut { after }, None, true),
+        };
+        // Without a process, a later candidate of the same path still deserves
+        // its probe.
+        if ran {
+            self.probed.insert(candidate.python.clone());
+        }
+        self.reports.push(CandidateReport {
+            source: candidate.source,
+            python: Some(candidate.python),
+            rejection,
+            install,
+        });
+    }
+
+    /// Error of a search that ran out of candidates.
+    fn failure(&mut self) -> DiscoveryError {
+        let reports = std::mem::take(&mut self.reports);
+        match &self.kind {
+            Kind::Search {
+                notebook,
+                scope,
+                recipe,
+            } => DiscoveryError::NoneUsable {
+                notebook: notebook.clone(),
+                scope: scope.clone(),
+                reports,
+                recipe: recipe.clone(),
+            },
+            Kind::Config | Kind::ConfigNotAbsolute { .. } => todo!(),
+        }
     }
 }
